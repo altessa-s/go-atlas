@@ -35,10 +35,10 @@ var (
 
 // Builder returns the provider function of the nats type, ready for
 // dlockfactory.DLockBuilder.UseProvider. The provider keeps locks in a
-// JetStream KeyValue bucket created through conn on the Build context; it
-// keeps its default logger.
+// JetStream KeyValue bucket created through conn on the Build context and
+// uses the builder's logger.
 func Builder(conn *nats.Conn) dlockfactory.ProviderFunc {
-	return func(ctx context.Context, cfg *lockconfig.DistributionLock, _ *slog.Logger) (providers.Provider, error) {
+	return func(ctx context.Context, cfg *lockconfig.DistributionLock, logger *slog.Logger) (providers.Provider, error) {
 		if cfg.NATS == nil {
 			return nil, ErrConfigRequired
 		}
@@ -49,6 +49,7 @@ func Builder(conn *nats.Conn) dlockfactory.ProviderFunc {
 		// Built here rather than through natsprovider.NewDLock, which takes no
 		// provider options; the error wrapping matches it.
 		provOpts := []natsprovider.Option{
+			natsprovider.WithLogger(logger),
 			natsprovider.WithBucket(cfg.NATS.Bucket),
 			natsprovider.WithStorage(bucketStorage(cfg.NATS.Storage)),
 		}

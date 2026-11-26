@@ -88,3 +88,8 @@ Every term a consumer was told about ends with exactly one `LostCh`, however it 
 consumer was not told about yet is never announced after the key has been released.
 
 `LeaderId` answers this node only while `IsLeader` holds; past the lease's freshness bound it reads the key, like a follower.
+Each `Start` generates a unique ownership token and stores it alongside the node ID in the election value. Replicas can share a node ID while
+only one holds the election key. `LeaderId` returns the node ID from this value.
+
+`Start` requires a renewal interval of at least 1 ms and shorter than the effective lease lifetime. When the watch closes, the renewal ticker
+drives election attempts and reopens the watch.

@@ -62,6 +62,8 @@ func New(cfg *lockconfig.DistributionLock) *DLockBuilder {
 
 // Build assembles the distributed lock. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
+// Build registers the provider's Close with the configured shutdown hook group
+// or the runtime shutdown hooks.
 func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -79,7 +81,7 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 		if err != nil {
 			return nil, err
 		}
-		return dlock.New(prov, b.applyDefaults()...), nil
+		return b.wrapProvider(prov), nil
 	}
 	switch typ := b.cfg.Provider; typ {
 	case lockconfig.DistributionLockProviderNATS:
@@ -122,12 +124,16 @@ func (b *DLockBuilder) createSQLDLock(ctx context.Context) (*dlock.DLock, error)
 			return nil, coreerrs.Provider("sql distributed lock", err)
 		}
 	}
+	return b.wrapProvider(prov), nil
+}
+
+func (b *DLockBuilder) wrapProvider(prov providers.Provider) *dlock.DLock {
 	if b.shutdownHooks != nil {
 		b.shutdownHooks.OnShutdown(prov.Close)
 	} else {
 		coreruntime.OnShutdown(prov.Close)
 	}
-	return dlock.New(prov, b.applyDefaults()...), nil
+	return dlock.New(prov, b.applyDefaults()...)
 }
 
 // ensureSchemaTimeout bounds the schema setup createSQLDLock runs when the

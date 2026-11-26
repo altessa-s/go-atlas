@@ -67,6 +67,12 @@ func (b *LeaderBuilder) Build(ctx context.Context) (*leadelect.Leader, error) {
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
+	if b.key == "" {
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "leader election key is required")
+	}
+	if b.nodeId == "" {
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "leader election node ID is required")
+	}
 
 	provider, err := b.createProvider(ctx)
 	if err != nil {

@@ -92,9 +92,8 @@ func TestLocker_Close_Double(t *testing.T) {
 	locker := setupLocker(t)
 	ctx := t.Context()
 
-	_ = locker.Close(ctx)
-	err := locker.Close(ctx)
-	require.Error(t, err, "second Close() should return error")
+	require.NoError(t, locker.Close(ctx))
+	require.NoError(t, locker.Close(ctx))
 }
 
 func TestLocker_Lock_CanceledContext(t *testing.T) {

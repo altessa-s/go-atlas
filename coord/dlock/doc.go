@@ -32,4 +32,6 @@
 // providers.LostNotifier (the mongo and sqldb providers) report a loss; with
 // the others the function runs to the end. The release that follows is
 // detached from the caller's cancellation and bounded by [WithReleaseTimeout].
+// Synchronize wraps [ErrPanicked] with the panic's Go kind and joins any release
+// error with the other errors.
 package dlock

@@ -7,8 +7,9 @@ package dlock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
-	"sync"
+	"reflect"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
@@ -23,6 +24,9 @@ import (
 // passes to its function, and is matched by the error Synchronize returns,
 // when the lock's lease was lost while the function ran.
 var ErrLockLost = errors.New("dlock: lock lost")
+
+// ErrPanicked is wrapped with the panic class when [DLock.Synchronize]'s function panics.
+var ErrPanicked = errors.New("dlock: synchronized function panicked")
 
 // DLock provides distributed locking with configurable providers.
 // It is safe for concurrent use.
@@ -65,7 +69,8 @@ func NewWithNoop(opts ...Option) *DLock {
 }
 
 // Synchronize acquires a lock, executes fn, and releases the lock.
-// Returns error if lock acquisition fails.
+// It returns acquisition, function and release errors. A panic in fn is
+// reported as [ErrPanicked].
 //
 // When the lock's lease is lost while fn runs — it expired, was taken over or
 // could not be renewed — and the provider's lock reports it
@@ -79,7 +84,7 @@ func NewWithNoop(opts ...Option) *DLock {
 //	err := dl.Synchronize(ctx, "resource", func(ctx context.Context) error {
 //		return doWork(ctx)
 //	})
-func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context.Context) error) (err error) {
 	if key == "" {
 		return errors.New("key cannot be empty")
 	}
@@ -97,46 +102,34 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 	}
 	l.metrics.locksAcquired.Inc()
 
-	// Track if lock has been released to prevent double-release
-	var lockReleased bool
-	var lockMutex sync.Mutex
-
-	// Safe release function that ensures lock is only released once.
-	// Increments locks_released_total only on successful release so the
-	// metric stays a true positive signal for leak detection (paired
-	// with locks_acquired_total). The release outlives ctx, bounded by the
-	// release timeout; a failed one is logged and not recorded as released.
-	safeRelease := func() {
-		lockMutex.Lock()
-		defer lockMutex.Unlock()
-		if lockReleased {
-			return
+	var lost <-chan struct{}
+	defer func() {
+		// The cancellation goroutine may not have observed the loss yet.
+		select {
+		case <-lost:
+			err = errors.Join(ErrLockLost, err)
+		default:
 		}
 		releaseCtx, cancel := corecontext.ApplyTimeout(context.WithoutCancel(ctx), l.releaseTimeout)
 		defer cancel()
 		if releaseErr := lk.Release(releaseCtx); releaseErr != nil {
 			l.logger.ErrorContext(releaseCtx, "failed to release lock", slog.Any("error", releaseErr), slog.String("key", key))
-			return
+			err = errors.Join(err, releaseErr)
+		} else {
+			l.metrics.locksReleased.Inc()
 		}
-		l.metrics.locksReleased.Inc()
-		lockReleased = true
-	}
-
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, r any) {
-		safeRelease()
-		l.logger.ErrorContext(ctx, "panic in synchronize", slog.Any("panic", r))
-	})
+	}()
 
 	// fn runs under a context that also ends, with cause ErrLockLost, when a
 	// lock that can tell (providers.LostNotifier) loses its lease.
 	fnCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	var lost <-chan struct{}
 	if notifier, ok := lk.(providers.LostNotifier); ok {
 		lost = notifier.Lost()
 		finished := make(chan struct{})
 		defer close(finished)
 		go func() {
+			defer panics.Handle(fnCtx)
 			select {
 			case <-lost:
 				cancel(ErrLockLost)
@@ -145,21 +138,19 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 		}()
 	}
 
-	// Execute the provided function while holding the lock.
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, class any) {
+		err = fmt.Errorf("%w (%s)", ErrPanicked, class)
+	})
+	defer func() {
+		if value := recover(); value != nil {
+			// Core panic handlers receive only the value's kind. The value
+			// itself may contain sensitive data.
+			panic(reflect.TypeOf(value).Kind().String())
+		}
+	}()
+
 	err = fn(fnCtx)
-	// Read the loss directly: the goroutine above may not have run yet, and a
-	// nil channel never reports one.
-	wasLost := false
-	select {
-	case <-lost:
-		wasLost = true
-	default:
-	}
-	safeRelease() // Ensure the lock is released after execution
 	l.metrics.synchronizations.Inc()
-	if wasLost {
-		return errors.Join(ErrLockLost, err)
-	}
 	return err
 }
 

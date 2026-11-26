@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/internal/nats/natskey"
@@ -261,26 +262,30 @@ func (o *KVOps) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, e
 	})
 }
 
-// Create creates a new key-value pair. Fails if key already exists.
+// Create retries transient failures. If a retry finds the key already exists,
+// the caller must check ownership to resolve a possibly lost reply.
 func (o *KVOps) Create(ctx context.Context, key string, value []byte) (uint64, error) {
 	physical, err := natskey.Encode(key)
 	if err != nil {
 		return 0, err
 	}
-	return Retry(ctx, func() (uint64, error) {
+	return retryIf(ctx, func() (uint64, error) {
 		return o.kv.Create(ctx, physical, value)
+	}, func(err error) bool {
+		return isTransientError(err) || errors.Is(err, jetstream.ErrNoStreamResponse) ||
+			errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
 	})
 }
 
 // Update updates an existing key with optimistic locking using revision.
+// A retry could turn an applied update with a lost reply into a revision
+// mismatch, so leave ambiguous outcomes visible to the caller.
 func (o *KVOps) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
 	physical, err := natskey.Encode(key)
 	if err != nil {
 		return 0, err
 	}
-	return Retry(ctx, func() (uint64, error) {
-		return o.kv.Update(ctx, physical, value, revision)
-	})
+	return o.kv.Update(ctx, physical, value, revision)
 }
 
 // Delete deletes a key from the store.

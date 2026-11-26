@@ -37,8 +37,8 @@ func WithLeaseObserver(v LeaseObserver) LeaseOption {
 }
 
 // WithLeaseOwnerCheck sets the function reporting whether a stored value
-// belongs to this lease holder. Without one, a key that already exists is
-// never taken over and a stored value is never treated as someone else's.
+// belongs to this lease holder. Use a stable owner check when the payload
+// changes. By default renewal and cleanup compare the whole payload.
 func WithLeaseOwnerCheck(v func(value []byte) bool) LeaseOption {
 	return func(o *leaseOptions) {
 		o.ownerCheck = v

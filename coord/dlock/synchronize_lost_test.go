@@ -115,8 +115,43 @@ func TestSynchronize_LogsAFailedRelease(t *testing.T) {
 	lk := &lostLock{lost: make(chan struct{}), releaseErr: errors.New("storage down")}
 	dl := dlock.New(lostProvider{lock: lk}, dlock.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 
-	require.NoError(t, dl.Synchronize(t.Context(), "key", func(context.Context) error { return nil }))
+	require.ErrorIs(t, dl.Synchronize(t.Context(), "key", func(context.Context) error { return nil }), lk.releaseErr)
 
 	require.Equal(t, 1, lk.releases)
 	require.Contains(t, logs.String(), "failed to release lock")
+}
+
+func TestSynchronize_PanicReturnsErrorAndReleasesOnce(t *testing.T) {
+	// This test replaces the global slog logger used by the core panic handler.
+	var logs bytes.Buffer
+	defaultLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
+	lk := &lostLock{releaseErr: errors.New("release failed")}
+	dl := dlock.New(lostProvider{lock: lk})
+
+	err := dl.Synchronize(t.Context(), "key", func(context.Context) error { panic("callback panic") })
+	require.ErrorIs(t, err, dlock.ErrPanicked)
+	require.ErrorIs(t, err, lk.releaseErr)
+	require.Equal(t, 1, lk.releases)
+	require.Contains(t, err.Error(), "(string)")
+	require.NotContains(t, err.Error(), "callback panic")
+	require.Contains(t, logs.String(), "observed a panic")
+	require.Contains(t, logs.String(), "stacktrace")
+	require.NotContains(t, logs.String(), "callback panic")
+}
+
+func TestSynchronize_JoinsReleaseErrorWithLossAndCallbackError(t *testing.T) {
+	t.Parallel()
+	lk := &lostLock{lost: make(chan struct{}), releaseErr: errors.New("release failed")}
+	dl := dlock.New(lostProvider{lock: lk})
+	fnErr := errors.New("callback failed")
+
+	err := dl.Synchronize(t.Context(), "key", func(context.Context) error {
+		close(lk.lost)
+		return fnErr
+	})
+	require.ErrorIs(t, err, dlock.ErrLockLost)
+	require.ErrorIs(t, err, fnErr)
+	require.ErrorIs(t, err, lk.releaseErr)
 }

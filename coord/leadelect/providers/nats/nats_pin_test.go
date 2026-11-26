@@ -50,6 +50,8 @@ func TestCamping_TickPin(t *testing.T) {
 	_, js := natstest.ConnectJetStream(t, ns)
 	kv, err := js.KeyValue(t.Context(), bucket)
 	require.NoError(t, err)
+	initial, err := kv.Get(t.Context(), "tick")
+	require.NoError(t, err)
 	updates, err := kv.WatchAll(t.Context(), jetstream.UpdatesOnly())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = updates.Stop() })
@@ -61,7 +63,7 @@ func TestCamping_TickPin(t *testing.T) {
 	for range 3 {
 		select {
 		case entry := <-updates.Updates():
-			require.Equal(t, "node-1", string(entry.Value()), "only the leader renews the lease")
+			require.Equal(t, initial.Value(), entry.Value(), "only the leader renews the lease")
 		case <-time.After(5 * time.Second):
 			t.Fatal("the leader did not renew its lease")
 		}

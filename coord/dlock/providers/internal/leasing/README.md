@@ -21,3 +21,5 @@ Lease deadlines are measured from the last confirmed acquisition or renewal atte
 lease, with a 1ms floor, bounded by the next regular attempt and the confirmed deadline. Each call is bounded by the smaller of the operations
 timeout and the remaining lease. At the deadline, `Lost()` closes and the engine conditionally releases the unconfirmed lease; a late success
 cannot revive it.
+
+If an acquisition and its cleanup both fail, the engine retains the owner for a shutdown retry until the acquisition's conservative deadline.

@@ -7,6 +7,7 @@
 //
 // [LeaderBuilder] uses a fluent API with deferred error accumulation:
 // errors from any step are collected and returned at [LeaderBuilder.Build] time.
+// Build requires an election key and a node ID before provisioning the provider.
 //
 //	le, err := factory.New(cfg.LeaderElector).
 //	    UseLogger(logger).

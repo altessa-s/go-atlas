@@ -34,6 +34,14 @@ the bucket: every other byte, `=` itself, and every dot that would leave an empt
 stored as `orders=3A42`; `LockInfo.Key` still reports `orders:42`. A key that is already valid and contains no `=` is stored under itself. The escaped
 key may be at most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTooLong` before any network I/O.
 
+A lock handle reports `providers.ErrLockNotHeld` when the key is absent or another holder takes it. Use the provider's `GetLockInfo(ctx, key)`
+to look up the current owner by key.
+
+A failed acquisition can take up to one additional second to check for and conditionally delete a write whose result is uncertain.
+
+`Close` invalidates active handles, stops renewal, and rejects new locks as soon as shutdown begins. It returns any release failures. Call `Close`
+again with a fresh context to retry outstanding releases.
+
 ## Bucket TTL
 
 The bucket's key TTL (`WithTTL`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already exists

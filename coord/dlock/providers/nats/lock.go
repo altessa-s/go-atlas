@@ -68,7 +68,12 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, opts *options, observer nats
 		}),
 		natskvlease.WithLeaseCallbacks(natskvlease.LeaseCallbacks{
 			OnAcquired: func() { l.isLocked.Store(true) },
-			OnLost:     l.ended,
+			OnLost: func() {
+				l.isLocked.Store(false)
+				if !l.lease.ReleasePending() {
+					l.ended()
+				}
+			},
 			OnReleased: l.ended,
 			OnRenewed: func() {
 				l.metadata.LastRenewed = time.Now()
@@ -106,8 +111,7 @@ func (l *lock) IsLocked() bool {
 
 // readLockInfo reads key through ops and renders it as a [providers.LockInfo].
 //
-// Both the provider-level and the per-lock accessor answer the same question
-// about the same key, and differ only in which KV handle they already have.
+// The provider uses this directly. A lock handle also checks ownership.
 func readLockInfo(ctx context.Context, ops *natskvlease.KVOps, key string) (*providers.LockInfo, error) {
 	entry, err := ops.Get(ctx, key)
 	if err != nil {
@@ -142,9 +146,16 @@ func readLockInfo(ctx context.Context, ops *natskvlease.KVOps, key string) (*pro
 	}, nil
 }
 
-// GetLockInfo returns information about the current state of the lock.
+// GetLockInfo returns information about this handle's lease while it is held.
 func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
-	return readLockInfo(ctx, l.lease.GetOps(), l.config.Key)
+	info, err := readLockInfo(ctx, l.lease.GetOps(), l.config.Key)
+	if err != nil {
+		return nil, err
+	}
+	if info.Owner != l.metadata.OwnerId {
+		return nil, providers.ErrLockNotHeld
+	}
+	return info, nil
 }
 
 // run acquires the lock and leaves the lease renewing in the background.

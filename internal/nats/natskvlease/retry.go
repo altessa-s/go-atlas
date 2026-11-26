@@ -44,6 +44,10 @@ const (
 //	    return kv.Get(ctx, key)
 //	})
 func Retry[T any](ctx context.Context, fn func() (T, error), opts ...RetryOption) (T, error) {
+	return retryIf(ctx, fn, isTransientError, opts...)
+}
+
+func retryIf[T any](ctx context.Context, fn func() (T, error), shouldRetry func(error) bool, opts ...RetryOption) (T, error) {
 	var last T
 
 	cfg := newRetryOptions(opts...)
@@ -60,7 +64,7 @@ func Retry[T any](ctx context.Context, fn func() (T, error), opts ...RetryOption
 	},
 		coreretry.WithMaxAttempts(maxAttempts),
 		coreretry.WithMaxElapsedTime(cfg.maxElapsedTime),
-		coreretry.WithShouldRetry(isTransientError),
+		coreretry.WithShouldRetry(shouldRetry),
 		coreretry.WithNextDelay(coreretry.Exponential(
 			retryBaseDelay,
 			coreretry.WithExponentialJitter(cfg.jitter),

@@ -13,7 +13,7 @@ from any step are collected and returned at `Build()` time.
 leader, err := factory.New(cfg.LeaderElector).
     UseLogger(logger).
     UseProvider(lockconfig.LeaderElectorProviderNATS, natsfactory.Builder(natsConn)).
-    WithNodeId(nodeID). // unique per replica; Start fails on an empty node ID
+    WithNodeId(nodeID). // node ID required by Build
     Build(ctx)
 ```
 
@@ -42,7 +42,7 @@ The builder builds no provider itself. `nats` (also an empty `provider`) uses th
 | Method          | Description                                                                                 |
 |-----------------|---------------------------------------------------------------------------------------------|
 | `WithKey(v)`    | Sets the leader election key (default: `appinfo.Name`)                                      |
-| `WithNodeId(v)` | Sets this replica's unique node identifier (required: no default, `Start` fails when empty) |
+| `WithNodeId(v)` | Sets this replica's unique node identifier (required by `Build`) |
 
 ### Terminal
 

@@ -13,7 +13,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
+	"github.com/altessa-s/go-atlas/internal/nats/natskvlease"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 )
@@ -132,4 +134,85 @@ func TestProvider_StartContextCancelHandsOverWithoutSplitBrain(t *testing.T) {
 	require.NoError(t, a.Start(t.Context(), providers.Config{Key: "k", NodeId: "a", TTL: 30 * time.Second}))
 	require.True(t, a.IsRunning())
 	require.NoError(t, a.Stop(t.Context()))
+}
+
+func TestProvider_SameNodeIDHasOneLeader(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	ns := natstest.StartNATSServer(t)
+	const ratio = 0.15
+	cfg := providers.Config{Key: "election", NodeId: "cluster:node", TTL: time.Second}
+	start := func() *Provider {
+		p, err := New(ctx, natstest.ConnectNATS(t, ns), WithBucket("same-id"), WithRenewRatio(ratio))
+		require.NoError(t, err)
+		require.NoError(t, p.Start(ctx, cfg))
+		t.Cleanup(func() { _ = p.Stop(context.WithoutCancel(ctx)) })
+		return p
+	}
+	a := start()
+	require.Eventually(t, a.IsLeader, 5*time.Second, 10*time.Millisecond)
+	b := start()
+	require.Never(t, func() bool { return a.IsLeader() && b.IsLeader() },
+		2*renewIntervalFor(cfg.TTL, ratio), 10*time.Millisecond)
+	require.True(t, a.IsLeader())
+	id, err := b.LeaderId(ctx)
+	require.NoError(t, err)
+	require.Equal(t, cfg.NodeId, id)
+	require.NoError(t, b.Stop(ctx))
+	require.True(t, a.IsLeader())
+}
+
+func TestProvider_StaleResignPreservesSuccessorWithSameNodeID(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	ns := natstest.StartNATSServer(t)
+	nc := natstest.ConnectNATS(t, ns)
+	const bucket = "stale-resign"
+	a, err := New(ctx, nc, WithBucket(bucket))
+	require.NoError(t, err)
+	b, err := New(ctx, nc, WithBucket(bucket))
+	require.NoError(t, err)
+	cfg := providers.Config{Key: "election", NodeId: "cluster:node", TTL: time.Second}
+	require.NoError(t, a.Start(ctx, cfg))
+	t.Cleanup(func() { _ = a.Stop(context.WithoutCancel(ctx)) })
+	require.Eventually(t, a.IsLeader, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, a.Stop(ctx))
+
+	require.NoError(t, b.Start(ctx, cfg))
+	t.Cleanup(func() { _ = b.Stop(context.WithoutCancel(ctx)) })
+	require.Eventually(t, b.IsLeader, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, a.resign(ctx))
+	_, err = b.kvOps.Get(ctx, cfg.Key)
+	require.NoError(t, err)
+}
+
+type successorOnDeleteKV struct {
+	jetstream.KeyValue
+	successor string
+}
+
+func (kv successorOnDeleteKV) Delete(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
+	if _, err := kv.Put(ctx, key, []byte(kv.successor)); err != nil {
+		return err
+	}
+	return kv.KeyValue.Delete(ctx, key, opts...)
+}
+
+func TestResign_RevisionCheckPreservesSuccessor(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	ns := natstest.StartNATSServer(t)
+	p, err := New(ctx, natstest.ConnectNATS(t, ns), WithBucket("resign-check"))
+	require.NoError(t, err)
+	next := keys.Compose("next:node", "token")
+	p.kvOps = natskvlease.NewKVOps(successorOnDeleteKV{KeyValue: p.kv, successor: next}, nil)
+	cfg := providers.Config{Key: "election", NodeId: "node", TTL: time.Second}
+	require.NoError(t, p.Start(ctx, cfg))
+	t.Cleanup(func() { _ = p.Stop(context.WithoutCancel(ctx)) })
+	require.Eventually(t, p.IsLeader, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, p.Stop(ctx))
+
+	entry, err := p.kv.Get(ctx, cfg.Key)
+	require.NoError(t, err)
+	require.Equal(t, next, string(entry.Value()))
 }

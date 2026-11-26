@@ -9,13 +9,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
 	"github.com/altessa-s/go-atlas/internal/nats/natskey"
@@ -111,6 +115,9 @@ type Provider struct {
 	kvOps *natskvlease.KVOps
 
 	providerConfig atomic.Pointer[providers.Config]
+	// campaignValue identifies one Start. Start replaces it after joining the
+	// previous campaign, and only the campaign uses it to access the key.
+	campaignValue string
 
 	// notificationCh wakes the notification handler. It carries no payload:
 	// the handler delivers the difference between what it last delivered and
@@ -273,8 +280,34 @@ func (p *Provider) LeaderId(ctx context.Context) (string, error) {
 		}
 		return "", err
 	}
-	// Key exists, return the value (node ID)
-	return string(entry.Value()), nil
+	if entry == nil || entry.Value() == nil {
+		return "", nil
+	}
+	value := string(entry.Value())
+	nodeID, rest, ok := leaderValuePart(value)
+	if !ok || nodeID == "" {
+		return "", errInvalidLeaderValue
+	}
+	token, rest, ok := leaderValuePart(rest)
+	if !ok || token == "" || rest != "" {
+		return "", errInvalidLeaderValue
+	}
+	return nodeID, nil
+}
+
+var errInvalidLeaderValue = errors.New("invalid election key value")
+
+// leaderValuePart decodes one length-prefixed component written by keys.Compose.
+func leaderValuePart(value string) (part, rest string, ok bool) {
+	length, data, found := strings.Cut(value, ":")
+	if !found {
+		return "", "", false
+	}
+	n, err := strconv.Atoi(length)
+	if err != nil || n < 0 || n > len(data) {
+		return "", "", false
+	}
+	return data[:n], data[n:], true
 }
 
 // NodeId returns this node's unique identifier, or an empty string before
@@ -315,6 +348,10 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 	if cfg.TTL < minTTL {
 		return fmt.Errorf("TTL must be at least %v, got %v", minTTL, cfg.TTL)
 	}
+	interval := renewIntervalFor(cfg.TTL, p.opts.renewRatio)
+	if interval < time.Millisecond || interval >= min(cfg.TTL, DefaultBucketKeysTTL) {
+		return errors.New("renew interval must be at least 1ms and shorter than the lease lifetime")
+	}
 
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
@@ -343,6 +380,7 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 	p.stopDeadline.Store(nil)
 
 	p.providerConfig.Store(&cfg)
+	p.campaignValue = keys.Compose(cfg.NodeId, uuid.New().String())
 
 	if p.opts.logger != nil {
 		p.opts.logger.DebugContext(ctx, "starting leader election process",
@@ -606,8 +644,12 @@ func (p *Provider) camping(ctx context.Context) {
 				c.renew()
 			}
 			iterStop()
-		case update := <-updates:
-			if c.onKeyUpdate(update) {
+		case update, ok := <-updates:
+			if !ok {
+				_ = watcher.Stop()
+				watcher, updates = nil, nil
+				iterStop()
+			} else if c.onKeyUpdate(update) {
 				iterStop()
 			}
 		case <-ctx.Done():
@@ -800,7 +842,7 @@ func (p *Provider) acquire(ctx context.Context) (acquired bool, token uint64, cr
 	// round trips and a revision per election, and could report the acquisition
 	// as failed when only that redundant rewrite failed — leaving the node
 	// holding the key while believing it had lost.
-	rev, err := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
+	rev, err := p.kvOps.Create(ctx, config.Key, []byte(p.campaignValue))
 	if err == nil {
 		p.recordLease("acquire", nil)
 
@@ -829,13 +871,13 @@ func (p *Provider) acquire(ctx context.Context) (acquired bool, token uint64, cr
 		return false, 0, false, err
 	}
 
-	if string(entry.Value()) != config.NodeId {
+	if entry == nil || string(entry.Value()) != p.campaignValue {
 		p.recordLease("acquire", errKeyHeldByOther)
 
 		return false, 0, false, nil
 	}
 
-	rev, err = p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+	rev, err = p.kvOps.Update(ctx, config.Key, []byte(p.campaignValue), entry.Revision())
 	p.recordLease("acquire", err)
 
 	return err == nil, rev, false, err
@@ -871,8 +913,7 @@ func (p *Provider) resign(ctx context.Context) error {
 		return err
 	}
 
-	// Only attempt delete if Get succeeds and we are the leader
-	if string(entry.Value()) == config.NodeId {
+	if entry != nil && string(entry.Value()) == p.campaignValue {
 		if err := p.kvOps.DeleteWithRevision(ctx, config.Key, entry.Revision()); err != nil {
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
 				p.recordLease("resign", nil)
@@ -900,14 +941,14 @@ func (p *Provider) renew(ctx context.Context) (bool, uint64, error) {
 	}
 
 	// Check if we are still the owner before renewing
-	if entry == nil || string(entry.Value()) != config.NodeId {
+	if entry == nil || string(entry.Value()) != p.campaignValue {
 		p.recordLease("renew", errKeyHeldByOther)
 
 		return false, 0, nil
 	}
 
 	// Update the key with the same value, which resets the TTL.
-	rev, err := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+	rev, err := p.kvOps.Update(ctx, config.Key, []byte(p.campaignValue), entry.Revision())
 	p.recordLease("renew", err)
 
 	return err == nil, rev, err

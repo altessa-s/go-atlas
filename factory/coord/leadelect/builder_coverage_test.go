@@ -28,16 +28,26 @@ var errBuild = errors.New("build failed")
 // methods.
 type fakeProvider struct{ providers.Provider }
 
+func TestBuild_RejectsMissingNodeID(t *testing.T) {
+	t.Parallel()
+	cfg := &lockconfig.LeaderElector{Provider: lockconfig.LeaderElectorProviderNATS, Ttl: time.Second}
+	_, err := factory.New(cfg).WithKey("election").
+		UseProvider(cfg.Provider, func(context.Context, *lockconfig.LeaderElector, *slog.Logger, metrics.Meter) (providers.Provider, error) {
+			return fakeProvider{}, nil
+		}).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+}
+
 func TestBuild_RequiresConfigAndRegisteredProvider(t *testing.T) {
 	t.Parallel()
 
 	_, err := factory.New(nil).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 
-	_, err = factory.New(&lockconfig.LeaderElector{Ttl: time.Second}).Build(t.Context())
+	_, err = factory.New(&lockconfig.LeaderElector{Ttl: time.Second}).WithNodeId("node").Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrNotRegistered, "an empty provider is nats")
 
-	_, err = factory.New(&lockconfig.LeaderElector{Provider: "etcd", Ttl: time.Second}).Build(t.Context())
+	_, err = factory.New(&lockconfig.LeaderElector{Provider: "etcd", Ttl: time.Second}).WithNodeId("node").Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }
 
@@ -51,7 +61,7 @@ func TestUseProvider(t *testing.T) {
 	failing := func(context.Context, *lockconfig.LeaderElector, *slog.Logger, metrics.Meter) (providers.Provider, error) {
 		return nil, errBuild
 	}
-	_, err = factory.New(cfg).UseProvider(lockconfig.LeaderElectorProviderNATS, failing).Build(t.Context())
+	_, err = factory.New(cfg).WithNodeId("node").UseProvider(lockconfig.LeaderElectorProviderNATS, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
 	logger := slog.New(slog.DiscardHandler)
@@ -66,6 +76,7 @@ func TestUseProvider(t *testing.T) {
 		return fakeProvider{}, nil
 	}
 	leader, err := factory.New(cfg).
+		WithNodeId("node").
 		UseLogger(logger).
 		UseMeter(tc).
 		UseProvider(lockconfig.LeaderElectorProviderNATS, failing).

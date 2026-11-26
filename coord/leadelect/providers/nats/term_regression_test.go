@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -51,7 +52,7 @@ func TestLeaderId_AgreesWithIsLeader(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := fakeProvider(&heldKV{holder: "other"}, providers.Config{Key: "k", NodeId: "n", TTL: time.Second})
+			p := fakeProvider(&heldKV{holder: keys.Compose("other", "token")}, providers.Config{Key: "k", NodeId: "n", TTL: time.Second})
 			renewed := time.Now().Add(-tc.leaseAge)
 			p.lastRenewOK.Store(&renewed)
 			p.isLeader.Store(true)
