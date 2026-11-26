@@ -4,7 +4,6 @@
 package outbox
 
 import (
-	"context"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -79,23 +78,6 @@ func WithCompactionFilter(v func(string) bool) Option {
 		o.compactionFilter = v
 		o.compaction = true
 
-	}
-}
-
-// WithContext sets the baseCtx option.
-//
-// Context
-func WithContext(v context.Context) Option {
-	return func(o *options) {
-		switch rv := reflect.ValueOf(v); rv.Kind() {
-		case reflect.Invalid:
-			return
-		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
-			if rv.IsNil() {
-				return
-			}
-		}
-		o.baseCtx = v
 	}
 }
 

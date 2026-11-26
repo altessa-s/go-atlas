@@ -192,8 +192,8 @@ func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Durati
 // client timestamp, and next_attempt_at is computed as $$NOW plus the
 // outbox-supplied RetryAfter duration, so the retry gate in
 // FetchUnprocessedEvents (which also compares against $$NOW) stays clock-skew
-// safe regardless of which instance dispatched the event. The lock is cleared
-// so the event leaves the in-progress set.
+// safe regardless of which instance dispatched the event. A pending outcome
+// clears the lock and retry deadline while preserving attempt history.
 func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -205,23 +205,27 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 
 		set := bson.M{
 			collectionFieldStatus:        string(ev.Status),
-			collectionFieldLastAttempts:  ev.Attempts,
-			collectionFieldLastAttemptOn: serverNow,
-			collectionFieldLockedOn:      nullableDate(ev.LockedOn),
+			collectionFieldLockedOn:      nil,
+			collectionFieldNextAttemptAt: nil,
+			// Releasing the token ends this lease. A retry gets a fresh
+			// token from the next fetch.
+			collectionFieldLockToken: nil,
+		}
+		if ev.Status != outbox.StatusPending {
+			set[collectionFieldLastAttempts] = ev.Attempts
+			set[collectionFieldLastAttemptOn] = serverNow
+			set[collectionFieldLockedOn] = nullableDate(ev.LockedOn)
 			// Server-stamped, like the deadline it is later compared against.
 			// A client timestamp here would make retention skew-sensitive: a
 			// host whose clock runs ahead of the database writes a
 			// published_at in the database's future, and the retention sweep —
 			// which compares against $$NOW — keeps the event past its window.
-			collectionFieldPublishedAt:   completedAtExpr(ev.PublishedAt),
-			collectionFieldNextAttemptAt: nextAttemptExpr(ev.RetryAfter),
+			set[collectionFieldPublishedAt] = completedAtExpr(ev.PublishedAt)
+			set[collectionFieldNextAttemptAt] = nextAttemptExpr(ev.RetryAfter)
 			// $literal preserves error strings starting with a dollar sign.
 			// A nil *string encodes as null, which clears the previous error
 			// on a successful attempt and records it on a failed one.
-			collectionFieldLastError: bson.M{"$literal": ev.LastError},
-			// Releasing the token ends this lease. A retry gets a fresh
-			// token from the next fetch.
-			collectionFieldLockToken: nil,
+			set[collectionFieldLastError] = bson.M{"$literal": ev.LastError}
 		}
 
 		filter := bson.D{

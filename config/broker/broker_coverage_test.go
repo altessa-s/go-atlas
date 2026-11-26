@@ -6,13 +6,18 @@ package brokerconfig_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-nomos/loader"
+
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	natsconfig "github.com/altessa-s/go-atlas/config/nats"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -70,4 +75,38 @@ func TestConfig_Validate(t *testing.T) {
 	verrs := brokerFieldErrors(t, badNested.Validate())
 	require.Contains(t, verrs, "InProgress")
 	require.Contains(t, verrs, "Outbox")
+}
+
+func TestLoadOutboxYAML(t *testing.T) {
+	t.Parallel()
+
+	type root struct {
+		Broker brokerconfig.Config `yaml:"broker"`
+	}
+	const data = `broker:
+  nats: {}
+  outbox:
+    messagesBatchSize: 17
+    handleTimeout: 4s
+    watch: notify
+    storage:
+      type: sqldb
+      sqldb:
+        table: app.events
+        notifyChannel: outbox_wake
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+
+	var cfg root
+	_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&cfg)
+	require.NoError(t, err)
+	require.NoError(t, cfg.Broker.Validate())
+	ob := cfg.Broker.Outbox
+	require.EqualValues(t, 17, ob.MessagesBatchSize)
+	require.Equal(t, 4*time.Second, ob.HandleTimeout)
+	require.Equal(t, outboxconfig.WatchNotify, ob.Watch)
+	require.Equal(t, outboxconfig.StorageTypeSQL, ob.Storage.Type)
+	require.Equal(t, "app.events", ob.Storage.SQL.Table)
+	require.Equal(t, "outbox_wake", ob.Storage.SQL.NotifyChannel)
 }

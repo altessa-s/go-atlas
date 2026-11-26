@@ -9,16 +9,19 @@ errors from any step are collected and returned at build time.
 
 ## Quick Start
 
+Initialize the configuration with [`outboxconfig.Default()`](../../../config/outbox) or load the broker's `outbox` block.
+
 ```go
-// outbox.storage.type: mongo
-ob, err := factory.New(&cfg.Outbox).
+cfg := outboxconfig.Default()
+ob, err := factory.New(&cfg).
     UseLogger(logger).
     UseScheduler(scheduler).
-    UseStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(db)).
+    UseStorage(outboxconfig.StorageTypeMongo, outboxmongofactory.Builder(db)).
     Build(ctx, handler)
 
-// outbox.storage.type: sqldb, outbox.watch: notify
-ob, err := factory.New(&cfg.Outbox).
+cfg.Storage = &outboxconfig.Storage{Type: outboxconfig.StorageTypeSQL}
+cfg.Watch = outboxconfig.WatchNotify
+ob, err = factory.New(&cfg).
     UseScheduler(scheduler).
     UseSQLDB(db).
     UseSQLListener(listener). // an outboxsql.Listener, e.g. over pgx

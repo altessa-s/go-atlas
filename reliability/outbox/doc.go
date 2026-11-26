@@ -40,6 +40,9 @@
 // releases the next event. MongoDB stores only Event.Key. Direct claims on
 // either backend require a positive batch size.
 //
+// With compaction enabled, the latest [Event.CreatedAt] wins for each key
+// within the batch. Broker events use their outbox save time.
+//
 // # Dispatch latency
 //
 // [Outbox.StartWatch] runs the watcher in the background. [Outbox.StopWatch] cancels it
@@ -56,10 +59,16 @@
 //
 // # Retries and dead-lettering
 //
-// Each dispatch cycle spends exactly one attempt per event. A failure is classified by the
-// predicate from [WithShouldRetry]: transient failures are rescheduled with exponential
-// backoff and jitter, and permanent ones move straight to [StatusRejected]. An event that
-// exhausts [WithRetryMaxAttempts] becomes [StatusMaxAttemptReached].
+// Compaction and handlers share [WithHandleTimeout], capped by the caller's
+// deadline. Failed attempts,
+// including handler panics and handling timeouts, follow the retry budget.
+// [WithShouldRetry] classifies a permanent failure as [StatusRejected]; an
+// event that exhausts [WithRetryMaxAttempts] becomes [StatusMaxAttemptReached].
+//
+// The cycle records confirmed deliveries under a separate storage timeout,
+// even during shutdown. It releases unstarted claims and preserves the
+// retry budget when the parent's cancellation interrupts a handler or when
+// the handler returns [ErrDispatchInterrupted].
 //
 // Both terminal states form the dead-letter queue. They are deliberately excluded from
 // cleanup, so they accumulate until an operator acts. Schedule the stats cycle and alert on

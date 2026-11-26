@@ -9,13 +9,14 @@
 // errors from any step are collected and returned at build time.
 //
 //	handler := func(ctx context.Context, event outbox.Event) error {
-//	    return sendWebhook(ctx, event.Topic, event.Payload)
+//	    return sendWebhook(ctx, event.Key, event.Payload)
 //	}
 //
-//	ob, err := factory.New(cfg).
+//	cfg := outboxconfig.Default()
+//	ob, err := factory.New(&cfg).
 //	    UseLogger(logger).
 //	    UseScheduler(scheduler).
-//	    UseStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(db)).
+//	    UseStorage(outboxconfig.StorageTypeMongo, outboxmongofactory.Builder(db)).
 //	    UseSQLDB(sqlDB).
 //	    Build(ctx, handler)
 //	if err != nil {

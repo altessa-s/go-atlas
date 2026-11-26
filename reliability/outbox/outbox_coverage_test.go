@@ -161,8 +161,7 @@ func TestOutbox_SchedulerFuncsTakeOverManualRuns(t *testing.T) {
 		outbox.WithPublishedEventsLifetime(time.Hour),
 		outbox.WithMaxLockTime(time.Minute),
 		outbox.WithHandleTimeout(time.Second),
-		outbox.WithUpdateTimeout(time.Second),
-		outbox.WithContext(t.Context()))
+		outbox.WithUpdateTimeout(time.Second))
 
 	dispatch := o.RegisterDispatchSchedulerFunc()
 	unlock := o.RegisterUnlockSchedulerFunc()

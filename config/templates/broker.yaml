@@ -47,7 +47,7 @@
 #      enabled: true
 #
 #  # <object> Outbox configuration for reliable message delivery.
-#  # Manages persistent storage and background publishing of messages.
+#  # The schema in config/outbox controls persistent storage and background publishing.
 #  outbox:
 #    # <bool> Enable Outbox.
 #    # When false, outbox is not created and messages are published directly.

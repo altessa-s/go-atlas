@@ -6,6 +6,7 @@ package brokerconfig
 
 import (
 	natsconfig "github.com/altessa-s/go-atlas/config/nats"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -43,7 +44,7 @@ type Config struct {
 	InProgress InProgress `yaml:"inProgress"`
 
 	// Outbox contains configuration for reliable message delivery.
-	Outbox Outbox `yaml:"outbox"`
+	Outbox outboxconfig.Config `yaml:"outbox"`
 }
 
 // Default returns a Broker configuration with default values. It carries the
@@ -60,32 +61,7 @@ func Default() Config {
 				Enabled: defaultInProgressMetricsEnabled,
 			},
 		},
-		Outbox: Outbox{
-			Enabled:                 defaultOutboxEnabled,
-			FetchTimeout:            defaultOutboxFetchTimeout,
-			HandleTimeout:           defaultOutboxHandleTimeout,
-			UpdateTimeout:           defaultOutboxUpdateTimeout,
-			MessagesBatchSize:       defaultOutboxMessagesBatchSize,
-			RetryMaxAttempts:        defaultOutboxRetryMaxAttempts,
-			PublishedEventsLifetime: defaultOutboxPublishedEventsLifetime,
-			TopicCompaction:         defaultOutboxTopicCompaction,
-			DispatchSchedule:        defaultOutboxDispatchSchedule,
-			CleanupSchedule:         defaultOutboxCleanupSchedule,
-			UnlockSchedule:          defaultOutboxUnlockSchedule,
-			StatsSchedule:           defaultOutboxStatsSchedule,
-			ExpireSchedule:          defaultOutboxExpireSchedule,
-			RetryBaseDelay:          defaultOutboxRetryBaseDelay,
-			RetryMaxDelay:           defaultOutboxRetryMaxDelay,
-			MaxLockTime:             defaultOutboxMaxLockTime,
-			MaxPayloadBytes:         defaultOutboxMaxPayloadBytes,
-			DispatchTaskID:          defaultOutboxDispatchTaskID,
-			UnlockTaskID:            defaultOutboxUnlockTaskID,
-			ExpireTaskID:            defaultOutboxExpireTaskID,
-			CleanupTaskID:           defaultOutboxCleanupTaskID,
-			StatsTaskID:             defaultOutboxStatsTaskID,
-			Storage:                 DefaultOutboxStorage(),
-			Watch:                   OutboxWatchPolling,
-		},
+		Outbox: outboxconfig.Default(),
 	}
 }
 

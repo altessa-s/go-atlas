@@ -10,9 +10,6 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [Provider], [Config], [InProgressMetrics], [InProgress],
-// [Outbox], [OutboxStorageConfig], [OutboxWatch].
-//
-// [Outbox.Validate] checks the watch mode and dispatch schedule. The outbox
-// factory checks whether its selected storage can serve the requested mode.
+// Key types: [Provider], [Config], [InProgressMetrics], and [InProgress].
+// The outbox YAML block uses [github.com/altessa-s/go-atlas/config/outbox.Config].
 package brokerconfig

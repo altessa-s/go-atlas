@@ -251,6 +251,31 @@ func TestUpdateEventsFencesOnLockToken(t *testing.T) {
 	require.Equal(t, []any{"failed", int64(3), []byte(msg), nil, false, true, 1.5, "b", "t1"}, calls[1].Args)
 }
 
+func TestUpdateEventsReleasesClaimWithoutWritingAttemptHistory(t *testing.T) {
+	t.Parallel()
+	for _, dialect := range []sqldb.Dialect{sqldb.DialectPostgres, sqldb.DialectMySQL} {
+		t.Run(string(dialect), func(t *testing.T) {
+			t.Parallel()
+			store, _, fake := newStore(t, dialect, ok)
+			require.NoError(t, store.UpdateEvents(t.Context(), outbox.Event{
+				Id: "claimed", Status: outbox.StatusPending, LockToken: "lease",
+			}))
+
+			calls := fake.Calls()
+			require.Len(t, calls, 1)
+			call := calls[0]
+			require.True(t, call.InTx)
+			require.NotContains(t, call.Query, "attempts =")
+			require.NotContains(t, call.Query, "last_attempt_on")
+			require.Contains(t, call.Query, "locked_on = NULL, lock_token = NULL, next_attempt_at = NULL")
+			require.Contains(t, call.Query, "WHERE id =")
+			require.Contains(t, call.Query, "AND lock_token =")
+			require.Equal(t, "pending", call.Args[0])
+			require.Equal(t, "lease", call.Args[2])
+		})
+	}
+}
+
 func TestStatsAndExpireMapping(t *testing.T) {
 	t.Parallel()
 	store, _, _ := newStore(t, sqldb.DialectPostgres, func(q string, _ []any) testhelpers.FakeSQLReply {

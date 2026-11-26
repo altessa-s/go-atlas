@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
@@ -261,31 +262,83 @@ func TestOptions_SchedulesReachTheOutbox(t *testing.T) {
 	require.Len(t, ids, 3, "only the three configured schedules may be registered")
 }
 
-// A closed broker connection never reopens, so retrying only burns the budget:
-// the adapter classifies it as permanent and the event is dead-lettered at once.
-func TestDispatch_ClosedConnectionIsRejected(t *testing.T) {
+func TestDispatch_ClosedConnectionLeavesEventRetryable(t *testing.T) {
 	t.Parallel()
 
-	pub := &capturingPublisher{err: broker.ErrConnectionClosed}
+	pub := &capturingPublisher{err: fmt.Errorf("publish: %w", broker.ErrConnectionClosed)}
 	store := &oneShotStore{fetch: []dataoutbox.Event{
 		storedEvent(t, *msg.NewMessage("billing.invoice.paid", []byte(`{"id":1}`)), "event-id-42"),
 	}}
+	ob := outbox.New(store, pub, outbox.WithOutboxOptions(dataoutbox.WithRetryMaxAttempts(1)))
 
-	require.NoError(t, outbox.New(store, pub).RunDispatchCycle(t.Context()))
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
 	written := store.written()
 	require.Len(t, written, 1)
-	require.Equal(t, dataoutbox.StatusRejected, written[0].Status)
+	require.Equal(t, dataoutbox.StatusFailed, written[0].Status)
+	require.Zero(t, written[0].Attempts)
+	require.Positive(t, written[0].RetryAfter)
+	require.NotNil(t, written[0].LastError)
+	require.Equal(t, dataoutbox.ErrDispatchInterrupted.Error()+": "+pub.err.Error(), *written[0].LastError)
+
+	pub.err = nil
+	store.served = false
+	store.fetch = written
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+	written = store.written()
+	require.Len(t, written, 2)
+	require.Equal(t, dataoutbox.StatusSent, written[1].Status)
+	require.EqualValues(t, 1, written[1].Attempts)
+}
+
+func TestDispatch_ClosedConnectionStopsNewSends(t *testing.T) {
+	t.Parallel()
+
+	workers := concurrency.DefaultLimitFunc()
+	started := make(chan struct{}, workers+1)
+	release := make(chan struct{})
+	publisher := publishFunc(func(ctx context.Context, _ msg.Message) error {
+		started <- struct{}{}
+		select {
+		case <-release:
+			return broker.ErrConnectionClosed
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	store := &oneShotStore{}
+	for i := range workers + 1 {
+		id := fmt.Sprint(i)
+		store.fetch = append(store.fetch, storedEvent(t, *msg.NewMessage("events", nil), id))
+	}
+	adapter := outbox.New(store, publisher)
+	done := make(chan error, 1)
+	go func() { done <- adapter.RunDispatchCycle(t.Context()) }()
+	for range workers {
+		select {
+		case <-started:
+		case err := <-done:
+			t.Fatalf("dispatch finished before filling the worker pool: %v", err)
+		}
+	}
+	// Each interrupted worker stops admissions before Process checks for more work.
+	close(release)
+	require.NoError(t, <-done)
+	require.Empty(t, started)
+	written := store.written()
+	require.Len(t, written, workers+1)
+	require.Equal(t, dataoutbox.StatusPending, written[workers].Status)
+	require.Zero(t, written[workers].Attempts)
 }
 
 // The broker classification is applied after the caller's options, so a
-// caller-supplied retry predicate cannot make a closed connection retryable.
+// caller-supplied retry predicate cannot make a malformed envelope retryable.
 func TestNew_ShouldRetryOptionIsOverridden(t *testing.T) {
 	t.Parallel()
 
-	pub := &capturingPublisher{err: broker.ErrConnectionClosed}
+	pub := &capturingPublisher{}
 	store := &oneShotStore{fetch: []dataoutbox.Event{
-		storedEvent(t, *msg.NewMessage("billing.invoice.paid", []byte(`{"id":1}`)), "event-id-42"),
+		{Id: "bad-envelope", Key: "billing.invoice.paid", Payload: []byte("invalid")},
 	}}
 
 	ob := outbox.New(store, pub, outbox.WithOutboxOptions(dataoutbox.WithShouldRetry(func(error) bool { return true })))
@@ -306,8 +359,8 @@ func TestShouldRetry(t *testing.T) {
 	}{
 		{name: "transient", err: errors.New("broker unavailable"), want: true},
 		{name: "undeliverable", err: errors.Join(outbox.ErrUndeliverable, errors.New("bad json")), want: false},
-		{name: "closed_connection", err: broker.ErrConnectionClosed, want: false},
-		{name: "wrapped_closed_connection", err: fmt.Errorf("publish: %w", broker.ErrConnectionClosed), want: false},
+		{name: "closed_connection", err: broker.ErrConnectionClosed, want: true},
+		{name: "wrapped_closed_connection", err: fmt.Errorf("publish: %w", broker.ErrConnectionClosed), want: true},
 		{name: "raw_nats_closed_connection", err: nats.ErrConnectionClosed, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -334,9 +387,8 @@ func TestDispatch_TransientPublishFailureStaysRetryable(t *testing.T) {
 	require.Positive(t, written[0].RetryAfter, "a transient failure must schedule a retry")
 }
 
-// A NATS user keeps the closed-connection classification end to end: the
-// provider's publish error on a closed connection dead-letters the event.
-func TestDispatch_NATSProviderClosedConnectionIsRejected(t *testing.T) {
+// The NATS provider preserves the outage classification through dispatch.
+func TestDispatch_NATSProviderClosedConnectionLeavesEventRetryable(t *testing.T) {
 	t.Parallel()
 
 	ns := natstest.StartNATSServer(t)
@@ -353,7 +405,8 @@ func TestDispatch_NATSProviderClosedConnectionIsRejected(t *testing.T) {
 
 	written := store.written()
 	require.Len(t, written, 1)
-	require.Equal(t, dataoutbox.StatusRejected, written[0].Status)
+	require.Equal(t, dataoutbox.StatusFailed, written[0].Status)
+	require.Zero(t, written[0].Attempts)
 }
 
 type recordingSaver struct{ calls [][]dataoutbox.Event }

@@ -16,6 +16,7 @@ import (
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
@@ -75,16 +76,16 @@ func (b *BrokerBuilder) UsePublishConverter(v broker.PublishConverter) *BrokerBu
 }
 
 // UseOutboxStorage registers the storage function of one outbox storage type
-// (brokerconfig.OutboxStorageTypeMongo) for [BrokerBuilder.CreateOutbox]. A
+// (outboxconfig.StorageTypeMongo) for [BrokerBuilder.CreateOutbox]. A
 // later registration of the same type replaces the earlier one; the sqldb
 // store is built in.
-func (b *BrokerBuilder) UseOutboxStorage(typ brokerconfig.OutboxStorageType, build outboxfactory.StorageFunc) *BrokerBuilder {
+func (b *BrokerBuilder) UseOutboxStorage(typ outboxconfig.StorageType, build outboxfactory.StorageFunc) *BrokerBuilder {
 	if build == nil {
 		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrDependencyRequired, "UseOutboxStorage %q: nil function", typ))
 		return b
 	}
 	if b.outboxStorages == nil {
-		b.outboxStorages = map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc{}
+		b.outboxStorages = map[outboxconfig.StorageType]outboxfactory.StorageFunc{}
 	}
 	b.outboxStorages[typ] = build
 	return b

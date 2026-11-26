@@ -71,7 +71,9 @@ type Storage interface {
 	// Per-key claim ordering is available only on SQL with WithKeyOrder.
 	SaveEvents(ctx context.Context, events ...Event) error
 
-	// UpdateEvents updates existing event state after processing attempts.
+	// UpdateEvents records processing outcomes and releases claims. A
+	// [StatusPending] outcome releases a never-started claim, clearing its
+	// lock and retry deadline while preserving its attempt history.
 	//
 	// A write MUST be applied only while the stored lock token still equals the
 	// event's [Event.LockToken]; otherwise the lock was revoked and reassigned,

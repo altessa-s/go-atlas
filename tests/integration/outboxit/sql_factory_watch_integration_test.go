@@ -14,7 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 )
 
@@ -23,14 +23,14 @@ import (
 func TestWatch_SQLFactoryNotifyDeliversWithoutAPollCycle(t *testing.T) {
 	t.Parallel()
 	f := &fixture{sql: newSQLFixtureWithoutSchema(t, sqlSpecs()[0]), recorder: outboxit.NewRecorder()}
-	cfg := brokerconfig.Default().Outbox
-	cfg.Storage = &brokerconfig.OutboxStorageConfig{
-		Type: brokerconfig.OutboxStorageTypeSQL,
-		SQL: &brokerconfig.OutboxSQLStorageConfig{
-			Dialect: brokerconfig.SQLDialectPostgres, Table: f.sql.events, EnsureSchema: true,
+	cfg := outboxconfig.Default()
+	cfg.Storage = &outboxconfig.Storage{
+		Type: outboxconfig.StorageTypeSQL,
+		SQL: &outboxconfig.SQLStorage{
+			Dialect: outboxconfig.SQLDialectPostgres, Table: f.sql.events, EnsureSchema: true,
 		},
 	}
-	cfg.Watch = brokerconfig.OutboxWatchNotify
+	cfg.Watch = outboxconfig.WatchNotify
 	cfg.DispatchSchedule = "@every 24h"
 	reg := &testhelpers.MockTaskRegistrar{}
 	var hooks coreruntime.HookGroup

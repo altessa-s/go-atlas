@@ -41,7 +41,12 @@ the send context into the outgoing metadata. Its attributes include the destinat
 event creation. A failed publish records an exception and error status. Unsampled parents pass through unchanged. Events without a valid parent
 produce no dispatcher span.
 
+The message creation timestamp stays in `message_created_time` metadata. The outbox records a new creation time at save, which anchors the event TTL.
+
 ## Ordering
+
+Within a claimed batch, compaction keeps the latest saved event per topic. For relayed messages, the producer timestamp in
+`message_created_time` remains available in metadata and does not affect compaction order.
 
 To order several subjects for one aggregate, put the same `msg.MetaKeyOrderKey` in their message metadata. The adapter moves it into
 `Event.OrderKey` and removes it from the envelope. Enable `sqldb.WithKeyOrder()` on dispatchers using the SQL store.
@@ -55,11 +60,9 @@ err := b.Publish(sqldb.WithTx(ctx, tx), *m)
 
 ## Error classification
 
-A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight
-to `rejected` instead of consuming its whole retry budget. The predicate also reports `broker.ErrConnectionClosed` as permanent, so an event whose
-publish fails on a closed connection is rejected as well; every other error stays transient and is retried with backoff. Providers mark their driver's
-closed-connection error with that sentinel (the NATS provider does); a custom `Publisher` that returns a raw driver error such as
-`nats.ErrConnectionClosed` must wrap it with `broker.ErrConnectionClosed` to keep it permanent.
+The adapter marks a stored payload it cannot decode with `ErrUndeliverable`. The event moves directly to `rejected`. A provider error matching
+`broker.ErrConnectionClosed` stops new sends in the current cycle and reschedules the failed event without spending an attempt. Sends already in
+progress can still finish. Other publish errors are transient and follow the ordinary retry budget.
 
 ## Methods
 

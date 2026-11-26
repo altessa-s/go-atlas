@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package brokerconfig
+package outboxconfig
 
 import (
 	"errors"
@@ -16,97 +16,97 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// Default values for Outbox configuration.
+// Default values for the outbox schema.
 const (
-	defaultOutboxEnabled                 = true
-	defaultOutboxFetchTimeout            = 5 * time.Second
-	defaultOutboxHandleTimeout           = 20 * time.Second
-	defaultOutboxUpdateTimeout           = 5 * time.Second
-	defaultOutboxMessagesBatchSize       = 200
-	defaultOutboxRetryMaxAttempts        = 10
-	defaultOutboxPublishedEventsLifetime = -1
-	defaultOutboxTopicCompaction         = false
-	defaultOutboxRetryBaseDelay          = time.Second
-	defaultOutboxRetryMaxDelay           = 5 * time.Minute
-	// Must stay above defaultOutboxHandleTimeout — see Outbox.MaxLockTime.
-	defaultOutboxMaxLockTime      = 2 * defaultOutboxHandleTimeout
-	defaultOutboxMaxPayloadBytes  = 1 << 20
-	defaultOutboxDispatchSchedule = "@every 2s"
-	defaultOutboxCleanupSchedule  = "@every 10m"
-	defaultOutboxUnlockSchedule   = "@every 11s"
-	defaultOutboxStatsSchedule    = "@every 30s"
-	defaultOutboxExpireSchedule   = "@every 11s"
-	defaultOutboxDispatchTaskID   = "outbox-dispatch"
-	defaultOutboxUnlockTaskID     = "outbox-unlock"
-	defaultOutboxExpireTaskID     = "outbox-expire"
-	defaultOutboxCleanupTaskID    = "outbox-cleanup"
-	defaultOutboxStatsTaskID      = "outbox-stats"
-	defaultOutboxMongoCollection  = "events_outbox"
-	defaultOutboxSQLTable         = "events_outbox"
+	defaultEnabled                 = true
+	defaultFetchTimeout            = 5 * time.Second
+	defaultHandleTimeout           = 20 * time.Second
+	defaultUpdateTimeout           = 5 * time.Second
+	defaultMessagesBatchSize       = 200
+	defaultRetryMaxAttempts        = 10
+	defaultPublishedEventsLifetime = -1
+	defaultTopicCompaction         = false
+	defaultRetryBaseDelay          = time.Second
+	defaultRetryMaxDelay           = 5 * time.Minute
+	// Must stay above defaultHandleTimeout — see Config.MaxLockTime.
+	defaultMaxLockTime      = 2 * defaultHandleTimeout
+	defaultMaxPayloadBytes  = 1 << 20
+	defaultDispatchSchedule = "@every 2s"
+	defaultCleanupSchedule  = "@every 10m"
+	defaultUnlockSchedule   = "@every 11s"
+	defaultStatsSchedule    = "@every 30s"
+	defaultExpireSchedule   = "@every 11s"
+	defaultDispatchTaskID   = "outbox-dispatch"
+	defaultUnlockTaskID     = "outbox-unlock"
+	defaultExpireTaskID     = "outbox-expire"
+	defaultCleanupTaskID    = "outbox-cleanup"
+	defaultStatsTaskID      = "outbox-stats"
+	defaultMongoCollection  = "events_outbox"
+	defaultSQLTable         = "events_outbox"
 
-	// maxOutboxMessagesBatchSize is the maximum allowed batch size.
-	maxOutboxMessagesBatchSize = 10000
-	// maxOutboxRetryMaxAttempts is the maximum allowed retry attempts.
-	maxOutboxRetryMaxAttempts = 100
+	// maxMessagesBatchSize is the maximum allowed batch size.
+	maxMessagesBatchSize = 10000
+	// maxRetryMaxAttempts is the maximum allowed retry attempts.
+	maxRetryMaxAttempts = 100
 )
 
-// OutboxStorageType selects the backend that persists outbox events.
-type OutboxStorageType string
+// StorageType selects the backend that persists outbox events.
+type StorageType string
 
 const (
-	// OutboxStorageTypeMongo persists events in a MongoDB collection
+	// StorageTypeMongo persists events in a MongoDB collection
 	// (reliability/outbox/storages/mongo).
-	OutboxStorageTypeMongo OutboxStorageType = "mongo"
-	// OutboxStorageTypeSQL persists events in a SQL table (PostgreSQL, MySQL
+	StorageTypeMongo StorageType = "mongo"
+	// StorageTypeSQL persists events in a SQL table (PostgreSQL, MySQL
 	// or MariaDB) through an injected *sql.DB (reliability/outbox/storages/sqldb).
-	OutboxStorageTypeSQL OutboxStorageType = "sqldb"
+	StorageTypeSQL StorageType = "sqldb"
 )
 
-var outboxStorageAllowedTypes = []OutboxStorageType{OutboxStorageTypeMongo, OutboxStorageTypeSQL}
+var outboxStorageAllowedTypes = []StorageType{StorageTypeMongo, StorageTypeSQL}
 
-// OutboxWatch selects how the dispatcher learns of newly saved events beyond
+// Watch selects how the dispatcher learns of newly saved events beyond
 // its poll schedule, which stays on in every mode.
-type OutboxWatch string
+type Watch string
 
 const (
-	// OutboxWatchPolling relies on the dispatch schedule alone.
-	OutboxWatchPolling OutboxWatch = "polling"
-	// OutboxWatchChangeStream wakes the dispatcher from a MongoDB change
+	// WatchPolling relies on the dispatch schedule alone.
+	WatchPolling Watch = "polling"
+	// WatchChangeStream wakes the dispatcher from a MongoDB change
 	// stream. MongoDB storage only.
-	OutboxWatchChangeStream OutboxWatch = "changeStream"
-	// OutboxWatchNotify wakes the dispatcher through PostgreSQL LISTEN/NOTIFY:
+	WatchChangeStream Watch = "changeStream"
+	// WatchNotify wakes the dispatcher through PostgreSQL LISTEN/NOTIFY:
 	// saves signal the channel, a listener injected into the factory receives
 	// it. sqldb storage with the postgres dialect only.
-	OutboxWatchNotify OutboxWatch = "notify"
+	WatchNotify Watch = "notify"
 )
 
-// ErrUnsupportedOutboxWatch reports a watch mode the configured storage cannot
+// ErrUnsupportedWatch reports a watch mode the configured storage cannot
 // serve: changeStream on sqldb, notify on mongo or on the mysql dialect. It is
 // wrapped with go-atlas-core ErrInvalidArgument.
-var ErrUnsupportedOutboxWatch = errors.New("outbox watch mode is not supported by the storage")
+var ErrUnsupportedWatch = errors.New("outbox watch mode is not supported by the storage")
 
-// ErrOutboxWatchNeedsSchedule reports a push watch mode without a dispatch
+// ErrWatchNeedsSchedule reports a push watch mode without a dispatch
 // schedule. Retry backoffs and unlock sweeps still require polling.
-var ErrOutboxWatchNeedsSchedule = errors.New("outbox watch requires a dispatch schedule")
+var ErrWatchNeedsSchedule = errors.New("outbox watch requires a dispatch schedule")
 
-// OutboxMongoStorageConfig configures the MongoDB outbox store
+// MongoStorage configures the MongoDB outbox store
 // (reliability/outbox/storages/mongo).
-type OutboxMongoStorageConfig struct {
+type MongoStorage struct {
 	// Collection is the MongoDB collection that stores outbox events.
 	Collection string `yaml:"collection" default:"events_outbox"`
 }
 
 // Validate performs validation of the MongoDB outbox storage configuration.
-func (c *OutboxMongoStorageConfig) Validate() error {
+func (c *MongoStorage) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Collection, validation.Required),
 	)
 }
 
-// OutboxSQLStorageConfig configures the SQL outbox store
+// SQLStorage configures the SQL outbox store
 // (reliability/outbox/storages/sqldb). The *sql.DB itself is injected into the
 // factory; the caller chooses and registers the driver.
-type OutboxSQLStorageConfig struct {
+type SQLStorage struct {
 	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
 	// MariaDB 10.6+).
 	Dialect string `yaml:"dialect" default:"postgres"`
@@ -127,7 +127,7 @@ type OutboxSQLStorageConfig struct {
 }
 
 // Validate performs validation of the SQL outbox storage configuration.
-func (c *OutboxSQLStorageConfig) Validate() error {
+func (c *SQLStorage) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
 		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
@@ -135,7 +135,7 @@ func (c *OutboxSQLStorageConfig) Validate() error {
 	)
 }
 
-// SQL dialects accepted by [OutboxSQLStorageConfig.Dialect].
+// SQL dialects accepted by [SQLStorage.Dialect].
 const (
 	// SQLDialectPostgres targets PostgreSQL 12+.
 	SQLDialectPostgres = "postgres"
@@ -143,65 +143,65 @@ const (
 	SQLDialectMySQL = "mysql"
 )
 
-// OutboxStorageConfig selects and configures the outbox storage backend. Each
+// Storage selects and configures the outbox storage backend. Each
 // backend has its own nested section; only the one named by Type is used.
-type OutboxStorageConfig struct {
-	validators.BackendTypes[OutboxStorageType] `yaml:"-" json:"-"`
+type Storage struct {
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
 
 	// Type selects mongo, sqldb, or a registered storage.
-	Type OutboxStorageType `yaml:"type" default:"mongo"`
+	Type StorageType `yaml:"type" default:"mongo"`
 
 	// Mongo defines the MongoDB configuration.
-	// Required when Type is OutboxStorageTypeMongo, ignored otherwise.
-	Mongo *OutboxMongoStorageConfig `yaml:"mongo" default:"-"`
+	// Required when Type is StorageTypeMongo, ignored otherwise.
+	Mongo *MongoStorage `yaml:"mongo" default:"-"`
 
 	// SQL defines the SQL database configuration.
-	// Required when Type is OutboxStorageTypeSQL, ignored otherwise.
-	SQL *OutboxSQLStorageConfig `yaml:"sqldb" default:"-"`
+	// Required when Type is StorageTypeSQL, ignored otherwise.
+	SQL *SQLStorage `yaml:"sqldb" default:"-"`
 }
 
-// DefaultOutboxStorage returns the default outbox storage configuration
+// DefaultStorage returns the default outbox storage configuration
 // (MongoDB, default collection).
-func DefaultOutboxStorage() *OutboxStorageConfig {
-	return &OutboxStorageConfig{
-		Type:  OutboxStorageTypeMongo,
-		Mongo: &OutboxMongoStorageConfig{Collection: defaultOutboxMongoCollection},
+func DefaultStorage() *Storage {
+	return &Storage{
+		Type:  StorageTypeMongo,
+		Mongo: &MongoStorage{Collection: defaultMongoCollection},
 	}
 }
 
 // Normalize allocates the backend sub-config implied by
-// [OutboxStorageConfig.Type] with its defaults. Call Normalize before Validate
+// [Storage.Type] with its defaults. Call Normalize before Validate
 // so the correct sub-struct is present for validation.
-func (c *OutboxStorageConfig) Normalize() {
+func (c *Storage) Normalize() {
 	switch c.Type {
-	case OutboxStorageTypeMongo:
+	case StorageTypeMongo:
 		if c.Mongo == nil {
-			c.Mongo = &OutboxMongoStorageConfig{Collection: defaultOutboxMongoCollection}
+			c.Mongo = &MongoStorage{Collection: defaultMongoCollection}
 		}
-	case OutboxStorageTypeSQL:
+	case StorageTypeSQL:
 		if c.SQL == nil {
-			c.SQL = &OutboxSQLStorageConfig{Dialect: SQLDialectPostgres, Table: defaultOutboxSQLTable}
+			c.SQL = &SQLStorage{Dialect: SQLDialectPostgres, Table: defaultSQLTable}
 		}
 	}
 }
 
-func (c *OutboxStorageConfig) storageCases() []validationconfig.StorageCase[OutboxStorageType] {
-	return []validationconfig.StorageCase[OutboxStorageType]{
-		{When: OutboxStorageTypeMongo, Field: &c.Mongo},
-		{When: OutboxStorageTypeSQL, Field: &c.SQL},
+func (c *Storage) storageCases() []validationconfig.StorageCase[StorageType] {
+	return []validationconfig.StorageCase[StorageType]{
+		{When: StorageTypeMongo, Field: &c.Mongo},
+		{When: StorageTypeSQL, Field: &c.SQL},
 	}
 }
 
 // Validate performs validation of the outbox storage configuration. Ensures
 // the storage type is valid and its corresponding configuration is provided.
-func (c *OutboxStorageConfig) Validate() error {
+func (c *Storage) Validate() error {
 	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(outboxStorageAllowedTypes...), c.storageCases())
 }
 
-// Outbox defines the configuration for reliable event delivery via the outbox pattern.
+// Config defines the configuration for reliable event delivery via the outbox pattern.
 // This configuration is shared by both the generic outbox (reliability/outbox) and
 // the broker-specific adapter (messaging/broker/outbox).
-type Outbox struct {
+type Config struct {
 	// Enabled determines whether the outbox is enabled.
 	// Defaults to true.
 	Enabled bool `yaml:"enabled" default:"true"`
@@ -280,7 +280,7 @@ type Outbox struct {
 	ExpireSchedule string `yaml:"expireSchedule" default:"@every 11s"`
 
 	// Storage selects and configures the events storage backend.
-	Storage *OutboxStorageConfig `yaml:"storage"`
+	Storage *Storage `yaml:"storage"`
 
 	// Watch selects how the dispatcher learns of newly saved events beyond its
 	// poll schedule: polling (the schedule alone), changeStream (MongoDB
@@ -288,10 +288,10 @@ type Outbox struct {
 	// postgres dialect). The factory starts the watcher; the dispatch schedule
 	// stays mandatory, since retry backoffs and reclaimed leases produce no
 	// notification. Defaults to polling.
-	Watch OutboxWatch `yaml:"watch" default:"polling"`
+	Watch Watch `yaml:"watch" default:"polling"`
 
 	// Scheduler task IDs. Set these to distinct non-default values when
-	// running multiple Outbox instances against the same scheduler — the
+	// running multiple outbox instances against the same scheduler — the
 	// underlying registrar upserts by ID, so two instances sharing
 	// "outbox-dispatch" would silently overwrite each other's Func
 	// pointers. The runtime rejects collisions across the four IDs at
@@ -303,38 +303,68 @@ type Outbox struct {
 	StatsTaskID    string `yaml:"statsTaskID" default:"outbox-stats"`
 }
 
-// Normalize defaults a missing storage section to [DefaultOutboxStorage] and
+// Default returns the outbox configuration with its defaults applied.
+func Default() Config {
+	return Config{
+		Enabled:                 defaultEnabled,
+		FetchTimeout:            defaultFetchTimeout,
+		HandleTimeout:           defaultHandleTimeout,
+		UpdateTimeout:           defaultUpdateTimeout,
+		MessagesBatchSize:       defaultMessagesBatchSize,
+		RetryMaxAttempts:        defaultRetryMaxAttempts,
+		PublishedEventsLifetime: defaultPublishedEventsLifetime,
+		TopicCompaction:         defaultTopicCompaction,
+		DispatchSchedule:        defaultDispatchSchedule,
+		CleanupSchedule:         defaultCleanupSchedule,
+		UnlockSchedule:          defaultUnlockSchedule,
+		StatsSchedule:           defaultStatsSchedule,
+		ExpireSchedule:          defaultExpireSchedule,
+		RetryBaseDelay:          defaultRetryBaseDelay,
+		RetryMaxDelay:           defaultRetryMaxDelay,
+		MaxLockTime:             defaultMaxLockTime,
+		MaxPayloadBytes:         defaultMaxPayloadBytes,
+		DispatchTaskID:          defaultDispatchTaskID,
+		UnlockTaskID:            defaultUnlockTaskID,
+		ExpireTaskID:            defaultExpireTaskID,
+		CleanupTaskID:           defaultCleanupTaskID,
+		StatsTaskID:             defaultStatsTaskID,
+		Storage:                 DefaultStorage(),
+		Watch:                   WatchPolling,
+	}
+}
+
+// Normalize defaults a missing storage section to [DefaultStorage] and
 // allocates the backend sub-config implied by its type. Call before
-// [Outbox.Validate].
-func (c *Outbox) Normalize() {
+// [Config.Validate].
+func (c *Config) Normalize() {
 	if c.Storage == nil {
-		c.Storage = DefaultOutboxStorage()
+		c.Storage = DefaultStorage()
 	}
 	c.Storage.Normalize()
 }
 
 // ValidateStorage validates the storage section and the watch mode alone — the
-// part of [Outbox.Validate] the outbox factories check before building the
+// part of [Config.Validate] the outbox factories check before building the
 // store. A push mode without a dispatch schedule fails
-// with [ErrOutboxWatchNeedsSchedule].
-func (c *Outbox) ValidateStorage() error {
+// with [ErrWatchNeedsSchedule].
+func (c *Config) ValidateStorage() error {
 	err := validationconfig.ValidateStruct(c, validation.Field(&c.Storage, validation.Required))
 	if c.Watch != "" {
 		watchErr := validationconfig.ValidateStruct(c,
-			validation.Field(&c.Watch, ozzo_rules.OneOf(OutboxWatchPolling, OutboxWatchChangeStream, OutboxWatchNotify)))
+			validation.Field(&c.Watch, ozzo_rules.OneOf(WatchPolling, WatchChangeStream, WatchNotify)))
 		if watchErr != nil {
-			err = errors.Join(err, watchErr, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrUnsupportedOutboxWatch))
+			err = errors.Join(err, watchErr, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrUnsupportedWatch))
 		}
 	}
-	if (c.Watch == OutboxWatchChangeStream || c.Watch == OutboxWatchNotify) && c.DispatchSchedule == "" {
-		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrOutboxWatchNeedsSchedule))
+	if (c.Watch == WatchChangeStream || c.Watch == WatchNotify) && c.DispatchSchedule == "" {
+		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrWatchNeedsSchedule))
 	}
 	return err
 }
 
-// Validate performs validation of the Outbox configuration, including
-// [Outbox.ValidateStorage]. A disabled outbox is not validated.
-func (c Outbox) Validate() error {
+// Validate checks the outbox schema, including
+// [Config.ValidateStorage]. A disabled outbox is not validated.
+func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
@@ -345,8 +375,8 @@ func (c Outbox) Validate() error {
 		validation.Field(&c.FetchTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.HandleTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.UpdateTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.MessagesBatchSize, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
-		validation.Field(&c.RetryMaxAttempts, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
+		validation.Field(&c.MessagesBatchSize, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxMessagesBatchSize))),
+		validation.Field(&c.RetryMaxAttempts, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxRetryMaxAttempts))),
 		validation.Field(&c.RetryBaseDelay, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.RetryMaxDelay, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.MaxLockTime, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),

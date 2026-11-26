@@ -7,7 +7,6 @@ package outbox
 //go:generate go tool optgen generate --type=options
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -116,9 +115,6 @@ type options struct {
 
 	// Logger
 	logger *slog.Logger
-
-	// Context
-	baseCtx context.Context `opt:"Context" optgen:"notnil"`
 
 	// WithPublishedEventsLifetime sets how long published events are retained
 	// before cleanup. Values less than MinPublishedEventsLifetime are ignored to

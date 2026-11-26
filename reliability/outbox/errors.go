@@ -8,6 +8,15 @@ import "errors"
 
 // Sentinel errors for the outbox package.
 var (
+	// ErrHandlerPanicked marks a dispatch attempt that panicked. The panic
+	// payload is discarded and the attempt follows the retry budget.
+	ErrHandlerPanicked = errors.New("outbox handler panicked")
+
+	// ErrDispatchInterrupted tells the outbox that the destination was
+	// unavailable for the send. The outbox stops starting new sends in the
+	// current cycle and reschedules this event without charging an attempt.
+	ErrDispatchInterrupted = errors.New("outbox dispatch interrupted")
+
 	// ErrTaskIDCollision is returned from registerTasks when two or more of
 	// the configured scheduler task IDs (dispatch / unlock / expire /
 	// cleanup) are equal. The underlying scheduler upserts by ID, so a

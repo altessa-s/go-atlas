@@ -14,7 +14,7 @@ unreachable server.
 // outbox.storage.type: mongo
 ob, err := outboxfactory.New(&cfg.Outbox).
     UseScheduler(scheduler).
-    UseStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(db)).
+    UseStorage(outboxconfig.StorageTypeMongo, outboxmongofactory.Builder(db)).
     Build(ctx, handler)
 ```
 

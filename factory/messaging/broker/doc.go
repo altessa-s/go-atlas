@@ -39,7 +39,7 @@
 //	    UseScheduler(scheduler).
 //	    UsePublishConverter(publishConverter).
 //	    UseProvider(brokerconfig.ProviderNATS, natsfactory.Builder(natsConn)).
-//	    UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(mongoDB))
+//	    UseOutboxStorage(outboxconfig.StorageTypeMongo, outboxmongofactory.Builder(mongoDB))
 //
 //	provider, err := b.CreateProvider()
 //	if err != nil {
