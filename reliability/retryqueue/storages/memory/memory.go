@@ -218,7 +218,9 @@ func (h dueHeap[P]) Len() int           { return len(h) }
 func (h dueHeap[P]) Less(i, j int) bool { return compareDue(h[i], h[j]) > 0 }
 func (h dueHeap[P]) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 
-func (h *dueHeap[P]) Push(x any) { *h = append(*h, x.(retryqueue.Item[P])) }
+func (h *dueHeap[P]) Push(x any) {
+	*h = append(*h, x.(retryqueue.Item[P])) //nolint:errcheck // heap elements are retry items.
+}
 
 func (h *dueHeap[P]) Pop() any {
 	last := len(*h) - 1
