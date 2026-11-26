@@ -74,31 +74,29 @@ func (b *MongoBuilder) Build(_ context.Context) (*ManagedMongo, error) {
 		return nil, err
 	}
 
-	var unregister func()
+	managed := &ManagedMongo{Mongo: m}
 	if !nilcheck.IsNil(b.healthCoordinator) {
-		unregister = health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
+		managed.unregister = sync.OnceFunc(health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
 			m:      m,
 			logger: b.Logger(),
-		})
+		}))
 	}
-
-	//nolint:contextcheck // Mongo.Close bounds its own teardown independently of the build.
-	return &ManagedMongo{Mongo: m, close: sync.OnceFunc(func() {
-		if unregister != nil {
-			unregister()
-		}
-		m.Close()
-	})}, nil
+	return managed, nil
 }
 
 // ManagedMongo owns a MongoDB client and its health registration.
 type ManagedMongo struct {
 	*mongo.Mongo
-	close func()
+	unregister func()
 }
 
-// Close unregisters the health checker and closes the MongoDB client.
-func (m *ManagedMongo) Close() { m.close() }
+// Close releases the factory health registration and closes the current MongoDB connection.
+func (m *ManagedMongo) Close() {
+	if m.unregister != nil {
+		m.unregister()
+	}
+	m.Mongo.Close()
+}
 
 // ClientOptions creates MongoDB driver [mongoOptions.ClientOptions] from
 // the builder's configuration. When [mongoconfig.Config.ConnectionURI] is set, ApplyURI
