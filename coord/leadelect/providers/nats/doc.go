@@ -4,6 +4,8 @@
 
 // Package nats provides NATS JetStream KeyValue-based leader election for distributed systems.
 // Uses TTL-based leadership with automatic renewal and failure recovery. Requires NATS Server v2.11.0+.
+// Each [Provider.Start] has its own KV ownership token. [Provider.LeaderId]
+// reports the configured ID of the current holder.
 //
 // Example:
 //
