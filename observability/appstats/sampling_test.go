@@ -6,7 +6,6 @@ package appstats
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -86,38 +85,44 @@ func TestCPULoad_ConcurrentDuringInitialize_NoPanic(t *testing.T) {
 	}
 	sampler.sample = func(context.Context) {}
 
+	type result struct {
+		data     *CPULoadData
+		err      error
+		panicked any
+	}
+	read := func(out *result) {
+		defer func() { out.panicked = recover() }()
+		out.data, out.err = CPULoad(t.Context())
+	}
+
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		data, err := CPULoad(t.Context())
-		require.NoError(t, err)
-		require.Equal(t, zeroPercent, data.Service)
-	})
-
+	var first, second result
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer func() {
+		unblock()
+		wg.Wait()
+	}()
+	wg.Go(func() { read(&first) })
 	<-entered
-	require.False(t, sampler.running.Load(), "running must remain false until initialize completes")
+	runningDuringInit := sampler.running.Load()
 
-	var panicked any
-	var secondData *CPULoadData
 	secondStarted := make(chan struct{})
 	wg.Go(func() {
-		defer func() { panicked = recover() }()
 		close(secondStarted)
-		var err error
-		secondData, err = CPULoad(t.Context())
-		require.NoError(t, err)
+		read(&second)
 	})
 
 	<-secondStarted
-	for range 64 {
-		runtime.Gosched()
-	}
-	close(release)
+	unblock()
 	wg.Wait()
-	StopMetricsCollection()
 
-	require.Nil(t, panicked, "concurrent CPULoad during initialization must not panic")
-	require.NotNil(t, secondData)
-	require.Equal(t, zeroPercent, secondData.Service)
+	require.False(t, runningDuringInit, "running must remain false until initialize completes")
+	for _, got := range []result{first, second} {
+		require.Nil(t, got.panicked, "concurrent CPULoad during initialization must not panic")
+		require.NoError(t, got.err)
+		require.NotNil(t, got.data)
+		require.Equal(t, zeroPercent, got.data.Service)
+	}
 }
 
 // Serial: mutates package-level sampler and cachedMetrics.
