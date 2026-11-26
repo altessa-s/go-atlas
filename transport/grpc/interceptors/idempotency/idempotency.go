@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"sync"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
@@ -65,8 +66,11 @@ func (i *interceptor) Dependencies() []string {
 // requestInterceptor handles a single request with its own state
 type requestInterceptor struct {
 	*interceptor
-	meta        *sharedmetadata.CallMetadata
-	currentKey  atomic.Value
+	meta       *sharedmetadata.CallMetadata
+	currentKey atomic.Value
+	// mu guards lockedKey and lockedState: a stream handler may receive on
+	// one goroutine while the call finishes on another.
+	mu          sync.Mutex
 	lockedKey   string
 	lockedState *idempotency.State // populated by AttemptLock; required by Complete
 }
@@ -151,6 +155,15 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 // returns the stored response instead of the already-used error; the caller
 // answers with it and skips the handler.
 func (ri *requestInterceptor) check(ctx context.Context, req any, replay bool) (proto.Message, error) {
+	ri.mu.Lock()
+	defer ri.mu.Unlock()
+
+	// A call takes its lock once, on the message that keys it: the later
+	// messages of a stream belong to the same call and the same fingerprint.
+	if ri.lockedKey != "" {
+		return nil, nil //nolint:nilnil // already locked by this call
+	}
+
 	// Skip check if request is nil or empty
 	if req == nil || ri.ShouldIgnore(ri.meta.FullyMethodName) {
 		return nil, nil //nolint:nilnil // no replay, no error
@@ -356,6 +369,8 @@ func (ri *requestInterceptor) PostMsgReceive(ctx context.Context, req any, err e
 
 // PostCall is called after the call is made.
 func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) error {
+	ri.mu.Lock()
+	defer ri.mu.Unlock()
 	if ri.lockedKey == "" {
 		return err
 	}
@@ -383,6 +398,8 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) 
 // OnPanic releases the lock of a call whose handler panicked; PostCall does
 // not run for it.
 func (ri *requestInterceptor) OnPanic(ctx context.Context) {
+	ri.mu.Lock()
+	defer ri.mu.Unlock()
 	if ri.lockedKey != "" {
 		ri.release(ctx)
 	}
