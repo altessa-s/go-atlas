@@ -63,12 +63,12 @@ const (
 
 	// DefaultJWKSMaxStaleness is the default maximum age allowed for the
 	// locally cached JWKS before validation reacts per the configured
-	// [JWKSFailureMode]. A value of zero (the default) disables the
-	// staleness check entirely — callers that want to enforce a freshness
-	// bound must opt in via [WithJWKSMaxStaleness] and pair it with an
-	// active refresh path ([WithJWKSRefreshSchedule] or manual
-	// [Provider.RefreshJWKS] calls).
-	DefaultJWKSMaxStaleness time.Duration = 0
+	// [JWKSFailureMode] (24h). Past it validation fails closed with
+	// [ErrJWKSStale] until a refresh succeeds, so keep an active refresh path
+	// ([WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls). Pass
+	// zero to [WithJWKSMaxStaleness] (or [JWKSFailureModeDisabled]) to disable
+	// the check explicitly.
+	DefaultJWKSMaxStaleness time.Duration = 24 * time.Hour
 
 	// DefaultJWKSFailureMode is the default behavior when the JWKS cache
 	// exceeds [DefaultJWKSMaxStaleness]. Production safe: [JWKSFailureModeEnforce]
@@ -96,7 +96,7 @@ const (
 	JWKSFailureModeWarn JWKSFailureMode = "warn"
 
 	// JWKSFailureModeDisabled bypasses the staleness check entirely. It is
-	// equivalent to leaving [DefaultJWKSMaxStaleness] at zero and exists so
+	// equivalent to passing zero to [WithJWKSMaxStaleness] and exists so
 	// operators can override a non-zero default supplied through config
 	// without recompiling.
 	JWKSFailureModeDisabled JWKSFailureMode = "disabled"
@@ -224,8 +224,11 @@ type options struct {
 
 	// JWKS refresh and freshness.
 
-	jwksHTTPTimeout  time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
-	jwksMaxStaleness time.Duration `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
+	jwksHTTPTimeout time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
+	// WithJWKSMaxStaleness bounds the age of the cached JWKS — see
+	// [DefaultJWKSMaxStaleness]. Zero disables the bound; negative values are
+	// ignored.
+	jwksMaxStaleness time.Duration `opt:"JWKSMaxStaleness" optcheck:"min=0" optgen:"default=DefaultJWKSMaxStaleness,onfail=skip"`
 	// WithJWKSUnknownKidRefreshInterval sets the minimum time between JWKS
 	// refresh attempts triggered by unknown signing keys. Zero disables the
 	// throttle; negative values are ignored.
@@ -237,7 +240,7 @@ type options struct {
 	//
 	// Pair this with [WithJWKSMaxStaleness] (and an active refresh path such
 	// as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
-	// without a non-zero staleness budget the mode has no effect.
+	// with a zero staleness budget the mode has no effect.
 	jwksFailureMode JWKSFailureMode `opt:"JWKSFailureMode" optcheck:"oneof=[JWKSFailureModeEnforce,JWKSFailureModeWarn,JWKSFailureModeDisabled]" optgen:"default=DefaultJWKSFailureMode,onfail=skip"` //nolint:lll
 	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
 	jwksRefreshEnabled bool `optgen:"manual"`

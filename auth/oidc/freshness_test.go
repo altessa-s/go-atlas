@@ -136,6 +136,7 @@ func TestSignedUserInfoFreshness(t *testing.T) {
 				return resp, nil
 			})
 			setStaleness(t, p, 2*time.Minute)
+			idp.jwksStatus.Store(http.StatusInternalServerError) // the stale-cache refresh fails
 			token := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test"})
 			info, err := p.UserInfo(t.Context(), token)
 			if mode == JWKSFailureModeEnforce {
@@ -145,6 +146,7 @@ func TestSignedUserInfoFreshness(t *testing.T) {
 				require.Equal(t, "user-1", info.Id)
 				require.Contains(t, logs.String(), "JWKSFailureModeWarn")
 			}
+			idp.jwksStatus.Store(http.StatusOK)
 			require.NoError(t, p.RefreshJWKS(t.Context()))
 			info, err = p.UserInfo(t.Context(), token)
 			require.NoError(t, err)

@@ -17,7 +17,8 @@ import (
 // AuthFunc returns an [auth.AuthFunc] that validates the token against store.
 // Errors from store are wrapped so callers can match both the transport-level
 // [auth.ErrUnauthorized] / [auth.ErrInvalidToken] sentinels and the underlying
-// [static.ErrTokenInvalid] / [static.ErrTokenEmpty] / [static.ErrRateLimited]
+// [static.ErrTokenInvalid] / [static.ErrTokenEmpty] / [static.ErrRateLimited] /
+// [static.ErrRateLimitKeyEmpty]
 // causes via [errors.Is]. The original error chain is preserved for logs and
 // custom [auth.ErrorHandler] implementations.
 //
@@ -81,6 +82,8 @@ func auditReason(err error) string {
 		return "empty_token"
 	case errors.Is(err, static.ErrRateLimited):
 		return "rate_limited"
+	case errors.Is(err, static.ErrRateLimitKeyEmpty):
+		return "empty_rate_limit_key"
 	default:
 		return "error"
 	}
@@ -88,7 +91,7 @@ func auditReason(err error) string {
 
 func translateError(err error) error {
 	switch {
-	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty):
+	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty), errors.Is(err, static.ErrRateLimitKeyEmpty):
 		return fmt.Errorf("%w: %w", auth.ErrUnauthorized, err)
 	case errors.Is(err, static.ErrRateLimited):
 		return fmt.Errorf("%w: %w", auth.ErrUnauthorized, err)

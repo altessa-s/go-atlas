@@ -50,6 +50,13 @@
 #    # Default value: 30s
 #    httpTimeout: "30s"
 #
+#    # <duration> Maximum age of the cached JWKS. Past it validation first tries
+#    # one refresh and is rejected (fail closed) only if that fails. Keep it at
+#    # least twice the longest gap of refreshSchedule. Omit the key for the
+#    # default (24h); an explicit zero disables the bound.
+#    # Default value: not set
+#    maxStaleness: "24h"
+#
 #  # <object> Shared OAuth2 client credentials for server-to-server operations.
 #  # Used by introspection (RFC 7662) and other client credentials flows.
 #  clientCredentials:

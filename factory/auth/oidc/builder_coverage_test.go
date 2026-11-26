@@ -44,6 +44,7 @@ type coverageIdP struct {
 	srv     *httptest.Server
 	key     *rsa.PrivateKey
 	rotated atomic.Pointer[rsa.PrivateKey]
+	down    atomic.Bool // makes the JWKS endpoint fail
 }
 
 func newCoverageIdP(t *testing.T) *coverageIdP {
@@ -62,6 +63,10 @@ func newCoverageIdP(t *testing.T) *coverageIdP {
 		})
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
+		if idp.down.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		key, kid := idp.key, "k1"
 		if rotated := idp.rotated.Load(); rotated != nil {

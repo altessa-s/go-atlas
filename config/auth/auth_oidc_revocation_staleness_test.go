@@ -49,3 +49,36 @@ func TestOIDCRevocation_MaxStalenessLoadsFromYAML(t *testing.T) {
 		})
 	}
 }
+
+// jwks.maxStaleness stays nil when the key is absent (the provider applies its
+// 24h default), and an explicit zero — the opt-out — survives loading.
+func TestOIDCJwks_MaxStalenessLoadsFromYAML(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+		want *time.Duration
+	}{
+		{name: "absent key stays unset", yaml: "    httpTimeout: 5s\n"},
+		{name: "explicit value", yaml: "    maxStaleness: 6h\n", want: new(6 * time.Hour)},
+		{name: "explicit zero opts out", yaml: "    maxStaleness: 0s\n", want: new(time.Duration(0))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			doc := "oidc:\n  discoveryURL: https://idp.example.com\n  jwks:\n" + tc.yaml
+			require.NoError(t, os.WriteFile(path, []byte(doc), 0o600))
+
+			var cfg struct {
+				OIDC authconfig.OIDC `yaml:"oidc"`
+			}
+			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&cfg)
+			require.NoError(t, err)
+			require.NotNil(t, cfg.OIDC.JWKS)
+			require.Equal(t, tc.want, cfg.OIDC.JWKS.MaxStaleness)
+		})
+	}
+}

@@ -186,9 +186,12 @@ func (p *jwksKeySource) markJWKSRefreshed() {
 //     proceed;
 //   - [JWKSFailureModeDisabled] is a no-op.
 //
-// A zero [WithJWKSMaxStaleness] disables the check regardless of mode,
-// preserving the historical opt-in behavior so callers without an
-// active refresh path are not surprised by sudden rejections.
+// A stale cache triggers one coalesced refresh (throttled like the
+// unknown-key refresh) before the mode applies, so a provider without a
+// refresh schedule recovers while the IdP is healthy.
+//
+// The bound defaults to [DefaultJWKSMaxStaleness]; a zero
+// [WithJWKSMaxStaleness] disables the check regardless of mode.
 func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
 	maxStaleness := p.jwksMaxStaleness
 	if maxStaleness <= 0 {
@@ -206,6 +209,19 @@ func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
 	age := p.clock.elapsed(last.observedAt)
 	if age <= maxStaleness {
 		return nil
+	}
+
+	// A provider without a refresh schedule has nothing else to renew the
+	// cache, so try one coalesced, throttled refresh before reacting. A joined
+	// or throttled attempt counts as success when another refresh renewed the
+	// cache meanwhile.
+	if p.refreshFlight != nil {
+		err := p.refreshJWKS(ctx, last)
+		if err == nil || errors.Is(err, errUnknownKidRefreshSkipped) {
+			if cur := p.lastJWKSRefresh.Load(); cur != nil && p.clock.elapsed(cur.observedAt) <= maxStaleness {
+				return nil
+			}
+		}
 	}
 
 	p.metrics.jwksStaleRejections.Inc()

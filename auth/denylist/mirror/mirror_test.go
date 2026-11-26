@@ -114,6 +114,27 @@ func TestMaxStalenessRefusesOldSnapshot(t *testing.T) {
 	require.True(t, isRevoked(t, c, "a"))
 }
 
+func TestDefaultMaxStalenessRefusesOldSnapshot(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 5*time.Minute, mirror.DefaultMaxStaleness)
+
+	var now atomic.Int64
+	now.Store(1_750_000_000)
+	clock := func() time.Time { return time.Unix(now.Load(), 0) }
+
+	c := mirror.New(&swapSource{keys: []string{"a"}}, mirror.WithClock(clock))
+	require.NoError(t, c.Prime(t.Context()))
+	now.Add(int64(mirror.DefaultMaxStaleness/time.Second) + 1)
+	_, err := c.IsRevoked("a")
+	require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+
+	off := mirror.New(&swapSource{keys: []string{"a"}}, mirror.WithClock(clock), mirror.WithMaxStaleness(0))
+	require.NoError(t, off.Prime(t.Context()))
+	now.Add(24 * 3600)
+	require.True(t, isRevoked(t, off, "a"), "an explicit zero disables the bound")
+}
+
 // A reader sees one published snapshot: while the cache holds a stale snapshot
 // it refuses, and once a refresh publishes a snapshot with different membership
 // every answer comes from that snapshot. An old set paired with the new

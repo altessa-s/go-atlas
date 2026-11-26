@@ -11,6 +11,11 @@ import (
 
 //go:generate go tool optgen generate
 
+// DefaultMaxStaleness is the oldest snapshot a [Cache] trusts when
+// [WithMaxStaleness] is not set. Pass zero to [WithMaxStaleness] to disable the
+// bound explicitly.
+const DefaultMaxStaleness = 5 * time.Minute
+
 // options carries the optional [Cache] tunables.
 type options struct {
 	// metrics records refresh outcomes and snapshot size. Nil disables metrics —
@@ -24,8 +29,9 @@ type options struct {
 	clock func() time.Time `optgen:"default=time.Now,notnil"`
 	// maxStaleness is the oldest snapshot [Cache.IsRevoked] still trusts; an
 	// older one answers [github.com/altessa-s/go-atlas/auth/jwt.ErrRevocationUnavailable].
-	// Zero disables the bound. Set via the generated WithMaxStaleness.
-	maxStaleness time.Duration `optcheck:"min=0" optgen:"onfail=skip"`
+	// Defaults to [DefaultMaxStaleness]; zero disables the bound explicitly. Set
+	// via the generated WithMaxStaleness.
+	maxStaleness time.Duration `optcheck:"min=0" optgen:"default=DefaultMaxStaleness,onfail=skip"`
 	// serveUnprimed lets an unprimed cache answer "not revoked" instead of
 	// refusing. It is written by the hand-written [WithInsecureServeUnprimed],
 	// whose name states the risk and which takes no argument.

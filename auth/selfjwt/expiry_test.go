@@ -36,3 +36,31 @@ func TestMintResultExpiryEqualsSignedExp(t *testing.T) {
 		require.Zero(t, res.Expiry.Nanosecond())
 	}
 }
+
+// The signed exp is rounded UP to the next whole second, so a token lives at
+// least the requested TTL.
+func TestMintExpiryRoundsUp(t *testing.T) {
+	t.Parallel()
+
+	p := newProvider(t, jwt.AlgEdDSA)
+	tests := []struct {
+		name string
+		now  time.Time
+		ttl  time.Duration
+		want time.Time
+	}{
+		{"sub-second remainder rounds up", time.Unix(1_750_000_000, 100_000_000), 1500 * time.Millisecond, time.Unix(1_750_000_002, 0)},
+		{"almost whole second rounds up", time.Unix(1_750_000_000, 999_999_999), time.Second, time.Unix(1_750_000_002, 0)},
+		{"whole second is unchanged", time.Unix(1_750_000_000, 0), time.Minute, time.Unix(1_750_000_060, 0)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: tc.now}))
+			res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: tc.ttl})
+			require.NoError(t, err)
+			require.True(t, res.Expiry.Equal(tc.want), "got %s, want %s", res.Expiry, tc.want)
+			require.False(t, res.Expiry.Before(tc.now.Add(tc.ttl)))
+		})
+	}
+}

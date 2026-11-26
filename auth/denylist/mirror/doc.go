@@ -29,7 +29,8 @@
 // revoked": until [Cache.Prime] (or the first [Cache.Refresh]) succeeds,
 // [Cache.IsRevoked] returns jwt.ErrRevocationUnavailable and the verifier
 // rejects the token with that sentinel, distinct from jwt.ErrTokenRevoked.
-// [WithMaxStaleness] extends this to a snapshot that stopped refreshing, and
+// [WithMaxStaleness] (default [DefaultMaxStaleness]; zero disables it) extends
+// this to a snapshot that stopped refreshing, and
 // [Cache.Ready] and [Cache.Age] expose the state for health checks. Each refused
 // lookup is counted (unavailable_total) and the change of state is logged once.
 // [WithInsecureServeUnprimed] opts out of the unprimed refusal.

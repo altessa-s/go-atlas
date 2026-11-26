@@ -66,3 +66,54 @@ func TestProviderBuilder_RevocationMaxStalenessIsMapped(t *testing.T) {
 		})
 	}
 }
+
+// jwks.maxStaleness must reach oidc.WithJWKSMaxStaleness only when set: an
+// omitted value adds no option (the provider keeps its 24h default), a tiny
+// bound is enforced once the IdP is down, and an explicit zero opts out.
+func TestProviderBuilder_JWKSMaxStalenessIsMapped(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, oidc.DefaultJWKSMaxStaleness, *authconfig.DefaultOIDCJwks().MaxStaleness)
+
+	build := func(maxStaleness *time.Duration, idp *coverageIdP) *ProviderBuilder {
+		return New(&authconfig.OIDC{
+			DiscoveryUrl: idp.discoveryURL(),
+			Validation:   &authconfig.OIDCValidation{Claims: &authconfig.OIDCClaims{Audience: []string{"svc"}}},
+			JWKS:         &authconfig.OIDCJwks{HTTPTimeout: 5 * time.Second, MaxStaleness: maxStaleness},
+		})
+	}
+
+	t.Run("omitted adds no option", func(t *testing.T) {
+		t.Parallel()
+		idp := newCoverageIdP(t)
+		omitted, err := build(nil, idp).buildProviderOptions(t.Context())
+		require.NoError(t, err)
+		set, err := build(new(time.Hour), idp).buildProviderOptions(t.Context())
+		require.NoError(t, err)
+		require.Len(t, set, len(omitted)+1)
+	})
+
+	for _, tc := range []struct {
+		name    string
+		bound   time.Duration
+		wantErr error
+	}{
+		{name: "bound is enforced when the refresh fails", bound: time.Nanosecond, wantErr: oidc.ErrJWKSStale},
+		{name: "explicit zero opts out"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := newCoverageIdP(t)
+			p := idp.provider(t, build(&tc.bound, idp))
+			idp.down.Store(true)
+
+			_, err := p.ValidateToken(t.Context(), idp.sign(t, nil))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

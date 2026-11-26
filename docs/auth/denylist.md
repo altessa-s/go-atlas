@@ -49,7 +49,7 @@ rotates keys. `denylist` is the small explicit seam any of them can share.
 | Concept       | Type / signature                                               | Role                                                                             |
 |---------------|----------------------------------------------------------------|----------------------------------------------------------------------------------|
 | Denylist      | `*denylist.Denylist`                                           | The in-memory revoked-identifier set, with permanent and expiry-bounded entries. |
-| Checker       | `denylist.Checker` — `IsRevoked(key) (bool, error)`           | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.            |
+| Checker       | `denylist.Checker` — `IsRevoked(key) (bool, error)`            | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.            |
 | Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.                                      |
 
 The core distinguishes two entry kinds: **permanent** (`Revoke`, cleared only by `Restore`) and **expiry-bounded** (`RevokeUntil`, forgotten
@@ -155,7 +155,7 @@ cache, err := mirrorfactory.NewBuilder(store.RawSource()).
     UseScheduler(scheduler).           // runs the refresh task; each mirror needs its own UseName on one scheduler
     UseHealthCoordinator(coordinator). // NotServing while unprimed or stale
     UseRefreshSchedule("@every 15s").
-    UseMaxStaleness(time.Minute).      // not shorter than the refresh interval
+    UseMaxStaleness(time.Minute).      // default 5m; at least twice the refresh interval
     Build(ctx)                         // primes with ctx (bounded by the prime timeout); a source error fails Build
 if err != nil {
     return err
@@ -166,18 +166,18 @@ verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
 
 Without the factory: `m := mirror.New(src, mirror.WithMaxStaleness(d)); err := m.Prime(ctx)` before serving, then `m.Refresh` on a schedule.
 
-| Symbol                                      | Description                                                                                                         |
-|---------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
-| `Cache.Prime(ctx)`                          | First synchronous refresh; returns the source error (reported by type only, never its text).                         |
-| `Cache.IsRevoked(id) (bool, error)`         | Lock-free lookup; `jwt.ErrRevocationUnavailable` while unprimed or older than the maximum staleness.                 |
-| `Cache.Ready()` / `Cache.Age()`             | Primed and fresh enough to answer / time since the scan that produced the snapshot started (for health checks).     |
-| `WithMaxStaleness(d)` / `WithClock(fn)`     | Oldest snapshot still trusted; **zero (the default) disables the bound**; time source.                              |
-| `WithInsecureServeUnprimed()`               | Answer "not revoked" before the first refresh instead of refusing. Factory: `UseInsecureServeUnprimed`.             |
+| Symbol                                  | Description                                                                                                     |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `Cache.Prime(ctx)`                      | First synchronous refresh; returns the source error (reported by type only, never its text).                    |
+| `Cache.IsRevoked(id) (bool, error)`     | Lock-free lookup; `jwt.ErrRevocationUnavailable` while unprimed or older than the maximum staleness.            |
+| `Cache.Ready()` / `Cache.Age()`         | Primed and fresh enough to answer / time since the scan that produced the snapshot started (for health checks). |
+| `WithMaxStaleness(d)` / `WithClock(fn)` | Oldest snapshot still trusted; **default 5m, zero disables the bound**; time source.                            |
+| `WithInsecureServeUnprimed()`           | Answer "not revoked" before the first refresh instead of refusing. Factory: `UseInsecureServeUnprimed`.         |
 
 Verifiers reject with `jwt.ErrRevocationUnavailable` (distinct from `jwt.ErrTokenRevoked`) and a verifier with a revocation checker also
-requires every token to carry a string `jti`; `jwt.WithInsecureRevocationAllowMissingID()` opts out. **Release note:** the staleness bound is off by
-default, so after a successful prime a source that stays down keeps serving the last snapshot indefinitely; set `WithMaxStaleness` (a few refresh
-intervals) to bound it.
+requires every token to carry a string `jti`; `jwt.WithInsecureRevocationAllowMissingID()` opts out. **Release note:** the staleness bound is on by
+default (5m), so a source that stays down makes the mirror refuse lookups once the last snapshot is older than that; `WithMaxStaleness(0)` disables
+the bound. The factory rejects a bound below twice the longest gap between refreshes.
 
 ## Correctness and Staleness
 
@@ -213,22 +213,22 @@ once).
 
 ## API Reference
 
-| Symbol                                                                 | Description                                                                  |
-|------------------------------------------------------------------------|------------------------------------------------------------------------------|
-| `denylist.New(opt…)`                                                   | Empty in-memory denylist. `WithClock(now)` overrides the time source.        |
-| `Denylist.Revoke(key)`                                                 | Deny `key` permanently, until a matching `Restore`.                          |
-| `Denylist.RevokeUntil(key, expiry)`                                    | Deny `key` until `expiry`; an expiry at or before now is a no-op.            |
-| `Denylist.Restore(key)`                                                | Re-allow `key`.                                                              |
-| `Denylist.IsRevoked(key) (bool, error)`                                | Whether `key` is currently revoked (expired entries report false); the error is always nil in memory. |
-| `Denylist.Sweep() int` / `Len() int`                                   | Drop expired entries / tracked-entry count, for observability and tests.     |
+| Symbol                                                                 | Description                                                                                                       |
+|------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `denylist.New(opt…)`                                                   | Empty in-memory denylist. `WithClock(now)` overrides the time source.                                             |
+| `Denylist.Revoke(key)`                                                 | Deny `key` permanently, until a matching `Restore`.                                                               |
+| `Denylist.RevokeUntil(key, expiry)`                                    | Deny `key` until `expiry`; an expiry at or before now is a no-op.                                                 |
+| `Denylist.Restore(key)`                                                | Re-allow `key`.                                                                                                   |
+| `Denylist.IsRevoked(key) (bool, error)`                                | Whether `key` is currently revoked (expired entries report false); the error is always nil in memory.             |
+| `Denylist.Sweep() int` / `Len() int`                                   | Drop expired entries / tracked-entry count, for observability and tests.                                          |
 | `denylist.Checker`                                                     | Read seam `IsRevoked(key) (bool, error)` a verifier accepts; an error means "cannot answer", never "not revoked". |
-| `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets namespace, `WithStrictExactReads` enforces primary reads. |
-| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods (`ErrReplicaReadNotAllowed` on replica).      |
-| `Store.RawSource()` / `Store.DataLoader()`                               | Stream bare revoked keys for the mirror or filter rebuild (`ErrUnsupportedClient` outside standalone).   |
-| `negcache.New(filter, authoritative)`                                  | Negative cache over a filter and an exact store.                             |
-| `Cache.IsRevoked(ctx, key)` / `Add(ctx, key)` / `Rebuild(ctx, loader)` | Lookup / record local revocation / repopulate the filter.                    |
-| `negcache.FromChecker(checker)`                                        | Adapt a synchronous `denylist.Checker` to `Authoritative`.                   |
-| `negcache.WithMetrics(m)` / `NewMetrics(collector, subsystem)`         | Enable lookup telemetry.                                                     |
+| `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets namespace, `WithStrictExactReads` enforces primary reads.          |
+| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods (`ErrReplicaReadNotAllowed` on replica).               |
+| `Store.RawSource()` / `Store.DataLoader()`                             | Stream bare revoked keys for the mirror or filter rebuild (`ErrUnsupportedClient` outside standalone).            |
+| `negcache.New(filter, authoritative)`                                  | Negative cache over a filter and an exact store.                                                                  |
+| `Cache.IsRevoked(ctx, key)` / `Add(ctx, key)` / `Rebuild(ctx, loader)` | Lookup / record local revocation / repopulate the filter.                                                         |
+| `negcache.FromChecker(checker)`                                        | Adapt a synchronous `denylist.Checker` to `Authoritative`.                                                        |
+| `negcache.WithMetrics(m)` / `NewMetrics(collector, subsystem)`         | Enable lookup telemetry.                                                                                          |
 
 ## Design Notes
 

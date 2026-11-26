@@ -16,7 +16,7 @@
 // jwt.ErrRevocationUnavailable. Each mirror registers its own task and health
 // service ([Builder.UseName]) because a scheduler replaces a task registered
 // under an existing ID; the maximum staleness must not be shorter than an
-// "@every" refresh interval, and is off by default. [Builder.Build] returns a
+// "@every" refresh interval, and defaults to [mirror.DefaultMaxStaleness] (5m; zero disables it). [Builder.Build] returns a
 // [Managed] mirror; its Close makes the refresh task a no-op, leaving
 // it registered but inert, and releases the health registration.
 //

@@ -17,4 +17,10 @@ var (
 	// ErrRateLimited is returned when [RateLimitedStore] rejects a request
 	// because the supplied [RateLimiter] denies it.
 	ErrRateLimited = errors.New("auth/static: too many authentication attempts")
+
+	// ErrRateLimitKeyEmpty is returned when the [KeyFunc] of a
+	// [RateLimitedStore] yields an empty key. The request is rejected without
+	// validating the token (fail closed): a missing key means the caller cannot
+	// be attributed to a rate-limit bucket.
+	ErrRateLimitKeyEmpty = errors.New("auth/static: empty rate-limit key")
 )

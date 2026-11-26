@@ -61,8 +61,8 @@ type MintResult struct {
 	Token string
 	ID    string
 	// Expiry is the instant of the signed exp claim: the issue time plus the
-	// TTL, truncated to the second, because a NumericDate here has whole-second
-	// precision.
+	// TTL, rounded up to the next whole second, because a NumericDate here has
+	// whole-second precision.
 	Expiry time.Time
 }
 
@@ -99,9 +99,12 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 	if ttl <= 0 || ttl > m.opts.maxTokenLifetime {
 		ttl = m.opts.maxTokenLifetime
 	}
-	// exp is a whole-second NumericDate: report the signed instant, not the
-	// sub-second one it was truncated from.
+	// exp is a whole-second NumericDate, rounded up so the token lives at least
+	// the requested TTL; report the signed instant, not the sub-second one.
 	exp := now.Add(ttl).Truncate(time.Second)
+	if exp.Before(now.Add(ttl)) {
+		exp = exp.Add(time.Second)
+	}
 
 	claims := jwt.Claims{
 		"iss": m.issuer,
