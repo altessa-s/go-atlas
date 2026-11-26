@@ -5,6 +5,8 @@
 package metrics
 
 import (
+	"sync"
+
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 )
 
@@ -24,6 +26,12 @@ import (
 //	})
 type InternerMetrics struct {
 	interner *intern.Interner
+
+	mu            sync.Mutex
+	prevHotHits   uint64
+	prevColdHits  uint64
+	prevMisses    uint64
+	prevEvictions uint64
 
 	hotHitsTotal   Counter
 	coldHitsTotal  Counter
@@ -77,26 +85,40 @@ func NewInternerMetrics(c Meter, interner *intern.Interner) *InternerMetrics {
 	}
 }
 
-// Report reads the current [intern.Stats] snapshot and pushes
-// delta counters and absolute gauges into the metrics collector. It is
-// designed to be called periodically (e.g., every minute via scheduler).
-//
-// Counter metrics are reported as deltas since the last Report call; gauge
-// metrics reflect the instantaneous value at the time of the call.
+// Report reads the current cumulative [intern.Stats] snapshot and pushes
+// counter deltas since the previous Report and instantaneous gauges into the
+// metrics collector without resetting the interner's stats. Safe for
+// concurrent calls.
 func (im *InternerMetrics) Report() {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
 	stats := im.interner.Stats()
 
-	// Counters: report cumulative values — the metrics backend handles delta.
-	im.hotHitsTotal.Add(float64(stats.HotHits))
-	im.coldHitsTotal.Add(float64(stats.ColdHits))
-	im.missesTotal.Add(float64(stats.Misses))
-	im.evictionsTotal.Add(float64(stats.Evictions))
+	hotDelta, prevHot := deltaCounter(im.prevHotHits, stats.HotHits)
+	coldDelta, prevCold := deltaCounter(im.prevColdHits, stats.ColdHits)
+	missesDelta, prevMisses := deltaCounter(im.prevMisses, stats.Misses)
+	evictDelta, prevEvict := deltaCounter(im.prevEvictions, stats.Evictions)
 
-	// Gauges: absolute point-in-time values.
+	im.prevHotHits = prevHot
+	im.prevColdHits = prevCold
+	im.prevMisses = prevMisses
+	im.prevEvictions = prevEvict
+
+	if hotDelta > 0 {
+		im.hotHitsTotal.Add(float64(hotDelta))
+	}
+	if coldDelta > 0 {
+		im.coldHitsTotal.Add(float64(coldDelta))
+	}
+	if missesDelta > 0 {
+		im.missesTotal.Add(float64(missesDelta))
+	}
+	if evictDelta > 0 {
+		im.evictionsTotal.Add(float64(evictDelta))
+	}
+
 	im.currentSize.Set(float64(stats.CurrentSize))
 	im.hitRate.Set(stats.HitRate())
 	im.hotHitRate.Set(stats.HotHitRate())
-
-	// Reset stats so next Report() captures only the delta window.
-	im.interner.ResetStats()
 }

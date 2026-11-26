@@ -4,6 +4,8 @@
 
 package metrics
 
+import "sync"
+
 // RegexCacheStatsSnapshot holds a point-in-time snapshot of regex pattern cache
 // performance counters, mirroring the go-aip filter.Policy.RegexCacheStats
 // result without importing go-aip.
@@ -48,9 +50,7 @@ func (s RegexCacheStatsSnapshot) HitRate() float64 {
 type RegexCacheMetrics struct {
 	statsFunc func() RegexCacheStatsSnapshot
 
-	// Previous-snapshot bookkeeping for delta computation. Holds the
-	// last cumulative values observed by Report; the next Report adds
-	// only the difference.
+	mu         sync.Mutex
 	prevHits   uint64
 	prevMisses uint64
 
@@ -97,8 +97,12 @@ func NewRegexCacheMetrics(c Meter, statsFunc func() RegexCacheStatsSnapshot) *Re
 // delta since the previous Report into the counters. Gauges are absolute.
 // A backwards step (cumulative counter went down — typical when the
 // upstream cache is explicitly cleared) is treated as a counter reset:
-// the new value becomes the baseline and no negative delta is published.
+// the current count accumulated since the reset is added and becomes the
+// new baseline. Safe for concurrent calls.
 func (m *RegexCacheMetrics) Report() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	stats := m.statsFunc()
 
 	hitsDelta, prevHits := deltaCounter(m.prevHits, stats.Hits)
@@ -118,12 +122,12 @@ func (m *RegexCacheMetrics) Report() {
 }
 
 // deltaCounter computes the additive delta between two snapshots of a
-// monotonic counter. A backwards step (cur < prev) is treated as a
-// reset — caller should re-baseline at cur rather than publishing a
-// negative delta. Returns (delta, newPrev).
+// monotonic counter. When cur < prev (upstream counter reset), cur counts
+// accumulated since the reset are returned as the delta and cur becomes the
+// new baseline.
 func deltaCounter(prev, cur uint64) (delta uint64, newPrev uint64) {
 	if cur < prev {
-		return 0, cur
+		return cur, cur
 	}
 	return cur - prev, cur
 }
