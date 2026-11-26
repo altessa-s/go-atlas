@@ -173,8 +173,8 @@ func (l *Lease) acquireAt(ctx context.Context, started time.Time) (bool, error) 
 	if err == nil && revision != 0 && time.Since(started) >= l.ttl-l.safetyMargin() {
 		err = ErrLeaseNotHeld
 	}
-	l.record("acquire", err)
 	if err != nil {
+		l.record("acquire", err)
 		// A write may have landed even if its acknowledgment did not.
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), acquireCleanupTimeout)
 		defer cancel()
@@ -184,6 +184,7 @@ func (l *Lease) acquireAt(ctx context.Context, started time.Time) (bool, error) 
 		return false, err
 	}
 	if revision != 0 {
+		l.record("acquire", nil)
 		l.setState(leaseHeld)
 		if l.opts.callbacks.OnAcquired != nil {
 			l.opts.callbacks.OnAcquired()
