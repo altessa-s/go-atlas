@@ -337,8 +337,8 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 |----------|-------------------------------------------------------------|---------|---------------------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | `memory` | [`storages/memory`](../../reliability/saga/storages/memory) | no      | in-struct counter   | map scan                                              | Single node, tests, reference implementation.                                                                                 |
 | `mongo`  | [`storages/mongo`](../../reliability/saga/storages/mongo)   | yes     | document `version`  | `(status, deadline)` compound index                   | Query-capable; one document per instance.                                                                                     |
-| `redis`  | [`storages/redis`](../../reliability/saga/storages/redis)   | yes     | hash field, Lua CAS | sorted set scored by recover-eligibility time         | No auto-delete without a TTL — see retention.                                                                                 |
-| `nats`   | [`storages/nats`](../../reliability/saga/storages/nats)     | yes     | KV revision         | full bucket scan                                      | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
+| `redis`  | [`storages/redis`](../../reliability/saga/storages/redis)   | yes     | hash field, Lua CAS | sorted set scored by recover-eligibility time         | Terminal instances expire with a TTL, or via retention. On Redis Cluster the key prefix needs a hash tag.                     |
+| `nats`   | [`storages/nats`](../../reliability/saga/storages/nats)     | yes     | KV revision         | recoverable index key per live instance               | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
 | `sqldb`  | [`storages/sqldb`](../../reliability/saga/storages/sqldb)   | yes     | row `version`       | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations.                                       |
 
 All backends return the same sentinel errors of [`saga`](../../reliability/saga) (`ErrInstanceNotFound`, `ErrInstanceExists`,
@@ -439,8 +439,8 @@ namespace, e.g. `myapp_saga_started_total`).
   its action ran (see [Crash recovery](#crash-recovery)). Return success when the effect is absent instead of failing the rollback.
 - **Parallel members share `*T`.** Concurrent steps in a group must not write the same fields; if they must produce outputs, give each its own
   field or use a separate stage.
-- **Terminal instances are not garbage-collected.** Completed and failed instances stay in the store for inspection. Set a TTL (redis/nats) or
-  delete them on a retention schedule.
+- **Terminal instances are kept until retention is on.** Completed and failed instances stay in the store for inspection. Set `WithRetention` (YAML
+  `retention`) so a scheduled cycle deletes them through `Storage.DeleteTerminal`; a TTL (redis/nats) is the alternative.
 - **The pivot is a deliberate, one-time marker.** There should be at most one. Everything before it is reversible; everything at or after it
   rolls forward.
 

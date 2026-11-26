@@ -29,6 +29,8 @@ const (
 	defaultSagaMaxCompensationAttempts = 5
 	defaultSagaStepConcurrency         = 0 // use the core IO-bound default
 	defaultSagaRecoverySchedule        = "@every 1m"
+	defaultSagaRetentionSchedule       = "@every 1h"
+	defaultSagaRetentionBatchSize      = 500
 	defaultSagaRecoveryBatchSize       = 100
 )
 
@@ -115,9 +117,12 @@ func (c *MongoStorageConfig) Validate() error {
 // RedisStorageConfig configures the durable saga store backed by Redis
 // (reliability/saga/storages/redis).
 type RedisStorageConfig struct {
-	// KeysPrefix is prepended to every Redis key the store writes.
+	// KeysPrefix is prepended to every Redis key the store writes. On Redis
+	// Cluster it must contain a hash tag such as "{saga}:", so an instance and
+	// its indexes share a slot.
 	KeysPrefix string `yaml:"keysPrefix" default:"saga:"`
-	// TTL is the per-key expiry applied on every write; zero persists forever.
+	// TTL is the expiry of a terminal instance, applied on its terminal write;
+	// a live instance never expires. Zero persists forever.
 	TTL time.Duration `yaml:"ttl"`
 }
 
@@ -283,6 +288,16 @@ type Config struct {
 	// RecoveryTaskID is the scheduler task ID for the recovery cycle. Empty
 	// derives "saga-recovery-<definition>" so definitions never share a task.
 	RecoveryTaskID string `yaml:"recoveryTaskID"`
+
+	// Retention is how long a terminal instance is kept after its last update
+	// before a scheduled retention cycle deletes it. Zero keeps instances
+	// forever and registers no retention task.
+	Retention time.Duration `yaml:"retention"`
+	// RetentionSchedule is the cron expression for the retention cycle.
+	RetentionSchedule string `yaml:"retentionSchedule" default:"@every 1h"`
+	// RetentionBatchSize is the number of terminal instances one storage call
+	// deletes during a retention cycle.
+	RetentionBatchSize int `yaml:"retentionBatchSize" default:"500"`
 }
 
 // Default returns a Saga configuration with default values (in-memory store).
@@ -301,6 +316,8 @@ func Default() Config {
 		MaxCompensationAttempts: defaultSagaMaxCompensationAttempts,
 		StepConcurrency:         defaultSagaStepConcurrency,
 		RecoverySchedule:        defaultSagaRecoverySchedule,
+		RetentionSchedule:       defaultSagaRetentionSchedule,
+		RetentionBatchSize:      defaultSagaRetentionBatchSize,
 		RecoveryBatchSize:       defaultSagaRecoveryBatchSize,
 	}
 }
@@ -333,5 +350,8 @@ func (s *Config) Validate() error {
 		validation.Field(&s.StepConcurrency, validation.Min(0)),
 		validation.Field(&s.RecoverySchedule, validation.Required),
 		validation.Field(&s.RecoveryBatchSize, validation.Required, validation.Min(1)),
+		validation.Field(&s.Retention, validation.When(s.Retention != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.RetentionSchedule, validation.Required),
+		validation.Field(&s.RetentionBatchSize, validation.Required, validation.Min(1)),
 	)
 }

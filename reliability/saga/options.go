@@ -43,6 +43,15 @@ const (
 	// recovery cycle; the definition name follows it, so orchestrators of
 	// different definitions never share a task.
 	RecoveryTaskIDPrefix = "saga-recovery-"
+	// DefaultRetentionSchedule is the cron expression used to register the
+	// retention cycle with a scheduler.
+	DefaultRetentionSchedule = "@every 1h"
+	// DefaultRetentionBatchSize is the number of terminal instances one
+	// storage call removes during a retention cycle.
+	DefaultRetentionBatchSize = 500
+	// RetentionTaskIDPrefix prefixes the scheduler task ID of the retention
+	// cycle; the definition name follows it.
+	RetentionTaskIDPrefix = "saga-retention-"
 	// DefaultExecutionTimeout bounds one Start or Resume ownership period.
 	DefaultExecutionTimeout = 5 * time.Minute
 	// DefaultLeaseGrace allows canceled operations to finish before lease takeover.
@@ -81,6 +90,12 @@ type options struct {
 	recoverySchedule  string `optgen:"default=DefaultRecoverySchedule"`
 	recoveryBatchSize int    `optgen:"default=DefaultRecoveryBatchSize"`
 	recoveryTaskID    string // "" → RecoveryTaskIDPrefix + definition name
+
+	// retention is how long a terminal instance is kept after its last update
+	// before the retention cycle deletes it; 0 disables retention.
+	retention          time.Duration
+	retentionSchedule  string `optgen:"default=DefaultRetentionSchedule"`
+	retentionBatchSize int    `optgen:"default=DefaultRetentionBatchSize"`
 
 	scheduler     schedtask.Registrar `optgen:"notnil"`
 	leaderElector LeaderElector       `optgen:"notnil"`

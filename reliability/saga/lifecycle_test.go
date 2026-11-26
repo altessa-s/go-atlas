@@ -423,3 +423,70 @@ func TestRecoveryFailedLeaseAcquisitionAdvancesScanHead(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, rec, "the instance whose lease could not be taken must leave the scan head")
 }
+
+func TestRetentionCycleDeletesOldTerminalInstances(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := memory.New()
+	orch := saga.New(store, oneStepDef("retain", r), fastOpts(saga.WithRetention(time.Hour), saga.WithRetentionBatchSize(2))...)
+
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		_, err := orch.Start(t.Context(), id, order{})
+		require.NoError(t, err)
+	}
+	require.Equal(t, 5, store.Len())
+
+	// Nothing is old enough yet.
+	require.NoError(t, orch.RunRetentionCycle(t.Context()))
+	require.Equal(t, 5, store.Len())
+
+	// Age the instances past the retention window, plus one live instance.
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		inst, err := store.Get(t.Context(), id)
+		require.NoError(t, err)
+		inst.UpdatedAt = time.Now().Add(-2 * time.Hour)
+		require.NoError(t, store.Update(t.Context(), inst))
+	}
+	require.NoError(t, store.Create(t.Context(), &saga.Instance{
+		ID: "live", Definition: "retain", Status: saga.StatusCompensating, UpdatedAt: time.Now().Add(-2 * time.Hour),
+	}))
+
+	require.NoError(t, orch.RunRetentionCycle(t.Context()))
+	require.Equal(t, 1, store.Len(), "all batches are drained in one cycle and the live instance stays")
+}
+
+func TestRetentionDisabledByDefault(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := memory.New()
+	orch := saga.New(store, oneStepDef("retain", r), fastOpts()...)
+	_, err := orch.Start(t.Context(), "a", order{})
+	require.NoError(t, err)
+	inst, err := store.Get(t.Context(), "a")
+	require.NoError(t, err)
+	inst.UpdatedAt = time.Now().Add(-1000 * time.Hour)
+	require.NoError(t, store.Update(t.Context(), inst))
+
+	require.NoError(t, orch.RunRetentionCycle(t.Context()))
+	require.Equal(t, 1, store.Len())
+}
+
+func TestRetentionTaskIsPerDefinitionAndManaged(t *testing.T) {
+	t.Parallel()
+	reg := &recordingRegistrar{}
+	rec := &recorder{}
+	opts := fastOpts(saga.WithScheduler(reg), saga.WithRetention(time.Hour))
+
+	for _, name := range []string{"first", "second"} {
+		orch := saga.New(memory.New(), oneStepDefNamed(name, rec), opts...)
+		require.NoError(t, orch.RegisterRetention(t.Context()))
+		require.ErrorIs(t, orch.RunRetentionCycle(t.Context()), saga.ErrSchedulerManaged)
+	}
+	require.Contains(t, reg.tasks, saga.RetentionTaskIDPrefix+"first")
+	require.Contains(t, reg.tasks, saga.RetentionTaskIDPrefix+"second")
+
+	none := &recordingRegistrar{}
+	off := saga.New(memory.New(), oneStepDef("off", rec), fastOpts(saga.WithScheduler(none))...)
+	require.NoError(t, off.RegisterRetention(t.Context()))
+	require.Empty(t, none.tasks, "retention off registers nothing")
+}

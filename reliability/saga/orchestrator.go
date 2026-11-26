@@ -67,6 +67,10 @@ type Orchestrator[T any] struct {
 	recoveryBatchSize int
 	recoveryTaskID    string
 
+	retention          time.Duration
+	retentionSchedule  string
+	retentionBatchSize int
+
 	onDeadLetter DeadLetterFunc
 	shouldRetry  func(error) bool
 
@@ -79,6 +83,7 @@ type Orchestrator[T any] struct {
 	compRetryOpts        []coreretry.Option
 
 	recoveryTask   *cycle.Guard
+	retentionTask  *cycle.Guard
 	registrationMu sync.Mutex
 }
 
@@ -120,10 +125,14 @@ func New[T any](store Storage, def *Definition[T], opts ...Option) *Orchestrator
 		recoverySchedule:        cfg.recoverySchedule,
 		recoveryBatchSize:       cfg.recoveryBatchSize,
 		recoveryTaskID:          cmp.Or(cfg.recoveryTaskID, RecoveryTaskIDPrefix+def.name),
+		retention:               cfg.retention,
+		retentionSchedule:       cfg.retentionSchedule,
+		retentionBatchSize:      cfg.retentionBatchSize,
 		onDeadLetter:            cfg.onDeadLetter,
 		shouldRetry:             cfg.shouldRetry,
 	}
 	o.recoveryTask = cycle.New(o.runRecoveryCycleInternal)
+	o.retentionTask = cycle.New(o.runRetentionCycleInternal)
 
 	o.defaultStepRetryOpts = o.retryOptions(o.defaultRetry)
 	o.compRetryOpts = o.retryOptions(RetryPolicy{

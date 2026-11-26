@@ -38,6 +38,18 @@
 //     and resumes ones left mid-flight by a crash.
 //   - A dead-letter hook ([WithOnDeadLetter]) fires when a saga reaches the
 //     unrecoverable [StatusFailed] state (a compensation gave up).
+//   - Start takes the execution lease in the write that creates the instance,
+//     so a stored instance is never left unowned and invisible to recovery.
+//   - Recovery quarantines an instance it can never run (undecodable payload,
+//     cursor outside the definition): a version-checked write marks it Failed
+//     and fires the dead-letter hook, so it cannot starve the instances behind
+//     it. A concurrent healthy writer wins over the quarantine.
+//   - A step that started but ended with a context error (canceled sibling, step
+//     timeout) has an unknown outcome and is compensated; a step that never
+//     started is not.
+//   - Retention ([WithRetention], [Orchestrator.RunRetentionCycle]) deletes
+//     terminal instances a configured time after their last update; it is off by
+//     default.
 //
 // Step actions and compensations must be idempotent: on interruption a step may
 // run again when the instance is resumed.

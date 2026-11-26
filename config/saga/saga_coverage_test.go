@@ -48,6 +48,9 @@ func TestConfig_Validate(t *testing.T) {
 		{"negative concurrency", func(c *sagaconfig.Config) { c.StepConcurrency = -1 }, "StepConcurrency"},
 		{"empty schedule", func(c *sagaconfig.Config) { c.RecoverySchedule = "" }, "RecoverySchedule"},
 		{"zero batch", func(c *sagaconfig.Config) { c.RecoveryBatchSize = 0 }, "RecoveryBatchSize"},
+		{"negative retention", func(c *sagaconfig.Config) { c.Retention = -time.Second }, "Retention"},
+		{"empty retention schedule", func(c *sagaconfig.Config) { c.RetentionSchedule = "" }, "RetentionSchedule"},
+		{"zero retention batch", func(c *sagaconfig.Config) { c.RetentionBatchSize = 0 }, "RetentionBatchSize"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

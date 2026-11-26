@@ -112,6 +112,9 @@ func (b *Builder[T]) Build(ctx context.Context) (*saga.Orchestrator[T], error) {
 	if err := o.RegisterRecovery(ctx); err != nil {
 		return nil, fmt.Errorf("register saga recovery: %w", err)
 	}
+	if err := o.RegisterRetention(ctx); err != nil {
+		return nil, fmt.Errorf("register saga retention: %w", err)
+	}
 	return o, nil
 }
 
@@ -196,5 +199,8 @@ func (b *Builder[T]) orchestratorOptions() []saga.Option {
 		saga.WithRecoverySchedule(cfg.RecoverySchedule),
 		saga.WithRecoveryBatchSize(cfg.RecoveryBatchSize),
 		saga.WithRecoveryTaskID(cfg.RecoveryTaskID),
+		saga.WithRetention(cfg.Retention),
+		saga.WithRetentionSchedule(cfg.RetentionSchedule),
+		saga.WithRetentionBatchSize(cfg.RetentionBatchSize),
 	}
 }

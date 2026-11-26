@@ -575,6 +575,7 @@ Package: `reliability/saga`
 | `saga_compensation_failures_total` | Counter   | --     | Compensations that failed after retries        |
 | `saga_recovery_cycles_total`       | Counter   | --     | Background recovery cycles executed            |
 | `saga_recovered_total`             | Counter   | --     | Stalled or timed-out instances picked up       |
+| `saga_retention_deleted_total`     | Counter   | --     | Terminal instances deleted by the retention cycle |
 | `saga_stage_duration_seconds`      | Histogram | --     | Forward stage execution duration               |
 
 Package: `reliability/saga/engines/jetstream`
