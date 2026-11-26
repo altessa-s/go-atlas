@@ -7,6 +7,7 @@ package negcache_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -183,4 +184,46 @@ func TestIsRevoked_SharedRebuildCheckSurvivesBackwardClockStep(t *testing.T) {
 	require.False(t, lookup(t, c, "fresh"))
 	require.Equal(t, int64(3), filter.checks.Load(), "one interval after the last check: due again")
 	require.Equal(t, int64(4), auth.calls.Load(), "the last lookup was answered by the filter, not the store")
+}
+
+// A lookup that sampled the clock, paused, and resumed after a competing lookup
+// claimed the interval must not claim it again: the deadline is read before the
+// clock is sampled, so the competing update invalidates the claim.
+func TestIsRevoked_SharedRebuildCheckNoDuplicateClaimOnInterleaving(t *testing.T) {
+	t.Parallel()
+	base := time.Unix(1_750_000_000, 0)
+	var (
+		calls int
+		c     *negcache.Cache
+	)
+	filter := newSharedFilter()
+	clock := func() time.Time {
+		calls++
+		if calls == 2 { // the first lookup's sample: a competitor runs, then this stale sample returns
+			require.False(t, lookup(t, c, "fresh"))
+			return base.Add(-time.Hour)
+		}
+		return base
+	}
+	c = negcache.New(filter, newFakeAuth(), negcache.WithSharedRebuildCheckInterval(time.Minute), negcache.WithClock(clock))
+
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(1), filter.checks.Load(), "the stale sample claimed an interval already claimed")
+}
+
+func TestIsRevoked_SharedRebuildCheckConcurrentSingleClaim(t *testing.T) {
+	t.Parallel()
+	filter := newSharedFilter()
+	c := negcache.New(filter, newFakeAuth(), negcache.WithSharedRebuildCheckInterval(time.Hour))
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			for range 200 {
+				_, _ = c.IsRevoked(t.Context(), "fresh")
+			}
+		})
+	}
+	wg.Wait()
+	require.Equal(t, int64(1), filter.checks.Load())
 }

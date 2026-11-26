@@ -187,8 +187,10 @@ func (c *Cache) sharedRebuildCommitted(ctx context.Context) bool {
 	if c.reporter == nil {
 		return false
 	}
-	now := int64(c.clock().Sub(c.epoch))
+	// Read the deadline before sampling the clock: a competing claim made in
+	// between then fails the CAS instead of being overwritten by an older sample.
 	next := c.nextCheck.Load()
+	now := int64(c.clock().Sub(c.epoch))
 	// A reading more than one interval before the last claim means the clock
 	// stepped backward: the check is due, not parked until the clock catches up.
 	if now < next && next-now <= int64(c.checkInterval) || !c.nextCheck.CompareAndSwap(next, now+int64(c.checkInterval)) {
