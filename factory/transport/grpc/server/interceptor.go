@@ -477,38 +477,39 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 	))
 
 	cacher := b.cacher
-	withAuth := func() interceptors.ServerInterceptor {
-		options := stdslices.Concat(opts, []cache.Option{cache.WithAuthRequired()})
+	build := func(authRequired bool) interceptors.ServerInterceptor {
+		options := slices.AppendIf(stdslices.Clone(opts), authRequired, cache.WithAuthRequired())
 		return cache.ServerInterceptor(cacher, options...)
 	}
-	authRegistered := false
-	for _, i := range b.interceptors {
-		if nilcheck.IsNotNil(i) && i.Name() == auth.Name() {
-			authRegistered = true
-			break
-		}
-	}
-	if authRegistered {
-		b.interceptors = append(b.interceptors, withAuth())
-	} else {
-		// Keep the authenticated variant available if WithAuthInterceptor is
-		// called after cache. Replace the registration itself so previously
-		// built servers keep their original interceptor.
-		b.interceptors = append(b.interceptors, &pendingCacheAuth{
-			ServerInterceptor: cache.ServerInterceptor(cacher, opts...),
-			requireAuth:       withAuth,
-		})
-	}
+	b.interceptors = append(b.interceptors, &cacheRegistration{
+		ServerInterceptor: build(false),
+		build:             build,
+	})
 	return b
 }
 
-type pendingCacheAuth struct {
+type cacheRegistration struct {
 	interceptors.ServerInterceptor
-	requireAuth func() interceptors.ServerInterceptor
+	build func(authRequired bool) interceptors.ServerInterceptor
 }
 
-func (i *pendingCacheAuth) Dependencies() []string {
+func (i *cacheRegistration) Dependencies() []string {
 	return i.ServerInterceptor.(interface{ Dependencies() []string }).Dependencies() //nolint:errcheck // cache's driven interceptor declares dependencies
+}
+
+// resolveCacheInterceptors configures the cache from the registered chain.
+// The copy lets the builder be reused without changing a built server.
+func (b *ServerBuilder) resolveCacheInterceptors() []interceptors.ServerInterceptor {
+	authRequired := stdslices.ContainsFunc(b.interceptors, func(i interceptors.ServerInterceptor) bool {
+		return nilcheck.IsNotNil(i) && i.Name() == auth.Name()
+	})
+	resolved := stdslices.Clone(b.interceptors)
+	for idx, i := range resolved {
+		if registration, ok := i.(*cacheRegistration); ok && authRequired {
+			resolved[idx] = registration.build(true)
+		}
+	}
+	return resolved
 }
 
 // WithAuthInterceptor creates an authentication interceptor from the builder's configuration.
@@ -534,11 +535,6 @@ func (b *ServerBuilder) WithAuthInterceptor() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		auth.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
-	for idx, i := range b.interceptors {
-		if pending, ok := i.(*pendingCacheAuth); ok {
-			b.interceptors[idx] = pending.requireAuth()
-		}
-	}
 	b.interceptors = append(b.interceptors, auth.ServerInterceptor(configOpts...))
 	return b
 }

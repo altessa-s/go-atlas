@@ -55,8 +55,8 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 	}
 
 	// Register interceptors (nil interceptors are filtered by RegisterInterceptors).
-	if len(b.interceptors) > 0 {
-		if err := srv.RegisterInterceptors(b.interceptors...); err != nil {
+	if chain := b.resolveCacheInterceptors(); len(chain) > 0 {
+		if err := srv.RegisterInterceptors(chain...); err != nil {
 			return nil, err
 		}
 	}

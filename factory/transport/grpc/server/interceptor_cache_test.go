@@ -43,7 +43,7 @@ func cacheTestBuilder() *ServerBuilder {
 func callCacheChain(t *testing.T, b *ServerBuilder) func(context.Context, grpc.UnaryHandler) (any, error) {
 	t.Helper()
 	require.Empty(t, b.errs)
-	ordered, err := interceptors.OrderServerInterceptors(b.interceptors...)
+	ordered, err := interceptors.OrderServerInterceptors(b.resolveCacheInterceptors()...)
 	require.NoError(t, err)
 	unary := make([]grpc.UnaryServerInterceptor, 0, len(ordered))
 	for _, interceptor := range ordered {
@@ -176,6 +176,34 @@ func TestFactoryCacheRequiresIdentityWhenAuthIsRegistered(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, wantCalls, calls)
+		})
+	}
+}
+
+func TestFactoryCacheRequiresIdentityWithPrebuiltAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"cache first", "auth first"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := cacheTestBuilder()
+			prebuilt := auth.ServerInterceptor(auth.WithIgnoreMethods(cacheReadMethod))
+			if name == "cache first" {
+				b.WithCacheInterceptor().WithInterceptor(prebuilt)
+			} else {
+				b.WithInterceptor(prebuilt).WithCacheInterceptor()
+			}
+
+			call := callCacheChain(t, b)
+			calls := 0
+			for range 2 {
+				_, err := call(t.Context(), func(context.Context, any) (any, error) {
+					calls++
+					return &pb.Resource{Name: "public"}, nil
+				})
+				require.NoError(t, err)
+			}
+			require.Equal(t, 2, calls)
 		})
 	}
 }
