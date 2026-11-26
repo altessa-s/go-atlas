@@ -9,6 +9,7 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -36,6 +37,8 @@ type Store[P any] struct {
 	// before waiting for mu. It is a test seam, nil in production: a test
 	// holding mu learns that a call passed the check and is about to block.
 	beforeLock func()
+	// requeueVisit counts item lookups in Requeue when a test installs it.
+	requeueVisit func()
 }
 
 // New returns an empty Store. The default snapshot copies exported data
@@ -387,8 +390,16 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 	defer s.mu.Unlock()
 	now = now.UTC()
 	moved := 0
-	for key, it := range s.items {
-		if it.State != retryqueue.StateExpired || (len(keys) > 0 && !slices.Contains(keys, key)) {
+	selected := slices.Values(keys)
+	if len(keys) == 0 {
+		selected = maps.Keys(s.items)
+	}
+	for key := range selected {
+		if s.requeueVisit != nil {
+			s.requeueVisit()
+		}
+		it, ok := s.items[key]
+		if !ok || it.State != retryqueue.StateExpired {
 			continue
 		}
 		it.State = retryqueue.StatePending

@@ -125,3 +125,44 @@ func BenchmarkListDueOne(b *testing.B) {
 		}
 	}
 }
+
+func TestRequeueWorkScalesWithSelectedKeys(t *testing.T) {
+	t.Parallel()
+	s, now := expiredBacklog(100_000)
+	keys := make([]string, 10_000)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+	}
+	visits := 0
+	s.requeueVisit = func() { visits++ }
+	moved, err := s.Requeue(t.Context(), now, keys...)
+	require.NoError(t, err)
+	require.Equal(t, len(keys), moved)
+	require.LessOrEqual(t, visits, len(keys))
+
+	moved, err = s.Requeue(t.Context(), now, "10000", "10000", "missing")
+	require.NoError(t, err)
+	require.Equal(t, 1, moved)
+}
+
+func BenchmarkRequeueSelected(b *testing.B) {
+	ctx := b.Context()
+	s, now := expiredBacklog(100_000)
+	keys := make([]string, 10_000)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := s.Requeue(ctx, now, keys...); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		for _, key := range keys {
+			item := s.items[key]
+			item.State = retryqueue.StateExpired
+			s.items[key] = item
+		}
+		b.StartTimer()
+	}
+}

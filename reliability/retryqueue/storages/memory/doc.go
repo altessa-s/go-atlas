@@ -14,6 +14,7 @@
 // mutex and again once it holds it, so a call whose context is done, or ended
 // while it waited, fails with the context error and changes nothing.
 // ListDue selects due items with working space bounded by the list limit.
+// Requeue with explicit keys looks up only the selected items.
 // Resolved items are kept until deleted: there is no retention.
 //
 // # Usage
