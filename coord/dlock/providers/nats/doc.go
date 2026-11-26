@@ -4,7 +4,7 @@
 
 // Package nats provides NATS JetStream KeyValue-based distributed locks with automatic renewal.
 // Implements optimistic concurrency control with stale lock recovery. Requires NATS Server v2.11.0+.
-// [Locker.Close] stops renewal and allows retrying failed releases.
+// [Locker.Close] invalidates active handles, stops renewal, and allows retrying pending releases.
 //
 // Example:
 //

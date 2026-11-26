@@ -37,8 +37,8 @@ key may be at most 3072 bytes (an escaped byte takes three); a longer one fails 
 A lock handle reports `providers.ErrLockNotHeld` when the key is absent or another holder takes it. Use the provider's `GetLockInfo(ctx, key)`
 to look up the current owner by key.
 
-`Close` stops renewing the active leases and rejects new locks as soon as shutdown begins. It returns any release failures. Call `Close` again with
-a fresh context to retry outstanding releases.
+`Close` invalidates active handles, stops renewal, and rejects new locks as soon as shutdown begins. It returns any release failures. Call `Close`
+again with a fresh context to retry outstanding releases.
 
 ## Bucket TTL
 

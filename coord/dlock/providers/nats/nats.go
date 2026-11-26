@@ -234,13 +234,14 @@ func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockIn
 	return readLockInfo(ctx, l.kvOps, key)
 }
 
-// Close rejects new acquisitions, stops renewing active locks, and releases
-// them. It reports release failures and can be called again to retry them.
+// Close rejects new acquisitions, invalidates active lock handles, stops
+// renewal, and releases the leases. A later Close can retry pending releases.
 func (l *Locker) Close(ctx context.Context) error {
 	l.mu.Lock()
 	l.closed.Store(true)
 	held := l.activeLocks.Snapshot()
 	for _, lk := range held {
+		lk.isLocked.Store(false)
 		lk.lease.StopCamping()
 	}
 	// Wait for acquisitions that had already passed the closed check.
