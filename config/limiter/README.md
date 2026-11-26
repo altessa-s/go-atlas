@@ -8,6 +8,9 @@ Package `limiterconfig` defines rate limiter schemas: token bucket, request budg
 [`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
 options; runtime packages never import them.
 
+Both limiter schemas default to refusing new keys when memory storage is full of live windows. Set `insecureEvictLRU: true` to allow eviction
+of live windows. Key churn can then reset another key's quota before that window expires.
+
 ## Key types
 
 | Type                            | Description                                                    |

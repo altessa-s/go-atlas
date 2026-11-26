@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
@@ -87,7 +88,7 @@ func (b *BudgetLimiterBuilder) createStorage(ctx context.Context) (storages.Stor
 	if b.cfg.Storage.Type == storageconfig.BackendTypeMemory {
 		return b.createMemoryStorage() //nolint:contextcheck // the memory cleanup task is process-scoped, not tied to the startup ctx
 	}
-	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "budget")
+	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "budget", b.cfg.Period)
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.
@@ -96,8 +97,10 @@ func (b *BudgetLimiterBuilder) createMemoryStorage() (*memorystorage.Provider, e
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "memory storage configuration is required")
 	}
 
-	return memorystorage.New(
+	opts := []memorystorage.Option{
 		memorystorage.WithCleanupSchedule(b.cfg.Storage.Memory.CleanupSchedule),
 		memorystorage.WithScheduler(b.scheduler),
-	), nil
+	}
+	opts = coreslices.AppendIf(opts, b.cfg.InsecureEvictLRU, memorystorage.WithInsecureEvictLRU())
+	return memorystorage.New(opts...), nil
 }

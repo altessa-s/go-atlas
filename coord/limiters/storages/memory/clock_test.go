@@ -45,7 +45,7 @@ func TestProvider_WithClock_AllowAllAndReclaim(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fake := clock.NewFake(clockEpoch)
-	p := memory.New(memory.WithClock(fake), memory.WithMaxBuckets(2), memory.WithEviction(memory.EvictionReject))
+	p := memory.New(memory.WithClock(fake), memory.WithMaxBuckets(2))
 
 	_, err := storages.AllowAll(ctx, p,
 		storages.Limit{Key: "a", Limit: 1, Period: time.Minute},
@@ -66,8 +66,7 @@ func TestProvider_WithClock_Cleanup(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fake := clock.NewFake(clockEpoch)
-	p := memory.New(memory.WithClock(fake), memory.WithMaxIdleTime(time.Minute), memory.WithMaxBuckets(1),
-		memory.WithEviction(memory.EvictionReject))
+	p := memory.New(memory.WithClock(fake), memory.WithMaxIdleTime(time.Minute), memory.WithMaxBuckets(1))
 
 	_, err := p.Allow(ctx, "a", 5, time.Hour)
 	require.NoError(t, err)
@@ -78,5 +77,22 @@ func TestProvider_WithClock_Cleanup(t *testing.T) {
 	fake.Advance(2 * time.Minute)
 	p.RunCleanup()
 	_, err = p.Allow(ctx, "b", 5, time.Hour)
+	require.ErrorIs(t, err, memory.ErrCapacityExceeded, "idle time alone must not remove a live window")
+
+	fake.Advance(time.Hour)
+	p.RunCleanup()
+	_, err = p.Allow(ctx, "b", 5, time.Hour)
 	require.NoError(t, err, "the idle bucket must be removed on the fake clock")
+}
+
+func TestProvider_CleanupKeepsLiveIdleWindow(t *testing.T) {
+	t.Parallel()
+	fake := clock.NewFake(time.Now())
+	p := memory.New(memory.WithClock(fake))
+	_, err := p.Allow(t.Context(), "hourly", 1, time.Hour)
+	require.NoError(t, err)
+	fake.Advance(31 * time.Minute)
+	p.RunCleanup()
+	_, err = p.Allow(t.Context(), "hourly", 1, time.Hour)
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 }

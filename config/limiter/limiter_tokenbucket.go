@@ -123,6 +123,10 @@ type TokenBucket struct {
 	// Includes default settings and specific rules for targeted clients.
 	Rules *TokenBucketRules `yaml:"rules"`
 
+	// InsecureEvictLRU lets memory storage evict a live window at its key cap.
+	// Key churn can reset another key's quota before it expires.
+	InsecureEvictLRU bool `yaml:"insecureEvictLRU"`
+
 	// NATSContention tunes compare-and-swap retries of the NATS storage.
 	// Optional; ignored by other storages.
 	NATSContention *NATSContention `yaml:"natsContention"`

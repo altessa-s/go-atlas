@@ -68,11 +68,11 @@ func (s *RateLimitSettings) LimitInfo() *limiters.LimitInfo {
 //
 // Returns an error if the settings are invalid, nil otherwise.
 func (s *RateLimitSettings) Validate() error {
-	if s.Limit <= 0 {
-		return errors.New("limit must be greater than 0")
+	if s == nil || s.Limit <= 0 {
+		return fmt.Errorf("%w: limit must be greater than 0", coreerrs.ErrInvalidArgument)
 	}
 	if s.Period <= 0 {
-		return errors.New("period must be greater than 0")
+		return fmt.Errorf("%w: period must be greater than 0", coreerrs.ErrInvalidArgument)
 	}
 	return nil
 }

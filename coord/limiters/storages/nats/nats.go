@@ -49,11 +49,23 @@ type bucketData struct {
 	LastUsed int64   `json:"lastUsed"` // Last access time in milliseconds
 }
 
+const (
+	// Reserve the complete CAS header with the longest uint64 revision.
+	casHeaderBytes = len("NATS/1.0\r\n" + jetstream.ExpectedLastSubjSeqHeader + ": 18446744073709551615\r\n\r\n")
+	// A signed int64 fits in 20 decimal characters. Reserve a comma per
+	// timestamp and the three numeric metadata fields at their widest.
+	decimalInt64Bytes   = len("-9223372036854775808")
+	bucketMetadataBytes = len(`{"requests":[],"limit":,"window":,"lastUsed":}`) + 3*decimalInt64Bytes
+	bytesPerRequest     = int64(decimalInt64Bytes + 1)
+)
+
 // Provider implements a NATS JetStream KeyValue-based rate limiting provider using sliding window algorithm.
 type Provider struct {
 	natsbase.Base
-	options   *options
-	casPolicy *retry.Policy
+	options      *options
+	casPolicy    *retry.Policy
+	maxPayload   func() int64
+	maxValueSize int64
 }
 
 // Ensure Provider implements Storage interface
@@ -63,7 +75,8 @@ var _ storages.Storage = (*Provider)(nil)
 // Accepts a JetStream context and optional configuration options.
 // Automatically creates the bucket on ctx if it doesn't exist.
 //
-// Returns an error if the JetStream context is nil or bucket creation fails.
+// Returns an error if the JetStream context is nil, the connection's
+// MaxPayload is unknown, or the bucket cannot be provisioned or inspected.
 //
 // Example:
 //
@@ -78,6 +91,11 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 		return nil, fmt.Errorf("JetStream context cannot be nil")
 	}
 
+	maxPayload := js.Conn().MaxPayload
+	if maxPayload() == 0 {
+		return nil, errMaxPayloadUnknown
+	}
+
 	config := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(ctx, js, bucketConfig(config), nil)
@@ -85,10 +103,20 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
 
+	status, err := natskvlease.Retry(ctx, func() (jetstream.KeyValueStatus, error) {
+		return base.KV().Status(ctx)
+	})
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "read NATS KeyValue bucket status")
+	}
+
 	return &Provider{
 		Base:      base,
 		options:   config,
 		casPolicy: newCASPolicy(config.maxCASAttempts, config.maxCASBackoff),
+		// The connected server's limit can change on reconnect.
+		maxPayload:   maxPayload,
+		maxValueSize: int64(status.Config().MaxValueSize),
 	}, nil
 }
 
@@ -136,6 +164,32 @@ func newCASPolicy(attempts int, maxBackoff time.Duration) *retry.Policy {
 	)
 }
 
+// ValidatePeriod checks that the bucket retains a window for its full period.
+func (p *Provider) ValidatePeriod(period time.Duration) error {
+	if period > p.options.maxAge {
+		return fmt.Errorf("%w: rate limit period %s exceeds NATS retention %s", coreerrs.ErrInvalidArgument, period, p.options.maxAge)
+	}
+	return nil
+}
+
+var errMaxPayloadUnknown = errors.New("NATS MaxPayload is not yet known")
+
+// ValidateLimit checks that a full window fits within the connection and bucket payload limits.
+func (p *Provider) ValidateLimit(limit int64) error {
+	payload := p.maxPayload()
+	if payload == 0 {
+		return errMaxPayloadUnknown
+	}
+	if p.maxValueSize > 0 {
+		payload = min(payload, p.maxValueSize)
+	}
+	maxRequests := max(payload-int64(casHeaderBytes+bucketMetadataBytes), 0) / bytesPerRequest
+	if limit > maxRequests {
+		return fmt.Errorf("%w: rate limit %d exceeds NATS payload capacity of %d requests", coreerrs.ErrInvalidArgument, limit, maxRequests)
+	}
+	return nil
+}
+
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // The read-modify-write cycle uses NATS KeyValue revision-based CAS:
@@ -145,16 +199,22 @@ func newCASPolicy(attempts int, maxBackoff time.Duration) *retry.Policy {
 // never dropped — that would let a burst slip past the limit — but re-read,
 // recomputed and retried after a randomized backoff, up to
 // [WithMaxCASAttempts] attempts and as long as ctx allows. Rejections write
-// nothing, so retrying can never admit more than limit requests. A call that
+// nothing, and each successful call records one admission. A call that
 // exhausts its attempts returns [ErrContention].
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
 	panics.Must(limit > 0, "limit must be greater than 0")
 	panics.Must(period > 0, "period must be greater than 0")
+	if err := p.ValidatePeriod(period); err != nil {
+		return nil, err
+	}
 
 	key, err := physicalKey(key)
 	if err != nil {
+		return nil, err
+	}
+	if err = p.ValidateLimit(limit); err != nil {
 		return nil, err
 	}
 
@@ -184,7 +244,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 // [jetstream.ErrKeyExists] unwrapped when another writer updated the key
 // since it was read.
 func (p *Provider) tryAllow(ctx context.Context, key string, limit, windowMs int64) (*storages.LimitInfo, error) {
-	now := time.Now().UnixMilli()
+	now := p.options.clock.Now().UnixMilli()
 
 	data, revision, err := p.loadBucket(ctx, key)
 	if err != nil {

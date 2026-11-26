@@ -13,9 +13,13 @@ import (
 
 	"github.com/altessa-s/go-atlas/coord/limiters"
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
+	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
 )
 
@@ -81,4 +85,32 @@ func TestBuild_WithoutClientService_UsesDefaultRule(t *testing.T) {
 	info, err := l.Limit(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int64(7), info.Limit, "without UseClientService, token-path requests must fall through to IP-based default rule")
+}
+
+func TestBuild_RejectsNATSWindowLongerThanRetention(t *testing.T) {
+	t.Parallel()
+	for _, location := range []string{"default", "target"} {
+		t.Run(location, func(t *testing.T) {
+			t.Parallel()
+			ns := natstest.StartNATSServer(t)
+			_, js := natstest.ConnectJetStream(t, ns)
+			const bucket = "tokenbucket-period"
+			const ttl = 48 * time.Hour
+			_, err := limitnats.New(t.Context(), js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(ttl))
+			require.NoError(t, err)
+			cfg := validConfig()
+			cfg.Storage = &storageconfig.BackendConfig{
+				Type: storageconfig.BackendTypeNATS,
+				NATS: &storageconfig.NATSConfig{Bucket: bucket, MigrateBucketTTL: true},
+			}
+			if location == "default" {
+				cfg.Rules.Default.Period = 25 * time.Hour
+			} else {
+				cfg.Rules.Targets = []limiterconfig.TokenBucketTargetRule{{Target: "192.0.2.1", Limit: 1, Period: 25 * time.Hour}}
+			}
+			_, err = factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, natsfactory.Builder(js)).Build(t.Context())
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.Equal(t, ttl, natstest.KVBucketTTL(t, js, bucket))
+		})
+	}
 }

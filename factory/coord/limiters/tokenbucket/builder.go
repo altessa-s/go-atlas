@@ -74,12 +74,12 @@ func (b *TokenBucketLimiterBuilder) Build(ctx context.Context) (*tokenbucket.Rul
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	storage, err := b.createStorage(ctx)
+	defaults, rules := convertConfig(b.cfg)
+	storage, err := b.createStorage(ctx, defaults, rules)
 	if err != nil {
 		return nil, err
 	}
 
-	defaults, rules := convertConfig(b.cfg)
 	opts := b.applyDefaults([]tokenbucket.Option{
 		tokenbucket.WithIPCacheSize(b.cfg.IpCacheSize),
 		tokenbucket.WithRules(rules...),
@@ -90,7 +90,9 @@ func (b *TokenBucketLimiterBuilder) Build(ctx context.Context) (*tokenbucket.Rul
 }
 
 // createStorage creates a storage backend based on configuration.
-func (b *TokenBucketLimiterBuilder) createStorage(ctx context.Context) (storages.Storage, error) {
+func (b *TokenBucketLimiterBuilder) createStorage(
+	ctx context.Context, defaults tokenbucket.RateLimitSettings, rules []*tokenbucket.RateLimitRule,
+) (storages.Storage, error) {
 	if b.cfg.Storage == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
@@ -98,7 +100,18 @@ func (b *TokenBucketLimiterBuilder) createStorage(ctx context.Context) (storages
 	if b.cfg.Storage.Type == storageconfig.BackendTypeMemory {
 		return b.createMemoryStorage() //nolint:contextcheck // the memory cleanup task is process-scoped, not tied to the startup ctx
 	}
-	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "token-bucket")
+	var longestPeriod time.Duration
+	if b.cfg.Storage.Type == storageconfig.BackendTypeNATS {
+		if !defaults.IsUnlimited() {
+			longestPeriod = defaults.Period
+		}
+		for _, rule := range rules {
+			if !rule.IsUnlimited() {
+				longestPeriod = max(longestPeriod, rule.Period)
+			}
+		}
+	}
+	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "token-bucket", longestPeriod)
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.
@@ -107,10 +120,12 @@ func (b *TokenBucketLimiterBuilder) createMemoryStorage() (*memorystorage.Provid
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	return memorystorage.New(
+	opts := []memorystorage.Option{
 		memorystorage.WithCleanupSchedule(b.cfg.Storage.Memory.CleanupSchedule),
 		memorystorage.WithScheduler(b.scheduler),
-	), nil
+	}
+	opts = coreslices.AppendIf(opts, b.cfg.InsecureEvictLRU, memorystorage.WithInsecureEvictLRU())
+	return memorystorage.New(opts...), nil
 }
 
 // applyDefaults prepends factory defaults to limiter options.

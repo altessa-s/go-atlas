@@ -20,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 )
@@ -57,21 +58,34 @@ func TestNew_CanceledContextAbortsBucketCreation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+type replicaCapture struct {
+	jetstream.JetStream
+	config jetstream.KeyValueConfig
+}
+
+func (c *replicaCapture) CreateKeyValue(ctx context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	c.config = cfg
+	cfg.Replicas = 1 // The embedded test server has one node.
+	return c.JetStream.CreateKeyValue(ctx, cfg)
+}
+
 // TestNew_ReplicasWiredToBucketConfig pins that WithReplicas reaches the
 // jetstream.KeyValueConfig used for bucket creation. A capture double is used
 // because a single-node test server cannot create buckets with replicas > 1.
 func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	t.Parallel()
 
-	capture := &natstest.JetStreamKVCapture{}
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	capture := &replicaCapture{JetStream: js}
 
 	_, err := limitnats.New(t.Context(), capture,
 		limitnats.WithBucket("rate-limiter-replicas"),
 		limitnats.WithReplicas(3))
 	require.NoError(t, err)
 
-	require.Equal(t, "rate-limiter-replicas", capture.KVConfig.Bucket)
-	require.Equal(t, 3, capture.KVConfig.Replicas)
+	require.Equal(t, "rate-limiter-replicas", capture.config.Bucket)
+	require.Equal(t, 3, capture.config.Replicas)
 }
 
 func TestProvider_Allow_UnderLimit(t *testing.T) {
@@ -407,4 +421,15 @@ func TestProvider_AllowAllUnsupported(t *testing.T) {
 	info, err := p.Allow(t.Context(), "host", 1, time.Minute)
 	require.NoError(t, err, "the refused call must not take a slot")
 	require.Equal(t, int64(0), info.Remaining)
+}
+
+func TestProvider_RejectsWindowLongerThanRetention(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	p, err := limitnats.New(t.Context(), js, limitnats.WithBucket("retention"), limitnats.WithMaxAge(100*time.Millisecond))
+	require.NoError(t, err)
+	info, err := p.Allow(t.Context(), "key", 1, time.Hour)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Nil(t, info)
 }

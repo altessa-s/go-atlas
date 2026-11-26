@@ -59,13 +59,11 @@ func WithClock(v clock.Clock) Option {
 	}
 }
 
-// WithEviction sets the eviction option.
-//
-// Eviction is the policy for a new key at MaxBuckets once no tracked
-// window has expired: [EvictionLRU] (default) or [EvictionReject].
-func WithEviction(v Eviction) Option {
+// WithInsecureEvictLRU allows a new key at capacity to evict a live
+// window. Key churn can reset another key's quota before it expires.
+func WithInsecureEvictLRU() Option {
 	return func(o *options) {
-		o.eviction = v
+		o.insecureEvictLRU = enableInsecureEviction()
 	}
 }
 
@@ -73,8 +71,8 @@ func WithEviction(v Eviction) Option {
 //
 // MaxBuckets caps the number of distinct keys the provider will hold.
 // When the cap is reached and Allow is called for a new key, expired
-// windows are reclaimed first, then [WithEviction] decides: by default
-// the least-recently-used bucket is evicted to make room. Set to <= 0
+// windows are reclaimed first. When only live windows remain, the new
+// key is refused unless [WithInsecureEvictLRU] was set. Set to <= 0
 // to disable the cap (back to legacy unbounded behavior — use at
 // your own risk; see [DefaultMaxBuckets] for the rationale).
 func WithMaxBuckets(v int) Option {
@@ -85,7 +83,7 @@ func WithMaxBuckets(v int) Option {
 
 // WithMaxIdleTime sets the maxIdleTime option.
 //
-// MaxIdleTime sets the maximum idle time before an entry is removed.
+// MaxIdleTime sets the minimum idle time before cleanup removes an expired window.
 // Default is 30 minutes.
 func WithMaxIdleTime(v time.Duration) Option {
 	return func(o *options) {
@@ -118,8 +116,8 @@ func WithScheduler(v schedtask.Registrar) Option {
 //
 // Shards splits the keys over independently locked shards so Allow
 // calls on existing keys and new keys below MaxBuckets do not contend.
-// Capacity and least-recently-used eviction stay exact and global, so a
-// new key at the cap locks every shard: raise Shards (e.g. 8–16) when
+// Reclamation and eviction at the cap can lock every shard.
+// Raise Shards (e.g. 8–16) when
 // the provider usually runs below MaxBuckets, and keep 1 when it is
 // usually full with new keys arriving. Values below 1 mean 1.
 func WithShards(v int) Option {
@@ -132,7 +130,6 @@ func WithShards(v int) Option {
 func defaultOptions() *options {
 	return &options{
 		clock:       clock.Real(),
-		eviction:    DefaultEviction,
 		maxBuckets:  DefaultMaxBuckets,
 		maxIdleTime: DefaultMaxIdleTime,
 		shards:      DefaultShards,

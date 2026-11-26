@@ -23,9 +23,16 @@ import (
 
 // evictionPolicies covers both policies at the cap.
 var evictionPolicies = []struct {
-	name     string
-	eviction Eviction
-}{{"lru", EvictionLRU}, {"reject", EvictionReject}}
+	name             string
+	insecureEvictLRU bool
+}{{"lru", true}, {"reject", false}}
+
+func newWithEviction(insecureEvictLRU bool, opts ...Option) *Provider {
+	if insecureEvictLRU {
+		opts = append(opts, WithInsecureEvictLRU())
+	}
+	return New(opts...)
+}
 
 // TestProvider_AtCapacity_ReclaimsExpiredBeforeLive is the eviction-bypass
 // regression for the LRU policy: a full provider must reclaim windows that
@@ -39,7 +46,7 @@ func TestProvider_AtCapacity_ReclaimsExpiredBeforeLive(t *testing.T) {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
 				fake := clock.NewFake(time.Now())
-				p := New(WithMaxBuckets(3), WithShards(shards), WithEviction(pol.eviction), WithClock(fake))
+				p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(3), WithShards(shards), WithClock(fake))
 				ctx := t.Context()
 				_, err := p.Allow(ctx, "hot", 1, time.Hour)
 				require.NoError(t, err)
@@ -54,9 +61,12 @@ func TestProvider_AtCapacity_ReclaimsExpiredBeforeLive(t *testing.T) {
 				require.True(t, p.tracked("hot"), "the live window must outlive the expired ones")
 				_, err = p.Allow(ctx, "hot", 1, time.Hour)
 				require.ErrorIs(t, err, limiters.ErrLimitExceeded, "the hot key must keep its limit")
+				require.NotEqual(t, p.tracked("short-1"), p.tracked("short-2"), "reclaim only the slot needed")
+				require.Equal(t, 3, p.total(t))
+				_, err = p.Allow(ctx, "another", 1, time.Hour)
+				require.NoError(t, err)
 				require.False(t, p.tracked("short-1"))
 				require.False(t, p.tracked("short-2"))
-				require.Equal(t, 2, p.total(t))
 			})
 		}
 	}
@@ -72,7 +82,7 @@ func TestProvider_EvictionReject_KeyChurnKeepsLimit(t *testing.T) {
 	for _, shards := range testShardCounts {
 		t.Run("shards="+strconv.Itoa(shards), func(t *testing.T) {
 			t.Parallel()
-			p := New(WithMaxBuckets(2), WithShards(shards), WithEviction(EvictionReject))
+			p := New(WithMaxBuckets(2), WithShards(shards))
 			ctx := t.Context()
 			_, err := p.Allow(ctx, "victim", 1, time.Hour)
 			require.NoError(t, err)
@@ -102,30 +112,24 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		free func(t *testing.T, p *Provider)
+		free func(t *testing.T, p *Provider, clock *clock.Fake)
 	}{
-		{name: "expired window", free: func(_ *testing.T, p *Provider) {
-			sh := p.shardFor("old")
-			sh.mu.Lock()
-			defer sh.mu.Unlock()
-			b := sh.buckets["old"]
-			b.requests[0] = time.Now().Add(-2 * time.Hour)
-			p.lowerExpiry(b.expiry())
+		{name: "expired window", free: func(_ *testing.T, _ *Provider, fake *clock.Fake) {
+			fake.Advance(2 * time.Hour)
 		}},
-		{name: "reset window", free: func(t *testing.T, p *Provider) { require.NoError(t, p.Reset(t.Context(), "old")) }},
-		{name: "idle cleanup", free: func(_ *testing.T, p *Provider) {
-			sh := p.shardFor("old")
-			sh.mu.Lock()
-			sh.buckets["old"].lastUsed = time.Now().Add(-2 * time.Hour)
-			sh.mu.Unlock()
+		{name: "reset window", free: func(t *testing.T, p *Provider, _ *clock.Fake) { require.NoError(t, p.Reset(t.Context(), "old")) }},
+		{name: "idle cleanup", free: func(t *testing.T, p *Provider, fake *clock.Fake) {
+			fake.Advance(2 * time.Hour)
 			p.RunCleanup()
+			require.False(t, p.tracked("old"))
 		}},
 	}
 	for _, shards := range testShardCounts {
 		for _, tc := range tests {
 			t.Run(tc.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
-				p := New(WithMaxBuckets(1), WithShards(shards), WithEviction(EvictionReject), WithMaxIdleTime(time.Hour))
+				fake := clock.NewFake(time.Now())
+				p := New(WithMaxBuckets(1), WithShards(shards), WithMaxIdleTime(time.Hour), WithClock(fake))
 				ctx := t.Context()
 				// Keep the initial window live regardless of scheduler delays;
 				// free transitions its state only after the capacity assertion.
@@ -134,7 +138,7 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 				_, err = p.Allow(ctx, "new", 1, time.Hour)
 				require.ErrorIs(t, err, ErrCapacityExceeded)
 
-				tc.free(t, p)
+				tc.free(t, p, fake)
 				_, err = p.Allow(ctx, "new", 1, time.Hour)
 				require.NoError(t, err)
 				require.Equal(t, 1, p.total(t))
@@ -153,7 +157,7 @@ func TestProvider_AllowAll_AtCapacity(t *testing.T) {
 		for _, pol := range evictionPolicies {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
-				p := New(WithMaxBuckets(3), WithShards(shards), WithEviction(pol.eviction))
+				p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(3), WithShards(shards))
 				ctx := t.Context()
 				for _, k := range []string{"member", "bystander-1", "bystander-2"} {
 					_, err := p.Allow(ctx, k, 2, time.Hour)
@@ -165,7 +169,7 @@ func TestProvider_AllowAll_AtCapacity(t *testing.T) {
 					{Key: "new", Limit: 2, Period: time.Hour},
 				}
 				_, err := p.AllowAll(ctx, limits)
-				if pol.eviction == EvictionReject {
+				if !pol.insecureEvictLRU {
 					require.ErrorIs(t, err, ErrCapacityExceeded)
 					keyErr, ok := errors.AsType[*storages.KeyError](err)
 					require.True(t, ok, "%v", err)
@@ -220,7 +224,7 @@ func TestProvider_AllowAll_ConcurrentOverlappingAtCapacity(t *testing.T) {
 				goroutines = 16
 				calls      = 400
 			)
-			p := New(WithMaxBuckets(maxBuckets), WithShards(4), WithEviction(pol.eviction), WithMaxIdleTime(time.Millisecond))
+			p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(maxBuckets), WithShards(4), WithMaxIdleTime(time.Millisecond))
 			ctx := t.Context()
 			var admitted [pool]atomic.Int64
 
@@ -320,7 +324,7 @@ func TestProvider_AllowAll_ShortenedPeriodKeepsReclaimBound(t *testing.T) {
 		t.Run("shards="+strconv.Itoa(shards), func(t *testing.T) {
 			t.Parallel()
 			fake := clock.NewFake(time.Now())
-			p := New(WithMaxBuckets(2), WithShards(shards), WithEviction(EvictionReject), WithClock(fake))
+			p := New(WithMaxBuckets(2), WithShards(shards), WithClock(fake))
 			ctx := t.Context()
 			for _, k := range []string{"a", "b"} {
 				_, err := p.Allow(ctx, k, 1, time.Hour)
@@ -373,7 +377,7 @@ func TestProvider_ReserveSlots_AllOrNothing(t *testing.T) {
 func TestProvider_AllowAll_CompetingReservations(t *testing.T) {
 	t.Parallel()
 	for range 500 {
-		p := New(WithMaxBuckets(2), WithShards(8), WithEviction(EvictionReject))
+		p := New(WithMaxBuckets(2), WithShards(8))
 		keys := p.keysInShards(4, true)
 		ctx := t.Context()
 		start := make(chan struct{})
@@ -418,7 +422,7 @@ func TestProvider_AllowAll_CapacityErrorNamesNewKey(t *testing.T) {
 			for _, tc := range tests {
 				t.Run(pol.name+"/shards="+strconv.Itoa(shards)+"/"+tc.name, func(t *testing.T) {
 					t.Parallel()
-					p := New(WithMaxBuckets(tc.maxBuckets), WithShards(shards), WithEviction(pol.eviction))
+					p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(tc.maxBuckets), WithShards(shards))
 					ctx := t.Context()
 					for _, k := range tc.existing {
 						_, err := p.Allow(ctx, k, 5, time.Hour)

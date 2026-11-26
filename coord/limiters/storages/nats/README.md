@@ -8,6 +8,12 @@ Package `nats` implements token bucket storage using NATS JetStream key-value st
 `New(ctx, js, opts...)` creates the bucket on `ctx` when missing: `WithBucket` (default `<appinfo.Name>-rate-limiter`), `WithMaxAge` (key TTL, `24h`)
 and `WithReplicas` (`1`).
 
+## Clock synchronization
+
+Keep the clocks of all limiter replicas synchronized. Window decisions use each process's local clock (`WithClock` overrides it for tests).
+A faster replica can discard requests written by a slower replica up to the clock difference before the full period elapses. The configured limit
+can be exceeded by the requests in that skew-width interval at the oldest edge of the window.
+
 ## Multi-key admission
 
 NATS KeyValue updates one key per compare-and-swap and cannot update several keys atomically, so `Provider` does not implement
@@ -26,7 +32,7 @@ most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTo
 `Allow` updates a key with a compare-and-swap on its revision. A write that loses the race to another caller is re-read, recomputed and retried after
 a
 randomized pause (full jitter, from 1 ms doubling up to `WithMaxCASBackoff`, 20 ms by default), so a hot key costs latency rather than errors;
-rejections write nothing, so retrying never admits more than the limit. After `WithMaxCASAttempts` attempts (64 by default), or when the context ends,
+rejections write nothing, so retries do not double-count requests. After `WithMaxCASAttempts` attempts (64 by default), or when the context ends,
 the call stops: exhausting the attempts returns `ErrContention`, which is neither an admission nor an `ErrLimitExceeded` — the request was not
 counted,
 and the caller decides whether to fail open or closed. Through the budget and token-bucket limiter factories both limits are set under
@@ -38,7 +44,17 @@ and the caller decides whether to fail open or closed. Through the budget and to
 | `WithMaxCASAttempts` | `64`    | Read-modify-write attempts per `Allow` call               |
 | `WithMaxCASBackoff`  | `20ms`  | Ceiling of the randomized pause after a revision conflict |
 
+## Payload limit
+
+`Allow` rejects a limit above the lower of the server's `max_payload` and the bucket's positive `MaxValueSize` with `ErrInvalidArgument` before accessing the key.
+Budget and token-bucket limiters check their configured quotas at construction. Provider creation requires a known connection payload limit.
+The bound reserves space for JSON metadata, a worst-case decimal timestamp per request and the JetStream revision header. Serialization work
+grows with the number of recorded requests.
+
 ## Bucket TTL
+
+`Allow` returns `ErrInvalidArgument` if its period exceeds `WithMaxAge`. The budget and token-bucket factories reject such configured windows
+before provisioning the NATS bucket. The default retention is 24 hours.
 
 The bucket's key TTL (`WithMaxAge`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already
 exists with a different key TTL, `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched instead of rewriting it under those processes.

@@ -19,10 +19,11 @@ type options struct {
 	// Default is "ratelimit:".
 	keyPrefix string `optgen:"default=DefaultKeyPrefix" optcheck:"nonempty"`
 
-	// Clock supplies the request timestamps the scripts score and prune the
-	// windows by, so a clock.Fake moves the windows in tests. Key expiry
-	// (PEXPIRE, one period after the last request) still runs on the Redis
-	// server clock; it only drops windows the fake time has not left yet
-	// when the fake clock runs a period or more behind real time.
+	// WithClock sets the clock for topology verification caching.
 	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
+
+	// WithTestClock overrides Redis TIME for window decisions in tests.
+	// It is unsafe with more than one limiter replica. Key expiry still runs
+	// on the Redis server's clock.
+	testClock clock.Clock `optgen:"notnil"`
 }

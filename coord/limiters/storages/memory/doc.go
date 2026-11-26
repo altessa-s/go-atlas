@@ -8,14 +8,12 @@
 // # Capacity and cleanup
 //
 // [WithMaxBuckets] caps the number of tracked keys. A new key at the cap
-// first reclaims every window that has expired, which loses no state; when
-// none has, [WithEviction] decides. [EvictionLRU] (the default) evicts the
-// least recently used live window, so a stream of new keys can push out a
-// busy key and reset its limit. [EvictionReject] refuses the new key with
-// [ErrCapacityExceeded] instead and keeps every live window; tracked keys
-// keep working. Idle buckets are removed by [Provider.RunCleanup], either
-// called manually or registered with a scheduler via [WithScheduler] and
-// [WithCleanupSchedule].
+// first tries to reclaim an expired window from the per-shard expiry indexes.
+// When all windows are live, the provider refuses the new key by default with
+// [ErrCapacityExceeded]. [WithInsecureEvictLRU] allows eviction of live
+// windows, so key churn can reset another key's quota before it expires.
+// [Provider.RunCleanup] removes idle buckets whose windows have expired.
+// Call it manually or schedule it with [WithScheduler] and [WithCleanupSchedule].
 //
 // # Multi-key admission
 //
@@ -28,8 +26,8 @@
 // [WithShards] spreads keys over independently locked shards (default
 // [DefaultShards]; values below 1 mean 1). Allow calls on keys in different
 // shards then run in parallel, both for existing keys and for new keys while
-// the provider is below its cap. The cap and LRU eviction stay exact and
-// global, so a new key at the cap locks every shard. Use 8–16 shards when
+// the provider is below its cap. Reclaiming or evicting a window at the cap
+// can lock every shard. Use 8–16 shards when
 // the provider usually runs below its cap on a many-core host, and keep 1
 // when it is usually full with new keys arriving.
 //

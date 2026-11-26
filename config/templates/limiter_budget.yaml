@@ -15,6 +15,11 @@
 #  # Default value: 24h
 #  period: "24h"
 #
+#  # <bool> Allow memory storage to evict live windows at capacity.
+#  # Fail-open risk: key churn can reset a quota before its window expires.
+#  # Default value: false
+#  insecureEvictLRU: false
+#
 #  # <object> Storage configuration for budget counters.
 #  # Supports multiple storage backends with provider-specific settings.
 #  !include storage_backend.yaml

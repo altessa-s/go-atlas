@@ -8,7 +8,7 @@
 // Schemas carry yaml and default tags read by
 // github.com/altessa-s/go-nomos/loader, expose Default* constructors
 // where defaults exist, and implement Validate; component factories map them
-// to generated options.
+// to generated options. InsecureEvictLRU opts memory storage into live-window eviction.
 //
 // Key types: [Budget], [TokenBucketDefaultRule],
 // [TokenBucketTargetRule], [TokenBucketRules],

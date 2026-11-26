@@ -22,7 +22,7 @@ func (p *Provider) registerCleanupTask(schedule string) error {
 	})
 }
 
-// RunCleanup removes expired and unused buckets.
+// RunCleanup removes idle buckets whose windows have expired.
 // This method is designed to be called manually for one-time cleanup.
 // If the function is registered with a scheduler, this method returns immediately.
 // Thread-safe: Safe for concurrent calls.
@@ -30,14 +30,9 @@ func (p *Provider) RunCleanup() {
 	_ = p.cleanupTask.Run(context.Background())
 }
 
-// runCleanupCycle performs the actual cleanup, dropping buckets that have
-// been idle longer than the configured max idle time. Unlike the TTL-based
-// memory storages this sweep is idle-time-based. It locks one shard at a
-// time, so hits on other shards keep running. Allow stamps lastUsed under
-// the shard lock, so each shard's LRU list is ordered by lastUsed and the
-// sweep walks each tail, stopping at the first bucket still in use:
-// O(shards + expired) instead of O(buckets). Callers must route through
-// cleanupTask so overlapping cycles collapse into a single execution.
+// runCleanupCycle removes buckets only after both their idle time and window
+// have elapsed. Each shard's LRU is ordered by last use, so the sweep stops
+// at the first non-idle bucket but continues past any idle, live windows.
 func (p *Provider) runCleanupCycle(context.Context) error {
 	now := p.options.clock.Now()
 	cutoff := now.Add(-p.options.maxIdleTime)
@@ -51,7 +46,9 @@ func (p *Provider) runCleanupCycle(context.Context) error {
 			if !ok || !sh.buckets[key].lastUsed.Before(cutoff) {
 				break
 			}
-			p.removeLocked(sh, key)
+			if sh.buckets[key].expiredAt(now) {
+				p.removeLocked(sh, key)
+			}
 			elem = prev
 		}
 		sh.mu.Unlock()

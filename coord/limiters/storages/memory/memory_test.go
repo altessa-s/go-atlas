@@ -140,7 +140,7 @@ func TestProvider_RunCleanup(t *testing.T) {
 	p := memory.New(memory.WithMaxIdleTime(1*time.Millisecond), memory.WithClock(fake))
 	ctx := t.Context()
 
-	_, _ = p.Allow(ctx, "key1", 10, time.Minute)
+	_, _ = p.Allow(ctx, "key1", 10, time.Millisecond)
 
 	fake.Advance(5 * time.Millisecond)
 	p.RunCleanup()
@@ -160,13 +160,15 @@ func TestProvider_RunCleanup_KeepsRecentlyUsed(t *testing.T) {
 		p := memory.New(memory.WithMaxIdleTime(20 * time.Millisecond))
 		ctx := t.Context()
 
-		for _, key := range []string{"idle1", "touched", "idle2"} {
-			_, err := p.Allow(ctx, key, 10, time.Minute)
+		for _, key := range []string{"idle1", "idle2"} {
+			_, err := p.Allow(ctx, key, 10, time.Millisecond)
 			require.NoError(t, err)
 		}
+		_, err := p.Allow(ctx, "touched", 10, time.Minute)
+		require.NoError(t, err)
 		time.Sleep(40 * time.Millisecond)
 
-		_, err := p.Allow(ctx, "touched", 10, time.Minute)
+		_, err = p.Allow(ctx, "touched", 10, time.Minute)
 		require.NoError(t, err)
 		_, err = p.Allow(ctx, "fresh", 10, time.Minute)
 		require.NoError(t, err)
@@ -220,7 +222,7 @@ func TestProvider_Allow_Panics(t *testing.T) {
 func TestProvider_MaxBuckets_EvictsLRU(t *testing.T) {
 	t.Parallel()
 	fake := clock.NewFake(time.Now())
-	p := memory.New(memory.WithMaxBuckets(2), memory.WithClock(fake))
+	p := memory.New(memory.WithInsecureEvictLRU(), memory.WithMaxBuckets(2), memory.WithClock(fake))
 	ctx := t.Context()
 
 	_, err := p.Allow(ctx, "key1", 10, time.Minute)
@@ -251,7 +253,7 @@ func TestProvider_MaxBuckets_EvictsLRU(t *testing.T) {
 // itself evict another bucket.
 func TestProvider_MaxBuckets_TouchRefreshesRecency(t *testing.T) {
 	t.Parallel()
-	p := memory.New(memory.WithMaxBuckets(2))
+	p := memory.New(memory.WithInsecureEvictLRU(), memory.WithMaxBuckets(2))
 	ctx := t.Context()
 
 	for _, key := range []string{"key1", "key2", "key1", "key3"} {

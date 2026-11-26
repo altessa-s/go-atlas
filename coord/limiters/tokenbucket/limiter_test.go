@@ -12,9 +12,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 )
 
@@ -267,4 +269,43 @@ func TestRuleSorting(t *testing.T) {
 
 func TestErrLimitExceededIdentity(t *testing.T) {
 	require.Same(t, limiters.ErrLimitExceeded, tokenbucket.ErrLimitExceeded)
+}
+
+type failingRuleStorage struct {
+	storages.Storage
+	calls int
+}
+
+func (s *failingRuleStorage) Allow(context.Context, string, int64, time.Duration) (*storages.LimitInfo, error) {
+	s.calls++
+	return nil, errors.New("storage unavailable")
+}
+
+func TestLimit_UnlimitedIPSkipsStorage(t *testing.T) {
+	t.Parallel()
+	store := &failingRuleStorage{}
+	l, err := tokenbucket.New(validDefaults(), store,
+		tokenbucket.WithExtractClientIPAddress(func(context.Context) string { return "192.0.2.1" }),
+		tokenbucket.WithRules(&tokenbucket.RateLimitRule{Target: "192.0.2.1", RateLimitSettings: tokenbucket.RateLimitUnlimited}),
+	)
+	require.NoError(t, err)
+	got, err := l.Limit(t.Context())
+	require.Zero(t, store.calls)
+	require.NoError(t, err)
+	require.Equal(t, tokenbucket.RateLimitUnlimited.LimitInfo(), got)
+}
+
+func TestLimit_InvalidClientSettingsSkipStorage(t *testing.T) {
+	t.Parallel()
+	store := &failingRuleStorage{}
+	l, err := tokenbucket.New(validDefaults(), store,
+		tokenbucket.WithExtractToken(func(context.Context) string { return "token" }),
+		tokenbucket.WithClientService(tokenbucket.ClientServiceFunc(func(context.Context, string) (*tokenbucket.RateLimitSettings, error) {
+			return &tokenbucket.RateLimitSettings{}, nil
+		})),
+	)
+	require.NoError(t, err)
+	_, err = l.Limit(t.Context())
+	require.Zero(t, store.calls)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }

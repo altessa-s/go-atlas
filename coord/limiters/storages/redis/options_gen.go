@@ -14,13 +14,7 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithClock sets the clock option.
-//
-// Clock supplies the request timestamps the scripts score and prune the
-// windows by, so a clock.Fake moves the windows in tests. Key expiry
-// (PEXPIRE, one period after the last request) still runs on the Redis
-// server clock; it only drops windows the fake time has not left yet
-// when the fake clock runs a period or more behind real time.
+// WithClock sets the clock for topology verification caching.
 func WithClock(v clock.Clock) Option {
 	return func(o *options) {
 		switch rv := reflect.ValueOf(v); rv.Kind() {
@@ -60,6 +54,23 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.keyPrefix = transformedValue
+	}
+}
+
+// WithTestClock overrides Redis TIME for window decisions in tests.
+// It is unsafe with more than one limiter replica. Key expiry still runs
+// on the Redis server's clock.
+func WithTestClock(v clock.Clock) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.testClock = v
 	}
 }
 

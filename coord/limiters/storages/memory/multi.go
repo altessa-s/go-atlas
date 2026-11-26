@@ -24,11 +24,10 @@ const smallCall = 8
 // order, checks every window, and takes a slot on each only when all admit.
 //
 // New keys need a bucket each. When the free slots fall short the call locks
-// every shard and reclaims expired windows; if that is not enough,
-// [EvictionReject] fails the call with a [*storages.KeyError] for the first
-// new key left without a bucket that wraps [ErrCapacityExceeded], and
-// [EvictionLRU] evicts least recently used buckets other than the call's
-// own. A call with more limits than [WithMaxBuckets] cannot be tracked at
+// every shard and reclaims expired windows. If more slots are needed, the
+// default is to return a [*storages.KeyError] wrapping [ErrCapacityExceeded]
+// for the first new key left without a bucket.
+// [WithInsecureEvictLRU] evicts least recently used buckets outside the call. A call with more limits than [WithMaxBuckets] cannot be tracked at
 // once and fails the same way. The failure names the first new key left
 // without room. A refusal or a capacity failure takes no slot and inserts no
 // bucket. New keys reserve their slots in one step, so two calls racing for
@@ -75,20 +74,32 @@ func (p *Provider) AllowAll(ctx context.Context, limits []storages.Limit) ([]sto
 // allowAllLocked runs [Provider.AllowAll] with the shards in idx locked, or
 // every shard when all is set. Without every shard it cannot reclaim or
 // evict, so when new keys find too few free slots it reserves nothing and
-// reports retry, unless [EvictionReject] already knows the answer. buckets
+// reports retry if expired windows might free slots or eviction is enabled. buckets
 // is scratch space of len(limits).
 func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []*bucket, all bool) (
 	infos []storages.LimitInfo, retry bool, err error,
 ) {
 	now := p.options.clock.Now()
 	missing := p.resolveLocked(limits, idx, buckets)
-	if all && missing > p.freeSlots() && p.purgeDue(now) {
-		p.purgeLocked(now)
-		missing = p.resolveLocked(limits, idx, buckets)
+	if deficit := missing - p.freeSlots(); all && deficit > 0 && p.purgeDue(now) {
+		members := make(map[*bucket]int, len(buckets)-missing)
+		for i, b := range buckets {
+			if b != nil {
+				members[b] = i
+			}
+		}
+		p.reclaimLocked(now, deficit, func(b *bucket) bool {
+			i, member := members[b]
+			if member {
+				buckets[i] = nil
+				missing++
+			}
+			return member
+		})
 	}
 
 	// Check every window before taking anything.
-	infos, refused := p.checkWindowsLocked(limits, buckets, now)
+	infos, refused := p.checkWindowsLocked(limits, idx, buckets, now)
 	if refused >= 0 {
 		// A refused request still counts as use, as in Allow.
 		for i, b := range buckets {
@@ -129,7 +140,7 @@ func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []
 // checkWindowsLocked checks the window of every limit without taking a
 // slot and returns the infos and the index of the first refused limit, or
 // -1. A new key has an empty window, which admits any positive limit.
-func (p *Provider) checkWindowsLocked(limits []storages.Limit, buckets []*bucket, now time.Time) ([]storages.LimitInfo, int) {
+func (p *Provider) checkWindowsLocked(limits []storages.Limit, idx []int, buckets []*bucket, now time.Time) ([]storages.LimitInfo, int) {
 	infos := make([]storages.LimitInfo, len(limits))
 	refused := -1
 	for i, b := range buckets {
@@ -139,11 +150,8 @@ func (p *Provider) checkWindowsLocked(limits []storages.Limit, buckets []*bucket
 		}
 		info, ok := b.apply(now, limits[i].Limit, limits[i].Period, false)
 		infos[i] = info
-		if limits[i].Period != b.window {
-			// A shorter period than the window was recorded with can empty
-			// it; keep it reclaimable even when this call fails below.
-			p.lowerExpiry(b.expiry())
-		}
+		// Pruning can empty the window even if capacity checks later fail.
+		p.refreshExpiry(&p.shards[idx[i]], b)
 		if !ok && refused < 0 {
 			refused = i
 		}
@@ -164,7 +172,7 @@ func (p *Provider) reserveForNewKeys(limits []storages.Limit, buckets []*bucket,
 	if reserved >= missing {
 		return reserved, false, nil
 	}
-	reject := p.options.eviction == EvictionReject
+	reject := !p.options.insecureEvictLRU
 	switch {
 	case !all && (!reject || p.purgeDue(now)):
 		return 0, true, nil

@@ -73,7 +73,7 @@ func (p *Provider) AllowAll(ctx context.Context, limits []storages.Limit) ([]sto
 	}
 
 	args := make([]any, 0, 1+3*len(limits))
-	args = append(args, p.clock.Now().UnixMilli())
+	args = append(args, p.testTimestamp())
 	for _, l := range limits {
 		member := id.NewHex(memberBytes)
 		args = append(args, max(l.Period.Milliseconds(), 1), l.Limit, member)

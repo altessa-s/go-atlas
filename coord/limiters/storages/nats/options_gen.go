@@ -4,8 +4,11 @@
 package nats
 
 import (
+	"reflect"
 	"strings"
 	"time"
+
+	"github.com/altessa-s/go-atlas-core/time/clock"
 )
 
 // Option is a functional option for configuring options.
@@ -33,6 +36,21 @@ func WithBucket[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.bucket = transformedValue
+	}
+}
+
+// WithClock sets the clock used for sliding-window decisions.
+func WithClock(v clock.Clock) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.clock = v
 	}
 }
 
@@ -106,6 +124,7 @@ func WithReplicas(v int) Option {
 func defaultOptions() *options {
 	return &options{
 		bucket:         defaultBucket(),
+		clock:          clock.Real(),
 		maxAge:         DefaultMaxAge,
 		maxCASAttempts: DefaultMaxCASAttempts,
 		maxCASBackoff:  DefaultMaxCASBackoff,

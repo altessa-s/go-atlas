@@ -28,7 +28,7 @@ func BenchmarkProvider_Allow(b *testing.B) {
 func BenchmarkProvider_Allow_ChurnAtCapacity(b *testing.B) {
 	for _, capacity := range []int{1_000, 10_000, 100_000} {
 		b.Run(strconv.Itoa(capacity), func(b *testing.B) {
-			p := memory.New(memory.WithMaxBuckets(capacity))
+			p := memory.New(memory.WithMaxBuckets(capacity), memory.WithInsecureEvictLRU())
 			ctx := b.Context()
 			for i := range capacity {
 				_, _ = p.Allow(ctx, "prefill-"+strconv.Itoa(i), 10, time.Minute)
@@ -153,7 +153,7 @@ func BenchmarkProvider_Allow_ParallelMixedAtCapacity(b *testing.B) {
 
 func benchAllowParallelMixedAtCapacity(b *testing.B, shards int) {
 	const capacity = 10_000
-	p := memory.New(memory.WithMaxBuckets(capacity), memory.WithShards(shards))
+	p := memory.New(memory.WithMaxBuckets(capacity), memory.WithShards(shards), memory.WithInsecureEvictLRU())
 	ctx := b.Context()
 	for i := range capacity {
 		_, _ = p.Allow(ctx, "prefill-"+strconv.Itoa(i), 1_000_000, 10*time.Millisecond)

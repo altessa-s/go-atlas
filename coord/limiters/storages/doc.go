@@ -4,6 +4,7 @@
 
 // Package storages defines the Storage interface for rate limiting.
 // Implementations are in subpackages: memory, redis, nats.
+// Backends can implement [PeriodValidator] and [LimitValidator] to check configured periods and quotas at limiter construction.
 //
 // Example:
 //

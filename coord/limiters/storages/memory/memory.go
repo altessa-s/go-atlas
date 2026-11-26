@@ -5,6 +5,7 @@
 package memory
 
 import (
+	"container/heap"
 	"container/list"
 	"context"
 	"errors"
@@ -24,9 +25,9 @@ import (
 )
 
 // ErrCapacityExceeded is returned for a new key when the provider holds
-// [WithMaxBuckets] keys, no tracked window has expired and the policy is
-// [EvictionReject]. It is not [limiters.ErrLimitExceeded]: the key itself is
-// within its limit, the provider has no room to track it.
+// [WithMaxBuckets] keys, no tracked window has expired and live eviction
+// is disabled. The key is within its limit, but the provider has no room
+// to track it.
 var ErrCapacityExceeded = errors.New("rate limit storage capacity exceeded")
 
 // bucket represents a sliding window bucket for rate limiting.
@@ -44,17 +45,20 @@ type bucket struct {
 	// the shard tails is the global least-recently-used bucket.
 	recency uint64
 	// lruElem is the bucket's node in its shard's lru; its Value is the key.
-	lruElem *list.Element
+	lruElem     *list.Element
+	expiresAt   time.Time
+	expiryIndex int
 }
 
 // shard owns a slice of the key space with an exact local LRU, most recent
 // at the front. Shards have no quota of their own: the bucket cap and LRU
 // eviction stay global.
 type shard struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
-	lru     *list.List
-	_       [64]byte // keep neighboring shard locks off one cache line
+	mu       sync.Mutex
+	buckets  map[string]*bucket
+	lru      *list.List
+	expiries expiryHeap
+	_        [64]byte // keep neighboring shard locks off one cache line
 }
 
 // Provider implements an in-memory rate limiting provider using sliding window algorithm.
@@ -63,8 +67,9 @@ type shard struct {
 // Keys are spread over shards so concurrent Allow calls on existing keys do
 // not share a lock. Below the bucket cap a new key is inserted under its own
 // shard lock; at the cap the insert locks every shard, reclaims expired
-// windows, and then applies [WithEviction]: the evicted bucket is exactly the
-// least recently used one across the whole provider.
+// windows, and refuses new keys when only live windows remain.
+// [WithInsecureEvictLRU] instead allows evicting the globally least recently
+// used bucket.
 //
 // Provider implements [storages.MultiStorage]: [Provider.AllowAll] locks the
 // shards of its keys in index order, so overlapping calls cannot deadlock.
@@ -83,13 +88,13 @@ type Provider struct {
 	epoch time.Time
 	// nextExpiry is a lower bound, in nanoseconds since epoch, of the time
 	// the first tracked window expires; math.MaxInt64 when none can. Until
-	// then a full provider has nothing to reclaim, so it skips the sweep.
-	// A window's expiry only grows while its period stays the same, so the
-	// bound is lowered only for new buckets, period changes and resets.
-	nextExpiry  atomic.Int64
-	options     *options
-	scheduler   schedtask.Registrar
-	cleanupTask *cycle.Guard // Guards RunCleanup and marks scheduler management.
+	// then a full provider has nothing to reclaim, so it skips taking all
+	// shard locks for reclamation.
+	nextExpiry         atomic.Int64
+	visitReclaimBucket func() // Optional probe set by white-box tests before use.
+	options            *options
+	scheduler          schedtask.Registrar
+	cleanupTask        *cycle.Guard // Guards RunCleanup and marks scheduler management.
 }
 
 // New creates a new memory-based rate limiting provider.
@@ -136,8 +141,8 @@ func (p *Provider) shardIndex(key string) int {
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // A new key at [WithMaxBuckets] first reclaims expired windows; when none
-// has expired, [EvictionReject] fails it with [ErrCapacityExceeded] and a nil
-// LimitInfo, and [EvictionLRU] evicts the least recently used bucket.
+// has expired, the default is to return [ErrCapacityExceeded] and a nil
+// LimitInfo. [WithInsecureEvictLRU] evicts the least recently used bucket.
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
@@ -157,7 +162,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 		sh.mu.Unlock()
 		return info, err
 	}
-	if p.options.eviction == EvictionReject && !p.purgeDue(p.options.clock.Now()) {
+	if !p.options.insecureEvictLRU && !p.purgeDue(p.options.clock.Now()) {
 		// Nothing to reclaim and nothing to evict: refuse without the
 		// all-shard lock, so a flood of new keys stays cheap.
 		sh.mu.Unlock()
@@ -187,13 +192,16 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 }
 
 // admitAtCapLocked inserts key into a full provider: it reclaims expired
-// windows when one may have expired, and otherwise refuses the key under
-// [EvictionReject] or evicts the least recently used bucket. The caller MUST
+// windows when one may have expired, and otherwise refuses the key unless
+// [WithInsecureEvictLRU] allows eviction. The caller MUST
 // hold every shard lock and have found no free slot.
 func (p *Provider) admitAtCapLocked(sh *shard, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	now := p.options.clock.Now()
-	if !p.reclaimLocked(now) {
-		if p.options.eviction == EvictionReject {
+	if p.purgeDue(now) {
+		p.reclaimLocked(now, 1, nil)
+	}
+	if !p.reserveSlot() {
+		if !p.options.insecureEvictLRU {
 			return nil, ErrCapacityExceeded
 		}
 		p.evictLRULocked()
@@ -201,17 +209,6 @@ func (p *Provider) admitAtCapLocked(sh *shard, key string, limit int64, period t
 	// A new bucket has an empty window, which admits any positive limit.
 	info, _ := p.touchAtLocked(sh, p.insertLocked(sh, key), now, limit, period, true)
 	return &info, nil
-}
-
-// reclaimLocked sweeps expired windows when one may have expired by now and
-// reserves a slot, reporting whether it got one. The caller MUST hold every
-// shard lock.
-func (p *Provider) reclaimLocked(now time.Time) bool {
-	if !p.purgeDue(now) {
-		return false
-	}
-	p.purgeLocked(now)
-	return p.reserveSlot()
 }
 
 // reserveSlots reserves n slots in one step and returns n, or 0 when fewer
@@ -270,7 +267,7 @@ func (p *Provider) reserveSlot() bool {
 // insertLocked adds a new bucket for key to sh. Its slot in count is already
 // held by the caller. The caller MUST hold sh.mu.
 func (p *Provider) insertLocked(sh *shard, key string) *bucket {
-	b := &bucket{requests: make([]time.Time, 0, 16)} //nolint:mnd // reasonable initial capacity for sliding window
+	b := &bucket{requests: make([]time.Time, 0, 16), expiryIndex: -1} //nolint:mnd // reasonable initial capacity for sliding window
 	b.lruElem = sh.lru.PushFront(key)
 	sh.buckets[key] = b
 	return b
@@ -297,14 +294,10 @@ func (p *Provider) touchAtLocked(sh *shard, b *bucket, now time.Time, limit int6
 	sh.lru.MoveToFront(b.lruElem)
 	b.lastUsed = now
 	b.limit = limit
-	reshaped := b.window != period
 	b.window = period
 
 	info, ok := b.apply(now, limit, period, take)
-	if reshaped {
-		// A new bucket or a changed period may expire before the bound.
-		p.lowerExpiry(b.expiry())
-	}
+	p.refreshExpiry(sh, b)
 	return info, ok
 }
 
@@ -400,25 +393,6 @@ func (p *Provider) purgeDue(now time.Time) bool {
 	return p.offset(now) >= p.nextExpiry.Load()
 }
 
-// purgeLocked drops every bucket whose window is empty at now and resets
-// nextExpiry to the earliest expiry left. It costs O(buckets), but runs only
-// for a full provider and at most once per earliest expiry, unless it
-// reclaims slots. The caller MUST hold every shard lock.
-func (p *Provider) purgeLocked(now time.Time) {
-	next := int64(math.MaxInt64)
-	for i := range p.shards {
-		sh := &p.shards[i]
-		for key, b := range sh.buckets {
-			if b.expiredAt(now) {
-				p.removeLocked(sh, key)
-				continue
-			}
-			next = min(next, p.offset(b.expiry()))
-		}
-	}
-	p.nextExpiry.Store(next)
-}
-
 // Reset resets the rate limit for a specific key.
 func (p *Provider) Reset(ctx context.Context, key string) error {
 	panics.MustNonNil(ctx, "context must not be nil")
@@ -433,7 +407,7 @@ func (p *Provider) Reset(ctx context.Context, key string) error {
 	if b, exists := sh.buckets[key]; exists {
 		b.requests = b.requests[:0]
 		b.head = 0
-		p.lowerExpiry(time.Time{})
+		p.refreshExpiry(sh, b)
 	}
 
 	return nil
@@ -489,12 +463,13 @@ func (p *Provider) removeLocked(sh *shard, key string) {
 	}
 }
 
-// drop removes key from the shard's map and LRU list, reporting whether it
+// drop removes key from the shard, reporting whether it
 // was present. The caller MUST hold sh.mu.
 func (sh *shard) drop(key string) bool {
 	b, ok := sh.buckets[key]
 	if ok {
 		sh.lru.Remove(b.lruElem)
+		heap.Remove(&sh.expiries, b.expiryIndex)
 		delete(sh.buckets, key)
 	}
 	return ok

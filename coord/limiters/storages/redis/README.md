@@ -9,20 +9,19 @@ service instances.
 
 ## Options
 
-| Option          | Default        | Description                                                                         |
-|-----------------|----------------|-------------------------------------------------------------------------------------|
-| `WithKeyPrefix` | `ratelimit:`   | Prefix for Redis keys                                                               |
-| `WithClock`     | `clock.Real()` | Request timestamps the windows are scored and pruned by (tests pass a `clock.Fake`) |
+| Option          | Default        | Description                              |
+|-----------------|----------------|------------------------------------------|
+| `WithKeyPrefix` | `ratelimit:`   | Prefix for Redis keys                    |
+| `WithClock`     | `clock.Real()` | Clock for caching topology verification  |
+| `WithTestClock` | Redis `TIME`   | Overrides the window clock for tests     |
 
-The scripts take the request time from the clock, so a fake clock moves the windows: advancing it past a period frees the slots without a
-real wait. Key expiry (`PEXPIRE`, one period after the last request) still runs on the Redis server clock; it can only drop a window early
-when the fake clock runs a period or more behind real time.
+Both admission scripts use the primary's Redis `TIME` for window decisions. Tests can pass `WithTestClock(clock.Fake)` to advance the window
+without waiting. Key expiry (`PEXPIRE`, one period after the last request) always runs on the Redis server clock.
 
 ## Multi-key admission
 
 `Provider` implements `storages.MultiStorage`. `AllowAll` runs one Lua script that prunes and counts every window first and adds the request to all of
-them only when each admits, so a refusal takes no slot; windows keep the millisecond resolution of `Allow`. The single-key `Allow` script is
-unchanged.
+them only when each admits, so a refusal takes no slot; windows keep the millisecond resolution of `Allow`.
 
 Give the keys a shared hash tag, such as `{tenant-1}:global` and `{tenant-1}:host:example.com`, or place the tag in the key prefix. For keys without a
 common tag, only a raw `*redis.Client` can run the script, after `ROLE` and `INFO cluster` verify a single non-cluster primary. Each provider shares one
