@@ -52,6 +52,7 @@ type streamSubscriber struct {
 	draining         chan struct{}
 	mu               sync.Mutex
 	consumeContext   jetstream.ConsumeContext // Manages the lifecycle of the NATS Consume operation.
+	activeConsumer   string                   // Server-side name of the consumer being consumed.
 	handlerCtxCancel context.CancelFunc
 }
 
@@ -116,6 +117,16 @@ func (ss *streamSubscriber) ConsumerName() string {
 	return ss.consumerName
 }
 
+// ActiveConsumerName returns the server-side name of the consumer the
+// subscriber currently consumes, or "" when it is not subscribed. Unlike
+// [streamSubscriber.ConsumerName] it also names an ephemeral consumer, whose
+// name the server assigns.
+func (ss *streamSubscriber) ActiveConsumerName() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.activeConsumer
+}
+
 // Unsubscribe drains buffered messages, waits for their handlers for up to
 // the provider's drain timeout ([WithDrainTimeout]), then cancels the handler
 // context and waits until the consumer has fully stopped and all handlers,
@@ -142,7 +153,7 @@ func (ss *streamSubscriber) beginTransition() bool {
 		}
 	}
 	previous, cancel := ss.consumeContext, ss.handlerCtxCancel
-	ss.consumeContext, ss.handlerCtxCancel = nil, nil
+	ss.consumeContext, ss.handlerCtxCancel, ss.activeConsumer = nil, nil, ""
 	if previous != nil {
 		done := make(chan struct{})
 		ss.draining = done
@@ -272,6 +283,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	}
 
 	ss.consumeContext, ss.handlerCtxCancel = consumeContext, handlerCtxCancel
+	ss.activeConsumer = consumer.CachedInfo().Name
 
 	return nil
 }

@@ -19,6 +19,9 @@ import (
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
 )
 
+// consumerRef identifies a consumer of a stream.
+type consumerRef struct{ stream, consumer string }
+
 // recoveryState tracks the state of an ongoing recovery operation.
 type recoveryState struct {
 	startedAt time.Time
@@ -45,6 +48,12 @@ type Supervisor struct {
 	// recoveringStreams tracks streams currently being recovered.
 	recoveringMu     sync.Mutex
 	recoveringStates map[string]*recoveryState
+	// recoveringConsumers holds the consumers being recovered, keyed by
+	// stream and consumer, so overlapping triggers run one recovery.
+	recoveringConsumers map[consumerRef]struct{}
+	// closed is set by Close under recoveringMu, the lock that guards
+	// recoveriesWG.Go, so no recovery starts once Close has begun to wait.
+	closed bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,8 +89,10 @@ func NewSupervisor(js jetstream.JetStream, registry *Registry, opts ...Superviso
 		onManualNeeded:    cfg.onManualNeeded,
 		onStaleCleared:    cfg.onStaleCleared,
 		recoveringStates:  make(map[string]*recoveryState),
-		ctx:               ctx,
-		cancel:            cancel,
+
+		recoveringConsumers: make(map[consumerRef]struct{}),
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 }
 
@@ -92,24 +103,12 @@ func NewSupervisor(js jetstream.JetStream, registry *Registry, opts ...Superviso
 // returns. This makes shutdown observable — callers can rely on Close
 // returning ⇒ no recovery goroutines are still touching state.
 func (s *Supervisor) Close() {
+	s.recoveringMu.Lock()
+	s.closed = true
+	s.recoveringMu.Unlock()
+
 	s.cancel()
 	s.recoveriesWG.Wait()
-}
-
-// markAsRecovering marks a stream as being recovered.
-// Returns false if already recovering.
-func (s *Supervisor) markAsRecovering(stream string) bool {
-	s.recoveringMu.Lock()
-	defer s.recoveringMu.Unlock()
-
-	if _, ok := s.recoveringStates[stream]; ok {
-		return false
-	}
-
-	s.recoveringStates[stream] = &recoveryState{
-		startedAt: time.Now(),
-	}
-	return true
 }
 
 // clearRecoveringMark removes the recovering mark for a stream.
@@ -118,6 +117,14 @@ func (s *Supervisor) clearRecoveringMark(stream string) {
 	defer s.recoveringMu.Unlock()
 
 	delete(s.recoveringStates, stream)
+}
+
+// clearConsumerRecovering removes the recovering mark of a consumer.
+func (s *Supervisor) clearConsumerRecovering(ref consumerRef) {
+	s.recoveringMu.Lock()
+	defer s.recoveringMu.Unlock()
+
+	delete(s.recoveringConsumers, ref)
 }
 
 // GetRecoveringStreams returns a list of streams currently being recovered.
@@ -193,17 +200,23 @@ func (s *Supervisor) RecoverStream(streamName string, event any) {
 		// Continue with automatic recovery below.
 	}
 
-	// Prevent concurrent recovery of same stream.
-	if !s.markAsRecovering(streamName) {
-		s.logger.Debug("recovery already in progress",
-			slog.String("stream", streamName))
-		return
-	}
-
 	// Run recovery in a goroutine to not block the caller. Use
 	// WaitGroup.Go (Go 1.25) so Close can wait for in-flight retries
 	// to drain — keeps shutdown observable and prevents the recovery
 	// goroutine from racing the test harness's t.Cleanup.
+	s.recoveringMu.Lock()
+	defer s.recoveringMu.Unlock()
+	if s.closed {
+		return
+	}
+	// Prevent concurrent recovery of same stream.
+	if _, busy := s.recoveringStates[streamName]; busy {
+		s.logger.Debug("recovery already in progress",
+			slog.String("stream", streamName))
+		return
+	}
+	s.recoveringStates[streamName] = &recoveryState{startedAt: time.Now()}
+
 	s.recoveriesWG.Go(func() {
 		// Repo rule: every spawned goroutine ships with panics.Handle so a
 		// panic in a registry callback or NATS-driver call doesn't take the
@@ -283,9 +296,25 @@ func (s *Supervisor) RecoverConsumer(stream, consumer string, event any) {
 	}
 
 	// Run recovery in a goroutine — see RecoverStream for the
-	// rationale (WaitGroup-tracked + panics.Handle).
+	// rationale (WaitGroup-tracked + panics.Handle). One recovery runs per
+	// consumer: an overlapping trigger would resubscribe it twice.
+	ref := consumerRef{stream: stream, consumer: consumer}
+	s.recoveringMu.Lock()
+	defer s.recoveringMu.Unlock()
+	if s.closed {
+		return
+	}
+	if _, busy := s.recoveringConsumers[ref]; busy {
+		s.logger.Debug("consumer recovery already in progress",
+			slog.String("stream", stream),
+			slog.String("consumer", consumer))
+		return
+	}
+	s.recoveringConsumers[ref] = struct{}{}
+
 	s.recoveriesWG.Go(func() {
 		defer panics.Handle(s.ctx)
+		defer s.clearConsumerRecovering(ref)
 		s.runConsumerRecovery(stream, consumer)
 	})
 }

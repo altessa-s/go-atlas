@@ -74,4 +74,14 @@ type options struct {
 	scheduler                    schedtask.Registrar `optgen:"notnil"`
 	healthCheckSchedule          string
 	staleRecoveryCleanupSchedule string
+	// healthCheckTaskID is the scheduler task ID of the health check. The
+	// scheduler keys tasks by ID, so managers sharing an ID leave only the
+	// last one running. Empty derives a unique ID per manager instance,
+	// "broker-recovery-health-check-<n>"; set it for an ID that is stable
+	// across restarts.
+	healthCheckTaskID string
+	// staleCleanupTaskID is the scheduler task ID of the stale recovery
+	// cleanup, with the same rules as healthCheckTaskID; the derived default
+	// is "broker-recovery-stale-cleanup-<n>".
+	staleCleanupTaskID string
 }

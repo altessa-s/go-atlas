@@ -37,6 +37,34 @@ func WithHealthCheckSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithHealthCheckTaskID sets the healthCheckTaskID option.
+//
+// healthCheckTaskID is the scheduler task ID of the health check. The
+// scheduler keys tasks by ID, so managers sharing an ID leave only the
+// last one running. Empty derives a unique ID per manager instance,
+// "broker-recovery-health-check-<n>"; set it for an ID that is stable
+// across restarts.
+func WithHealthCheckTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.healthCheckTaskID = transformedValue
+	}
+}
+
 // WithLogger sets the logger option.
 //
 // logger is the logger for recovery operations.
@@ -115,6 +143,32 @@ func WithScheduler(v schedtask.Registrar) Option {
 			}
 		}
 		o.scheduler = v
+	}
+}
+
+// WithStaleCleanupTaskID sets the staleCleanupTaskID option.
+//
+// staleCleanupTaskID is the scheduler task ID of the stale recovery
+// cleanup, with the same rules as healthCheckTaskID; the derived default
+// is "broker-recovery-stale-cleanup-<n>".
+func WithStaleCleanupTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.staleCleanupTaskID = transformedValue
 	}
 }
 

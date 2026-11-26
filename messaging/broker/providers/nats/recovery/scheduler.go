@@ -5,13 +5,19 @@
 package recovery
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
+
+// managerSeq numbers the managers of the process that register scheduler tasks.
+var managerSeq atomic.Uint64
 
 // registerTasks registers recovery tasks with the scheduler if configured.
 func (m *Manager) registerTasks(opts *options) error {
@@ -21,10 +27,16 @@ func (m *Manager) registerTasks(opts *options) error {
 
 	ctx := context.Background()
 
+	// A manager without explicit IDs derives them from one instance number,
+	// so two managers never share a scheduler task.
+	instance := managerSeq.Add(1)
+	healthID := cmp.Or(opts.healthCheckTaskID, fmt.Sprintf("broker-recovery-health-check-%d", instance))
+	staleID := cmp.Or(opts.staleCleanupTaskID, fmt.Sprintf("broker-recovery-stale-cleanup-%d", instance))
+
 	// Register health check task
 	if opts.healthCheckSchedule != "" {
 		taskCfg := schedtask.Config{
-			ID:          "broker-recovery-health-check",
+			ID:          healthID,
 			Description: "Health check for recovery manager (fallback detection for missed advisory events)",
 			Func:        m.RegisterHealthCheckSchedulerFunc(),
 			Schedule:    opts.healthCheckSchedule,
@@ -38,7 +50,7 @@ func (m *Manager) registerTasks(opts *options) error {
 	// Register stale recovery cleanup task
 	if opts.staleRecoveryCleanupSchedule != "" {
 		taskCfg := schedtask.Config{
-			ID:          "broker-recovery-stale-cleanup",
+			ID:          staleID,
 			Description: "Cleanup stale recovery marks (clears stuck recovery marks)",
 			Func:        m.RegisterStaleCleanupSchedulerFunc(),
 			Schedule:    opts.staleRecoveryCleanupSchedule,

@@ -56,6 +56,8 @@ and periodic health checks as a fallback for missed events during reconnection o
 | `WithScheduler`                     | Set the task scheduler for background task registration           |
 | `WithHealthCheckSchedule`          | Cron schedule for periodic health checks                          |
 | `WithStaleRecoveryCleanupSchedule` | Cron schedule for stale recovery mark cleanup                     |
+| `WithHealthCheckTaskID`            | Scheduler task ID of the health check (default: unique per manager, `broker-recovery-health-check-<n>`) |
+| `WithStaleCleanupTaskID`           | Scheduler task ID of the stale cleanup (default: unique per manager, `broker-recovery-stale-cleanup-<n>`) |
 | `WithOnRecoverySuccess`            | Callback invoked after successful stream or consumer recovery     |
 | `WithOnRecoveryFailure`            | Callback invoked when recovery fails after all retry attempts     |
 | `WithOnManualRecoveryNeeded`       | Callback for streams configured with `RecoveryStrategyManual`     |

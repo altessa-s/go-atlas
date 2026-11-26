@@ -272,14 +272,15 @@ func (m *Manager) Subscribe(
 	}
 	sub.setSubscriber(subscriber)
 
-	// Register for recovery.
-	if err := m.registry.RegisterSubscription(stream, consumerName, handler, factory); err != nil {
+	// Register for recovery under the server-side consumer name, which the
+	// health check looks up; an ephemeral consumer is named by the server.
+	if err := m.registry.RegisterSubscription(stream, sub.key, handler, factory); err != nil {
 		subscriber.Unsubscribe()
 		return nil, err
 	}
 
 	// Register resubscribe handler for recovery.
-	m.registry.RegisterResubscribeHandler(stream, consumerName, func(recoveryCtx context.Context) error {
+	m.registry.RegisterResubscribeHandler(stream, sub.key, func(recoveryCtx context.Context) error {
 		return sub.resubscribe(ctx, recoveryCtx)
 	})
 

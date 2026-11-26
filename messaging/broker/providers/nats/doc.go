@@ -9,7 +9,10 @@
 // [NATS] is the main type; create one with [New] or [NewWithContext].
 // Use [WithAllowedSubjects] to restrict which subjects may be published or
 // subscribed. Attempting to use a disallowed subject returns
-// [ErrSubjectNotAllowed].
+// [ErrSubjectNotAllowed]. A subscription is allowed only when every subject it
+// can match is covered by a pattern, and with an allowlist a consumer's filters
+// (or, for a consumer without filters, every subject of the stream) must stay
+// inside the topic and the allowlist.
 //
 // [SubscriberFactory] takes a *NATS. [NATS.Subscriber] tracks its result for shutdown.
 //
