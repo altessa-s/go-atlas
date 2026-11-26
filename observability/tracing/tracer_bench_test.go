@@ -6,6 +6,7 @@ package tracing_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -75,5 +76,43 @@ func BenchmarkRecorderStartEnd(b *testing.B) {
 				span.End()
 			}
 		})
+	})
+}
+
+// BenchmarkSpanSetAttributes measures attribute insertion and last-wins updates
+// across small and large key sets.
+func BenchmarkSpanSetAttributes(b *testing.B) {
+	rec := newBenchRecorder(b)
+
+	makeAttrs := func(n int) []tracing.Attribute {
+		attrs := make([]tracing.Attribute, n)
+		for i := range n {
+			attrs[i] = tracing.Int(fmt.Sprintf("attr.key.%d", i), i)
+		}
+		return attrs
+	}
+
+	b.Run("few_keys_8", func(b *testing.B) {
+		attrs := makeAttrs(8)
+		ctx := b.Context()
+		b.ReportAllocs()
+		for b.Loop() {
+			_, span := rec.Start(ctx, "op")
+			span.SetAttributes(attrs...)
+			span.SetAttributes(attrs[0], attrs[7])
+			span.End()
+		}
+	})
+
+	b.Run("many_keys_128", func(b *testing.B) {
+		attrs := makeAttrs(128)
+		ctx := b.Context()
+		b.ReportAllocs()
+		for b.Loop() {
+			_, span := rec.Start(ctx, "op")
+			span.SetAttributes(attrs...)
+			span.SetAttributes(attrs[0], attrs[64], attrs[127])
+			span.End()
+		}
 	})
 }

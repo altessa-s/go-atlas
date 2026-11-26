@@ -16,7 +16,10 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
 
-const stackTraceAttrKey = "exception.stacktrace"
+const (
+	stackTraceAttrKey = "exception.stacktrace"
+	attrMapThreshold  = 16
+)
 
 // recordingSpan is a Span that records events and attributes.
 type recordingSpan struct {
@@ -29,6 +32,7 @@ type recordingSpan struct {
 	startTime         time.Time
 	endTime           time.Time
 	attributes        []Attribute
+	attrIndex         map[string]int
 	events            []adapters.SpanEvent
 	links             []Link
 	droppedAttributes int
@@ -60,6 +64,7 @@ func (s *recordingSpan) End(opts ...SpanEndOption) {
 	if s.spanContext.IsSampled() {
 		s.export()
 	}
+	s.attrIndex = nil
 }
 
 // SpanContext implements Span.
@@ -124,17 +129,33 @@ func (s *recordingSpan) putSamplerAttributes(attrs []sampler.Attribute) {
 }
 
 func (s *recordingSpan) putOneAttribute(attr Attribute, maxAttrs int) {
-	for i := range s.attributes {
-		if s.attributes[i].Key == attr.Key {
-			s.attributes[i].Value = attr.Value
+	if s.attrIndex != nil {
+		if idx, ok := s.attrIndex[attr.Key]; ok {
+			s.attributes[idx].Value = attr.Value
 			return
+		}
+	} else {
+		for i := range s.attributes {
+			if s.attributes[i].Key == attr.Key {
+				s.attributes[i].Value = attr.Value
+				return
+			}
 		}
 	}
 	if maxAttrs > 0 && len(s.attributes) >= maxAttrs {
 		s.droppedAttributes++
 		return
 	}
+	idx := len(s.attributes)
 	s.attributes = append(s.attributes, attr)
+	if s.attrIndex != nil {
+		s.attrIndex[attr.Key] = idx
+	} else if len(s.attributes) > attrMapThreshold {
+		s.attrIndex = make(map[string]int, len(s.attributes)*2)
+		for i, a := range s.attributes {
+			s.attrIndex[a.Key] = i
+		}
+	}
 }
 
 // RecordError implements Span.

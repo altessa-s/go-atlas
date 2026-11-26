@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 	"testing"
@@ -381,4 +382,30 @@ func TestSpan_LimitsCapAndReportDroppedCounts(t *testing.T) {
 	require.Equal(t, 1, got.DroppedEventCount)
 	require.Len(t, got.Links, 2)
 	require.Equal(t, 2, got.DroppedLinkCount)
+}
+
+func TestSpan_SetAttributesManyKeysUsesMapIndexAndHonorsCap(t *testing.T) {
+	t.Parallel()
+
+	a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+	tr := tracing.New(
+		tracing.WithAdapter(a),
+		tracing.WithSampler(sampler.AlwaysOn()),
+		tracing.WithMaxAttributes(24),
+	)
+	_, span := tr.Recorder("svc").Start(t.Context(), "indexed")
+	for i := range 30 {
+		span.SetAttributes(tracing.Int(fmt.Sprintf("k%d", i), i))
+	}
+	// Overwrite keys on both sides of the map-index threshold without dropping.
+	span.SetAttributes(tracing.Int("k0", 100), tracing.Int("k23", 230))
+	span.End()
+
+	require.NoError(t, tr.Shutdown(t.Context()))
+	require.Len(t, a.spans, 1)
+	got := a.spans[0]
+	require.Len(t, got.Attributes, 24)
+	require.Equal(t, 6, got.DroppedAttributeCount)
+	require.Contains(t, got.Attributes, adapters.Attribute{Key: "k0", Value: 100})
+	require.Contains(t, got.Attributes, adapters.Attribute{Key: "k23", Value: 230})
 }
