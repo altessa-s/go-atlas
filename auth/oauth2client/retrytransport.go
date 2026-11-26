@@ -6,9 +6,15 @@ package oauth2client
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
+	"mime"
+	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/retry"
@@ -39,22 +45,18 @@ const (
 // GetBody is set (as x/oauth2's form posts are); anything else gets a single
 // attempt. On exhausted retries the last response is returned unchanged, so the
 // caller still observes the real status and body. 4xx other than 429 are
-// returned immediately.
+// returned immediately. Refresh tokens, authorization codes and device codes
+// are only retried after a proven dial or TLS handshake failure by default.
+// [WithInsecureRetrySingleUseGrants] enables replay after ambiguous failures.
 func RetryTransport(base http.RoundTripper, opts ...RetryTransportOption) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	cfg := retryTransportConfig{
-		attempts:  DefaultTransportRetryAttempts,
-		baseDelay: DefaultTransportRetryBaseDelay,
-		maxDelay:  DefaultTransportRetryMaxDelay,
-	}
-	for _, o := range opts {
-		o(&cfg)
-	}
+	cfg := newRetryTransportOptions(opts...)
 	return &retryTransport{
-		base:     base,
-		attempts: cfg.attempts,
+		base:                         base,
+		attempts:                     cfg.attempts,
+		insecureRetrySingleUseGrants: cfg.insecureRetrySingleUseGrants,
 		nextDelay: retry.Exponential(
 			cfg.baseDelay,
 			retry.WithExponentialMaxDelay(cfg.maxDelay),
@@ -63,20 +65,10 @@ func RetryTransport(base http.RoundTripper, opts ...RetryTransportOption) http.R
 	}
 }
 
-// retryTransportConfig carries the tunables for [RetryTransport].
-type retryTransportConfig struct {
-	attempts  int
-	baseDelay time.Duration
-	maxDelay  time.Duration
-}
-
-// RetryTransportOption configures [RetryTransport].
-type RetryTransportOption func(*retryTransportConfig)
-
 // WithTransportAttempts sets the number of retries after the first attempt.
 // A negative value is ignored; zero disables retrying.
 func WithTransportAttempts(n int) RetryTransportOption {
-	return func(c *retryTransportConfig) {
+	return func(c *retryTransportOptions) {
 		if n >= 0 {
 			c.attempts = n
 		}
@@ -86,7 +78,7 @@ func WithTransportAttempts(n int) RetryTransportOption {
 // WithTransportBackoff bounds the exponential backoff between retries. Non-positive
 // values are ignored.
 func WithTransportBackoff(base, maxDelay time.Duration) RetryTransportOption {
-	return func(c *retryTransportConfig) {
+	return func(c *retryTransportOptions) {
 		if base > 0 {
 			c.baseDelay = base
 		}
@@ -98,9 +90,10 @@ func WithTransportBackoff(base, maxDelay time.Duration) RetryTransportOption {
 
 // retryTransport retries transient token-endpoint failures.
 type retryTransport struct {
-	base      http.RoundTripper
-	attempts  int
-	nextDelay retry.NextDelayFunc
+	base                         http.RoundTripper
+	attempts                     int
+	nextDelay                    retry.NextDelayFunc
+	insecureRetrySingleUseGrants bool
 }
 
 // errRetryableStatus signals a retryable HTTP status (429 or 5xx) to the
@@ -120,19 +113,19 @@ func replayable(req *http.Request) bool {
 	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
 }
 
-// RoundTrip retries req on transient failures, replaying the body via GetBody.
-// The loop mechanics are delegated to [retry.Do]; the closure classifies the
-// outcome (any transport error, HTTP 429, or a 5xx response is retryable) and
-// carries the last response across attempts.
+// RoundTrip retries eligible failures, replaying the body via GetBody.
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// A body that cannot be replayed gets a single attempt.
 	if t.attempts <= 0 || !replayable(req) {
 		return t.roundTrip(req)
 	}
 
+	singleUse := !t.insecureRetrySingleUseGrants && singleUseGrant(req)
+
 	var (
 		lastResp     *http.Response
 		replayErr    error
+		preWrite     bool
 		firstAttempt = true
 	)
 	retryErr := retry.Do(req.Context(), func(ctx context.Context) error {
@@ -150,18 +143,26 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		firstAttempt = false
 
+		var trace *grantAttemptTrace
+		if singleUse {
+			trace = &grantAttemptTrace{}
+			attemptReq = trace.attach(attemptReq)
+		}
 		resp, err := t.roundTrip(attemptReq) //nolint:bodyclose // resp is stored in lastResp and either drained on retry or returned to the caller
 		lastResp = resp
 		if err != nil {
+			preWrite = singleUse && resp == nil && req.Response == nil && trace.failedBeforeWrite(err)
 			return err
 		}
-		if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
+		if !singleUse && resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
 			return errRetryableStatus
 		}
 		return nil
 	},
 		retry.WithMaxAttempts(t.attempts),
-		retry.WithShouldRetry(func(err error) bool { return replayErr == nil && !permanentRequestError(err) }),
+		retry.WithShouldRetry(func(err error) bool {
+			return replayErr == nil && !permanentRequestError(err) && (!singleUse || preWrite)
+		}),
 		retry.WithNextDelay(t.nextDelay),
 		retry.WithOnRetry(func(int, error, time.Duration) {
 			// Discard the retryable response before the backoff sleep.
@@ -191,6 +192,97 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// mid-backoff (the drained response was already cleared).
 		return lastResp, preResponseError(retryErr)
 	}
+}
+
+// singleUseGrant inspects only a replay copy and caps the work. An
+// unreadable or malformed OAuth form is handled conservatively.
+func singleUseGrant(req *http.Request) bool {
+	if req.Method != http.MethodPost || req.GetBody == nil {
+		return false
+	}
+	mediaType, _, _ := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if mediaType != "application/x-www-form-urlencoded" {
+		return false
+	}
+	body, err := req.GetBody()
+	if err != nil || body == nil {
+		return true
+	}
+	defer func() { _ = body.Close() }()
+	const maxFormBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(body, maxFormBytes+1))
+	if err != nil || len(data) > maxFormBytes {
+		return true
+	}
+	form, err := url.ParseQuery(string(data))
+	if err != nil {
+		return true
+	}
+	for _, grant := range form["grant_type"] {
+		switch grant {
+		case "refresh_token", "authorization_code", "urn:ietf:params:oauth:grant-type:device_code":
+			return true
+		}
+	}
+	return false
+}
+
+type grantAttemptTrace struct {
+	gotConn    atomic.Bool
+	wrote      atomic.Bool
+	readBody   atomic.Bool
+	dialFailed atomic.Bool
+	tlsFailed  atomic.Bool
+}
+
+func (t *grantAttemptTrace) attach(req *http.Request) *http.Request {
+	trace := &httptrace.ClientTrace{
+		GotConn:      func(httptrace.GotConnInfo) { t.gotConn.Store(true) },
+		WroteHeaders: func() { t.wrote.Store(true) },
+		WroteRequest: func(httptrace.WroteRequestInfo) { t.wrote.Store(true) },
+		ConnectDone: func(_, _ string, err error) {
+			if err != nil {
+				t.dialFailed.Store(true)
+			}
+		},
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			if err != nil {
+				t.tlsFailed.Store(true)
+			}
+		},
+	}
+	attempt := req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	attempt.Body = t.trackBody(req.Body)
+	attempt.GetBody = func() (io.ReadCloser, error) {
+		body, err := req.GetBody()
+		return t.trackBody(body), err
+	}
+	return attempt
+}
+
+func (t *grantAttemptTrace) trackBody(body io.ReadCloser) io.ReadCloser {
+	if body == nil || body == http.NoBody {
+		return body
+	}
+	return &grantAttemptBody{ReadCloser: body, read: &t.readBody}
+}
+
+type grantAttemptBody struct {
+	io.ReadCloser
+	read *atomic.Bool
+}
+
+func (b *grantAttemptBody) Read(p []byte) (int, error) {
+	b.read.Store(true)
+	return b.ReadCloser.Read(p)
+}
+
+func (t *grantAttemptTrace) failedBeforeWrite(err error) bool {
+	if t.gotConn.Load() || t.wrote.Load() || t.readBody.Load() {
+		return false
+	}
+	op, ok := errors.AsType[*net.OpError](err)
+	return t.tlsFailed.Load() || (t.dialFailed.Load() && ok && op.Op == "dial")
 }
 
 func (t *retryTransport) roundTrip(req *http.Request) (*http.Response, error) {

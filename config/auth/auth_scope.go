@@ -9,24 +9,25 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// ScopeRule maps a set of action keys to the scope required to perform them. It
-// mirrors a bulk [auth/scope.Registry.RegisterMany] call: every key in Keys is
-// registered as requiring Scope.
+// ScopeRule assigns a required scope or public access to a set of action keys.
 type ScopeRule struct {
-	// Scope is the scope required for the listed keys. An empty scope marks the
-	// keys as intentionally public (always allowed once authenticated).
+	// Scope is the non-blank scope required for the listed keys.
 	Scope string `yaml:"scope"`
 
-	// Keys are the action identifiers requiring Scope — gRPC full methods
+	// Public explicitly allows the listed keys once authenticated.
+	// Public and Scope are mutually exclusive.
+	Public bool `yaml:"public"`
+
+	// Keys are action identifiers such as gRPC full methods
 	// ("/pkg.Service/Method"), HTTP route keys, or any stable action id.
 	Keys []string `yaml:"keys"`
 }
 
-// Validate ensures a rule lists at least one key. An empty Scope is valid and
-// denotes a public rule.
+// Validate requires non-blank keys and either a scope or an explicit public rule.
 func (r ScopeRule) Validate() error {
 	return validationconfig.ValidateStruct(&r,
-		validation.Field(&r.Keys, validation.Required),
+		validation.Field(&r.Scope, validation.When(r.Public, validation.Empty).Else(validation.By(nonBlankValue))),
+		validation.Field(&r.Keys, validation.Required, validation.Each(validation.By(nonBlankValue))),
 	)
 }
 
@@ -43,7 +44,7 @@ func (r ScopeRule) Validate() error {
 //	      keys: ["/files.v1.Files/Read", "/files.v1.Files/List"]
 //	    - scope: "files:write"
 //	      keys: ["/files.v1.Files/Write"]
-//	    - scope: ""               # public
+//	    - public: true
 //	      keys: ["/health.v1.Health/Check"]
 type ScopeRegistry struct {
 	// Rules is the ordered list of key→scope rules. Each action key must appear

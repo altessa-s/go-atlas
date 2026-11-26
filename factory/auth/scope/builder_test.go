@@ -12,7 +12,9 @@ import (
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/factory/auth/scope"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuildRegistersRules(t *testing.T) {
@@ -20,7 +22,7 @@ func TestBuildRegistersRules(t *testing.T) {
 	reg, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read", "/files.v1.Files/List"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write"}},
-		{Scope: "", Keys: []string{"/health.v1.Health/Check"}},
+		{Public: true, Keys: []string{"/health.v1.Health/Check"}},
 	}}).Build()
 	require.NoError(t, err)
 
@@ -48,7 +50,7 @@ func TestBuildFreezesRegistry(t *testing.T) {
 func TestBuildNilConfig(t *testing.T) {
 	t.Parallel()
 	_, err := factory.New(nil).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 func TestBuildEmptyKeys(t *testing.T) {
@@ -56,7 +58,7 @@ func TestBuildEmptyKeys(t *testing.T) {
 	_, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read"},
 	}}).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 func TestBuildDuplicateKey(t *testing.T) {
@@ -65,7 +67,7 @@ func TestBuildDuplicateKey(t *testing.T) {
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Read"}}, // duplicate
 	}}).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 // The built registry drives an Enforcer exactly like a hand-built one.
@@ -82,4 +84,35 @@ func TestBuiltRegistryWithEnforcer(t *testing.T) {
 
 	require.NoError(t, enf.Enforce(&principal{scopes: []string{"files:write"}}, "/files.v1.Files/Write"))
 	require.ErrorIs(t, enf.Enforce(&principal{scopes: []string{"files:read"}}, "/files.v1.Files/Write"), scope.ErrAccessDenied)
+}
+
+func TestBuildRejectsImplicitPublicAction(t *testing.T) {
+	t.Parallel()
+	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{{Keys: []string{"admin.delete"}}}}
+	_, err := factory.New(cfg).Build()
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Error(t, cfg.Validate())
+}
+
+func TestBuildValidatesPublicAction(t *testing.T) {
+	t.Parallel()
+	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{{Public: true, Keys: []string{"status"}}}}
+	require.NoError(t, cfg.Validate())
+	reg, err := factory.New(cfg).Build()
+	require.NoError(t, err)
+	enforcer := scope.NewEnforcer[[]scope.Scope](reg, scope.ScopeAuthorizer(func(scopes []scope.Scope) []scope.Scope {
+		return scopes
+	}, scope.Exact()))
+	require.NoError(t, enforcer.Enforce(nil, "status"))
+
+	for _, invalid := range []authconfig.ScopeRule{
+		{Public: true, Scope: "admin", Keys: []string{"status"}},
+		{Scope: "admin", Keys: []string{" "}},
+		{Scope: " ", Keys: []string{"status"}},
+	} {
+		cfg.Rules[0] = invalid
+		require.Error(t, cfg.Validate())
+		_, err := factory.New(cfg).Build()
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	}
 }

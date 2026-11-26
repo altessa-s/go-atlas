@@ -107,7 +107,7 @@ func TestOIDC_Validate(t *testing.T) {
 		}, "Introspection"},
 		{"invalid cache", func(c *authconfig.OIDC) { c.Cache = &authconfig.OIDCCache{Enabled: true} }, "Cache"},
 		{"invalid credentials", func(c *authconfig.OIDC) { c.ClientCredentials = &authconfig.OIDCClientCredentials{} }, "ClientCredentials"},
-		{"invalid jwks", func(c *authconfig.OIDC) { c.JWKS = &authconfig.OIDCJwks{RefreshEnabled: true} }, "JWKS"},
+		{"invalid jwks", func(c *authconfig.OIDC) { c.JWKS = &authconfig.OIDCJwks{HTTPTimeout: -time.Second} }, "JWKS"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

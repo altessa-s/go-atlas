@@ -21,7 +21,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestAuthStyleRetryRetainsFinalTransportError(t *testing.T) {
+func TestAuthStyleProbeOnlyRetriesClientCredentials(t *testing.T) {
 	t.Parallel()
 	for _, grant := range []string{"client credentials", "refresh", "authorization code"} {
 		t.Run(grant, func(t *testing.T) {
@@ -55,10 +55,17 @@ func TestAuthStyleRetryRetainsFinalTransportError(t *testing.T) {
 				require.NoError(t, buildErr)
 				_, _, err = flow.Exchange(t.Context(), "code")
 			}
-			require.Equal(t, int32(2), requests.Load())
-			require.ErrorIs(t, err, syscall.ECONNREFUSED)
-			require.Contains(t, err.Error(), syscall.ECONNREFUSED.Error())
-			require.NotContains(t, err.Error(), "status 401")
+			if grant == "client credentials" {
+				require.EqualValues(t, 2, requests.Load())
+				require.ErrorIs(t, err, syscall.ECONNREFUSED)
+				require.Contains(t, err.Error(), syscall.ECONNREFUSED.Error())
+				require.NotContains(t, err.Error(), "status 401")
+			} else {
+				require.EqualValues(t, 1, requests.Load())
+				var retrieveErr *oauth2.RetrieveError
+				require.ErrorAs(t, err, &retrieveErr)
+				require.Equal(t, http.StatusUnauthorized, retrieveErr.Response.StatusCode)
+			}
 		})
 	}
 }

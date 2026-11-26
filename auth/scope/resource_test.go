@@ -28,7 +28,7 @@ func newResEnforcer(t *testing.T, authorize scope.ResourceAuthorizer[*resPrincip
 	t.Helper()
 	reg := scope.NewRegistry()
 	reg.Register(resKey, "docs:write")
-	reg.Register("/docs.v1.Docs/Public", "") // public action
+	reg.RegisterPublic("/docs.v1.Docs/Public") // public action
 	reg.Freeze()
 	return scope.NewResourceEnforcer(reg, authorize)
 }

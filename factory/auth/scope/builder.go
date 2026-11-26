@@ -5,10 +5,9 @@
 package factory
 
 import (
-	"fmt"
-
 	"github.com/altessa-s/go-atlas/auth/scope"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -33,27 +32,29 @@ func New(cfg *authconfig.ScopeRegistry) *RegistryBuilder {
 // [scope.NewEnforcer] in code, since the authorizer depends on the caller's
 // principal type.
 //
-// Build fails when the configuration is nil, when a rule lists no keys, or when
-// an action key appears in more than one rule — an ambiguous policy is a
-// configuration error, not a last-write-wins surprise.
+// Build rejects nil configuration, invalid rules, and duplicate action keys.
 func (b *RegistryBuilder) Build() (*scope.Registry, error) {
 	if b.cfg == nil {
-		return nil, fmt.Errorf("scope/factory: %w", corefactory.ErrConfigRequired)
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "scope/factory: configuration is required")
 	}
 
 	reg := scope.NewRegistry()
 	seen := make(map[string]struct{})
 	for i, rule := range b.cfg.Rules {
-		if len(rule.Keys) == 0 {
-			return nil, fmt.Errorf("scope/factory: rule %d has no keys", i)
+		if err := rule.Validate(); err != nil {
+			return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "scope/factory: invalid rule %d: %w", i, err)
 		}
 		for _, key := range rule.Keys {
 			if _, dup := seen[key]; dup {
-				return nil, fmt.Errorf("scope/factory: duplicate action key %q", key)
+				return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "scope/factory: duplicate action key in rule %d", i)
 			}
 			seen[key] = struct{}{}
 		}
-		reg.RegisterMany(rule.Scope, rule.Keys...)
+		if rule.Public {
+			reg.RegisterPublic(rule.Keys...)
+		} else {
+			reg.RegisterMany(rule.Scope, rule.Keys...)
+		}
 	}
 	reg.Freeze()
 	return reg, nil

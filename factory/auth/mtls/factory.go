@@ -12,6 +12,7 @@ import (
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -70,26 +71,42 @@ func (b *Builder) Options() ([]coremtls.Option, error) {
 	opts = coreslices.AppendIfFunc(opts, b.cfg.CheckExpiry, func() []coremtls.Option {
 		return []coremtls.Option{coremtls.WithValidator(coremtls.ExpiryValidator(nil, b.cfg.ExpiryLeeway))}
 	})
-	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedSubjectCNs) > 0, func() []coremtls.Option {
-		return []coremtls.Option{coremtls.WithValidator(coremtls.SubjectValidator(cnNames(b.cfg.AllowedSubjectCNs)...))}
-	})
-	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedIssuerCNs) > 0, func() []coremtls.Option {
-		return []coremtls.Option{coremtls.WithValidator(coremtls.IssuerValidator(cnNames(b.cfg.AllowedIssuerCNs)...))}
-	})
+	if len(b.cfg.AllowedSubjectCNs) > 0 {
+		validator, err := coremtls.SubjectValidator(cnNames(b.cfg.AllowedSubjectCNs)...)
+		if err != nil {
+			return nil, fmt.Errorf("mtls/factory: AllowedSubjectCNs: %w", err)
+		}
+		opts = append(opts, coremtls.WithValidator(validator))
+	}
+	if len(b.cfg.AllowedIssuerCNs) > 0 {
+		validator, err := coremtls.IssuerValidator(cnNames(b.cfg.AllowedIssuerCNs)...)
+		if err != nil {
+			return nil, fmt.Errorf("mtls/factory: AllowedIssuerCNs: %w", err)
+		}
+		opts = append(opts, coremtls.WithValidator(validator))
+	}
 	if len(b.cfg.IssuerKeyIDs) > 0 {
 		keyIDs := make([][]byte, 0, len(b.cfg.IssuerKeyIDs))
 		for _, h := range b.cfg.IssuerKeyIDs {
 			raw, err := hex.DecodeString(h)
 			if err != nil {
-				return nil, fmt.Errorf("mtls/factory: invalid issuer key id %q: %w", h, err)
+				return nil, fmt.Errorf("mtls/factory: invalid hex issuer key ID: %w", coreerrs.ErrInvalidArgument)
 			}
 			keyIDs = append(keyIDs, raw)
 		}
-		opts = append(opts, coremtls.WithValidator(coremtls.AuthorityKeyIDValidator(keyIDs...)))
+		validator, err := coremtls.AuthorityKeyIDValidator(keyIDs...)
+		if err != nil {
+			return nil, fmt.Errorf("mtls/factory: issuer key IDs: %w", err)
+		}
+		opts = append(opts, coremtls.WithValidator(validator))
 	}
-	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedDNSNames) > 0, func() []coremtls.Option {
-		return []coremtls.Option{coremtls.WithValidator(coremtls.DNSNameValidator(b.cfg.AllowedDNSNames...))}
-	})
+	if len(b.cfg.AllowedDNSNames) > 0 {
+		validator, err := coremtls.DNSNameValidator(b.cfg.AllowedDNSNames...)
+		if err != nil {
+			return nil, fmt.Errorf("mtls/factory: AllowedDNSNames: %w", err)
+		}
+		opts = append(opts, coremtls.WithValidator(validator))
+	}
 	if len(b.cfg.RequiredEKUs) > 0 {
 		ekus, err := parseEKUs(b.cfg.RequiredEKUs)
 		if err != nil {

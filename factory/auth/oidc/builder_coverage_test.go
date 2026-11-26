@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"math/big"
@@ -20,7 +21,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -29,15 +32,18 @@ import (
 	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 // coverageIdP is a minimal httptest OIDC issuer with a one-key JWKS.
 type coverageIdP struct {
-	srv *httptest.Server
-	key *rsa.PrivateKey
+	srv     *httptest.Server
+	key     *rsa.PrivateKey
+	rotated atomic.Pointer[rsa.PrivateKey]
 }
 
 func newCoverageIdP(t *testing.T) *coverageIdP {
@@ -57,9 +63,13 @@ func newCoverageIdP(t *testing.T) *coverageIdP {
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		pub := idp.key.PublicKey
+		key, kid := idp.key, "k1"
+		if rotated := idp.rotated.Load(); rotated != nil {
+			key, kid = rotated, "k2"
+		}
+		pub := key.PublicKey
 		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]any{{
-			"kty": "RSA", "kid": "k1", "alg": "RS256", "use": "sig",
+			"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig",
 			"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
 		}}})
@@ -84,8 +94,12 @@ func (idp *coverageIdP) sign(t *testing.T, overrides map[string]any) string {
 	}
 	maps.Copy(claims, overrides)
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	tok.Header["kid"] = "k1"
-	raw, err := tok.SignedString(idp.key)
+	key, kid := idp.key, "k1"
+	if rotated := idp.rotated.Load(); rotated != nil {
+		key, kid = rotated, "k2"
+	}
+	tok.Header["kid"] = kid
+	raw, err := tok.SignedString(key)
 	require.NoError(t, err)
 	return raw
 }
@@ -299,7 +313,9 @@ func TestBuildCELValidationRule_EmptyExpression(t *testing.T) {
 
 func TestBuildClaimsValidationOptions_Nil(t *testing.T) {
 	t.Parallel()
-	require.Nil(t, buildClaimsValidationOptions(nil))
+	opts, err := buildClaimsValidationOptions(nil)
+	require.NoError(t, err)
+	require.Nil(t, opts)
 }
 
 func TestProviderBuilderMinimumLifetimeYAML(t *testing.T) {
@@ -362,4 +378,92 @@ func TestProviderBuilderMinimumLifetimeYAML(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProviderBuilderRefreshesRotatedKeyWithoutJWKSConfig(t *testing.T) {
+	t.Parallel()
+	idp := newCoverageIdP(t)
+	p := idp.provider(t, New(&authconfig.OIDC{DiscoveryUrl: idp.discoveryURL()}))
+	_, err := p.ValidateTokenWithOptions(t.Context(), idp.sign(t, nil), oidc.WithValidationAudience("svc"))
+	require.NoError(t, err)
+	idp.rotated.Store(testhelpers.GenerateRSAKey(t, 2048))
+	_, err = p.ValidateTokenWithOptions(t.Context(), idp.sign(t, nil), oidc.WithValidationAudience("svc"))
+	require.NoError(t, err)
+}
+
+func TestProviderBuilderEnforcesAuthorizedPartyAllowlist(t *testing.T) {
+	t.Parallel()
+	idp := newCoverageIdP(t)
+	p := idp.provider(t, New(&authconfig.OIDC{
+		DiscoveryUrl: idp.discoveryURL(),
+		Validation: &authconfig.OIDCValidation{Claims: &authconfig.OIDCClaims{
+			Audience: []string{"svc"}, AllowedAuthorizedParties: []string{"web"},
+		}},
+	}))
+	_, err := p.ValidateToken(t.Context(), idp.sign(t, map[string]any{"azp": "web"}))
+	require.NoError(t, err)
+	_, err = p.ValidateToken(t.Context(), idp.sign(t, map[string]any{"azp": "evil"}))
+	require.ErrorIs(t, err, oidc.ErrTokenInvalid)
+}
+
+func TestProviderBuilderSchedulesDefaultJWKSRefresh(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const issuer = "https://idp.example"
+		key := testhelpers.GenerateRSAKey(t, 2048)
+		jwks, err := json.Marshal(map[string]any{"keys": []map[string]any{{
+			"kty": "RSA", "kid": "active", "alg": "RS256", "use": "sig",
+			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}}})
+		require.NoError(t, err)
+		var fetches atomic.Int32
+		client := &http.Client{Transport: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path == "/jwks" {
+				fetches.Add(1)
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(jwks)))}, nil
+			}
+			metadata := `{"issuer":"` + issuer + `","jwks_uri":"` + issuer + `/jwks","id_token_signing_alg_values_supported":["RS256"]}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(metadata))}, nil
+		})}
+		discovery := issuer + "/.well-known/openid-configuration"
+		opts, err := New(&authconfig.OIDC{DiscoveryUrl: discovery}).buildProviderOptions(t.Context())
+		require.NoError(t, err)
+		p, err := oidc.NewProvider(t.Context(), discovery, append(opts, oidc.WithHTTPClient(client))...)
+		require.NoError(t, err)
+		defer p.Close()
+		require.EqualValues(t, 1, fetches.Load())
+		time.Sleep(2 * time.Hour)
+		synctest.Wait()
+		require.EqualValues(t, 3, fetches.Load())
+	})
+}
+
+func TestBlankAuthorizedPartiesRejected(t *testing.T) {
+	t.Parallel()
+	parties := []string{"web", " \t"}
+	claims := &authconfig.OIDCClaims{AllowedAuthorizedParties: parties}
+	policy := &authconfig.ServiceConfig{
+		Version:           authconfig.SupportedConfigVersion,
+		DefaultValidation: &authconfig.ValidationRulesConfig{AllowedAuthorizedParties: parties},
+	}
+	t.Run("claims config", func(t *testing.T) {
+		require.Error(t, claims.Validate())
+	})
+	t.Run("claims factory", func(t *testing.T) {
+		cfg := &authconfig.OIDC{Validation: &authconfig.OIDCValidation{Claims: claims}}
+		_, err := New(cfg).buildProviderOptions(t.Context())
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	})
+	t.Run("claims preset", func(t *testing.T) {
+		_, err := presetFromConfig(&authconfig.OIDCPreset{Claims: claims}, 0)
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	})
+	t.Run("service config", func(t *testing.T) {
+		require.ErrorIs(t, authconfig.ValidateServiceConfig(policy), rules.ErrInvalidConfig)
+	})
+	t.Run("service factory", func(t *testing.T) {
+		_, err := ServiceConfigOptions(policy)
+		require.ErrorIs(t, err, rules.ErrInvalidConfig)
+	})
 }

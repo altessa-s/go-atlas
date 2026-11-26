@@ -19,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
+	"github.com/altessa-s/go-atlas-core/time/clock"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -26,21 +28,24 @@ import (
 )
 
 type jwksKeySource struct {
-	schedule           string
-	info               *discoveryInfo
-	client             *http.Client
-	logger             *slog.Logger
-	metrics            *oidcMetrics
-	backgroundCtx      context.Context
-	jwks               keyfunc.Keyfunc
-	keyResolver        authjwt.KeyResolver
-	lastKeyFingerprint atomic.Pointer[keyFingerprintMemo]
-	jwksRefreshTask    *cycle.Guard
-	clock              freshnessClock
-	lastJWKSRefresh    atomic.Pointer[freshnessRecord]
-	jwksHTTPTimeout    time.Duration
-	jwksMaxStaleness   time.Duration
-	jwksFailureMode    JWKSFailureMode
+	schedule                      string
+	info                          *discoveryInfo
+	client                        *http.Client
+	logger                        *slog.Logger
+	metrics                       *oidcMetrics
+	backgroundCtx                 context.Context
+	jwks                          keyfunc.Keyfunc
+	keyResolver                   authjwt.KeyResolver
+	lastKeyFingerprint            atomic.Pointer[keyFingerprintMemo]
+	jwksRefreshTask               *cycle.Guard
+	refreshFlight                 *singleflight.Group[struct{}, struct{}]
+	lastUnknownKidAttempt         *time.Time // owned by the shared refresh flight
+	clock                         freshnessClock
+	lastJWKSRefresh               atomic.Pointer[freshnessRecord]
+	jwksUnknownKidRefreshInterval time.Duration
+	jwksHTTPTimeout               time.Duration
+	jwksMaxStaleness              time.Duration
+	jwksFailureMode               JWKSFailureMode
 }
 
 // jwksVerificationUses lists the JWK "use" values of a key that may verify a
@@ -81,7 +86,7 @@ func parseJWKS(marshals []jwkset.JWKMarshal) ([]jwkset.JWK, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("JWK %q: %w", marshal.KID, err)
+			return nil, fmt.Errorf("invalid JWK: %w", err)
 		}
 		keys = append(keys, key)
 	}
@@ -106,6 +111,7 @@ func (p *jwksKeySource) initializeJWKS(ctx context.Context) error {
 	if err != nil {
 		return coreerrs.WrapOperation(err, "initialize JWK")
 	}
+	p.refreshFlight = singleflight.New[struct{}, struct{}](singleflight.WithTimeout(timeout))
 	storage := jwkset.NewMemoryStorage()
 	if err = storage.KeyReplaceAll(ctx, keys); err != nil {
 		return coreerrs.WrapOperation(err, "initialize JWKS storage")
@@ -138,7 +144,17 @@ func (p *jwksKeySource) initializeJWKS(ctx context.Context) error {
 		if hdr.Kid != "" {
 			tok.Header["kid"] = hdr.Kid
 		}
-		key, err := p.jwks.KeyfuncCtx(ctx)(tok)
+		lookup := p.jwks.KeyfuncCtx(ctx)
+		observed := p.lastJWKSRefresh.Load()
+		key, err := lookup(tok)
+		if hdr.Kid != "" && errors.Is(err, jwkset.ErrKeyNotFound) {
+			if refreshErr := p.refreshJWKS(ctx, observed); refreshErr == nil || errors.Is(refreshErr, errUnknownKidRefreshSkipped) {
+				key, err = lookup(tok)
+			}
+			if errors.Is(err, jwkset.ErrKeyNotFound) {
+				return authjwt.VerificationKey{}, jwkset.ErrKeyNotFound
+			}
+		}
 		if err != nil {
 			return authjwt.VerificationKey{}, err
 		}
@@ -155,8 +171,7 @@ func (p *jwksKeySource) initializeJWKS(ctx context.Context) error {
 
 // markJWKSRefreshed records the current monotonic instant as the last
 // authoritative JWKS refresh. Callers MUST invoke it only when the
-// storage has been fully repopulated from the IdP (initial bootstrap,
-// successful scheduled refresh, successful manual [Provider.RefreshJWKS]).
+// storage has been fully repopulated from the IdP.
 func (p *jwksKeySource) markJWKSRefreshed() {
 	p.lastJWKSRefresh.Store(&freshnessRecord{observedAt: p.clock.observe()})
 }
@@ -211,10 +226,65 @@ func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
 	}
 }
 
-// refreshJWKSInternal performs the actual JWKS refresh.
-// Callers must route through RefreshJWKS so overlapping cycles collapse into
-// a single execution.
+const skippedJWKSRefreshBackoff = 10 * time.Millisecond
+
+var errUnknownKidRefreshSkipped = errors.New("oidc: unknown-key JWKS refresh skipped")
+
+// refreshJWKSInternal is the entry point used by scheduled and manual refreshes.
 func (p *jwksKeySource) refreshJWKSInternal(ctx context.Context) error {
+	for {
+		err := p.refreshJWKS(ctx, nil)
+		if !errors.Is(err, errUnknownKidRefreshSkipped) {
+			return err
+		}
+		// A scheduled or manual refresh cannot be throttled, even if it
+		// joined an unknown-key flight that was. Pause before trying again
+		// so repeated joins cannot keep this loop spinning.
+		if err := clock.Real().Sleep(ctx, skippedJWKSRefreshBackoff); err != nil {
+			return err
+		}
+	}
+}
+
+// stopRefreshes stops new refreshes, cancels the provider lifetime and joins
+// refresh callbacks before the provider releases its HTTP client.
+func (p *jwksKeySource) stopRefreshes(cancel context.CancelFunc) {
+	if p.refreshFlight != nil {
+		p.refreshFlight.Close()
+	}
+	cancel()
+	if p.refreshFlight != nil {
+		p.refreshFlight.Wait()
+	}
+}
+
+// refreshJWKS coalesces fetches across scheduled, manual, and unknown-key
+// refreshes. A non-nil observed record identifies a lookup-triggered refresh.
+func (p *jwksKeySource) refreshJWKS(ctx context.Context, observed *freshnessRecord) error {
+	if err := p.backgroundCtx.Err(); err != nil {
+		return err
+	}
+	_, err := p.refreshFlight.Do(ctx, struct{}{}, func(ctx context.Context) (struct{}, error) {
+		if observed != nil {
+			if p.lastJWKSRefresh.Load() != observed {
+				return struct{}{}, errUnknownKidRefreshSkipped
+			}
+			if p.lastUnknownKidAttempt != nil && p.clock.elapsed(*p.lastUnknownKidAttempt) < p.jwksUnknownKidRefreshInterval {
+				return struct{}{}, errUnknownKidRefreshSkipped
+			}
+			now := p.clock.observe()
+			p.lastUnknownKidAttempt = &now
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(p.backgroundCtx, cancel) //nolint:contextcheck // A shared refresh also inherits the provider lifetime.
+		defer stop()
+		return struct{}{}, p.fetchAndApplyJWKS(ctx)
+	})
+	return err
+}
+
+func (p *jwksKeySource) fetchAndApplyJWKS(ctx context.Context) error {
 	// A closed provider does no work, whether RefreshJWKS is called directly
 	// or by a cron tick that raced with Close.
 	if err := p.backgroundCtx.Err(); err != nil {

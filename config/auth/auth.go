@@ -5,6 +5,9 @@
 package authconfig
 
 import (
+	"errors"
+	"strings"
+
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -82,4 +85,12 @@ func (a *Config) IsEnabled() bool {
 		(a.OPA != nil && a.OPA.IsEnabled()) ||
 		(a.MTLS != nil && a.MTLS.IsEnabled()) ||
 		(a.Scope != nil && a.Scope.IsEnabled())
+}
+
+func nonBlankValue(value any) error {
+	s, _ := value.(string)
+	if strings.TrimSpace(s) == "" {
+		return errors.New("must not be blank")
+	}
+	return nil
 }

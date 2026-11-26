@@ -199,8 +199,13 @@ you.
 
 **Retrying the native grants** — only `Exchanger` and `JWTBearer` retry on their own. To add retries to the x/oauth2-backed grants (
 `ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject the resulting HTTP client; it retries
-transport errors, 429, and 5xx (only replayable requests; the last response is surfaced on exhaustion). Tune it with `WithTransportAttempts` (default
-`DefaultTransportRetryAttempts`, 2 retries) and `WithTransportBackoff`:
+replayable requests on transport errors, 429, and 5xx. For refresh tokens, authorization codes, and device codes, retries require a traced dial or TLS
+handshake failure before any body read or request write. `WithInsecureRetrySingleUseGrants()` enables replay after ambiguous failures.
+Single-use flows also skip automatic client
+authentication-style probing. The automatic setting resolves to form parameters for public clients and HTTP Basic for clients with a secret. Set
+the authentication style explicitly if the IdP requires a different one.
+
+Set the retry budget with `WithTransportAttempts` (default 2 retries) and `WithTransportBackoff`.
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}

@@ -155,7 +155,10 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 
 	p := &Provider{logger: o.logger, metrics: newOIDCMetrics(o.meter)}
 	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	p.backgroundCtx, p.cancelBackgroundCtx = lifetime, cancel
+	p.backgroundCtx = lifetime
+	// Close runs this before releasing the owned client. Stop and join any
+	// shared JWKS refresh when ending the provider lifetime.
+	p.cancelBackgroundCtx = func() { p.keys.stopRefreshes(cancel) }
 	p.discovery = discoveryClient{
 		discoveryURL:               discoveryURL,
 		logger:                     o.logger,
@@ -188,13 +191,14 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	p.revocation.client = client
 	p.revocation.wireRevocation(o)
 	p.keys = jwksKeySource{
-		client:           client,
-		logger:           o.logger,
-		metrics:          p.metrics,
-		backgroundCtx:    p.backgroundCtx,
-		jwksHTTPTimeout:  o.jwksHTTPTimeout,
-		jwksMaxStaleness: o.jwksMaxStaleness,
-		jwksFailureMode:  o.jwksFailureMode,
+		client:                        client,
+		logger:                        o.logger,
+		metrics:                       p.metrics,
+		backgroundCtx:                 p.backgroundCtx,
+		jwksHTTPTimeout:               o.jwksHTTPTimeout,
+		jwksMaxStaleness:              o.jwksMaxStaleness,
+		jwksFailureMode:               o.jwksFailureMode,
+		jwksUnknownKidRefreshInterval: o.jwksUnknownKidRefreshInterval,
 	}
 	if o.jwksRefreshEnabled {
 		p.keys.schedule = o.jwksRefreshSchedule

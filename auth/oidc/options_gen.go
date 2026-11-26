@@ -172,6 +172,18 @@ func WithJWKSMaxStaleness(v time.Duration) Option {
 	}
 }
 
+// WithJWKSUnknownKidRefreshInterval sets the minimum time between JWKS
+// refresh attempts triggered by unknown signing keys. Zero disables the
+// throttle; negative values are ignored.
+func WithJWKSUnknownKidRefreshInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v < (0) {
+			return
+		}
+		o.jwksUnknownKidRefreshInterval = v
+	}
+}
+
 // WithJwksHTTPTimeout sets the jwksHTTPTimeout option.
 func WithJwksHTTPTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -449,20 +461,21 @@ func WithTokensCacheKeyPrefix[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		activeTokensCacheKeyPrefix:  DefaultActiveTokensCacheKeyPrefix,
-		audienceFailureMode:         DefaultAudienceFailureMode,
-		discoveryValidationMode:     DefaultDiscoveryValidationMode,
-		jwksFailureMode:             DefaultJWKSFailureMode,
-		jwksMaxStaleness:            DefaultJWKSMaxStaleness,
-		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
-		logger:                      slog.New(slog.DiscardHandler),
-		presets:                     make(map[string]*ValidationPreset),
-		revocationInitialSyncWait:   DefaultRevocationInitialSyncWait,
-		revocationItemType:          DefaultRevocationItemType,
-		revocationMaxStaleness:      DefaultRevocationMaxStaleness,
-		revocationSyncTimeout:       DefaultRevocationSyncTimeout,
-		revokedTokensCacheKeyPrefix: DefaultRevokedTokensCacheKeyPrefix,
-		tokensCacheKeyPrefix:        DefaultTokensCacheKeyPrefix,
+		activeTokensCacheKeyPrefix:    DefaultActiveTokensCacheKeyPrefix,
+		audienceFailureMode:           DefaultAudienceFailureMode,
+		discoveryValidationMode:       DefaultDiscoveryValidationMode,
+		jwksFailureMode:               DefaultJWKSFailureMode,
+		jwksMaxStaleness:              DefaultJWKSMaxStaleness,
+		jwksUnknownKidRefreshInterval: DefaultJWKSUnknownKidRefreshInterval,
+		jwksHTTPTimeout:               DefaultJWKSHTTPTimeout,
+		logger:                        slog.New(slog.DiscardHandler),
+		presets:                       make(map[string]*ValidationPreset),
+		revocationInitialSyncWait:     DefaultRevocationInitialSyncWait,
+		revocationItemType:            DefaultRevocationItemType,
+		revocationMaxStaleness:        DefaultRevocationMaxStaleness,
+		revocationSyncTimeout:         DefaultRevocationSyncTimeout,
+		revokedTokensCacheKeyPrefix:   DefaultRevokedTokensCacheKeyPrefix,
+		tokensCacheKeyPrefix:          DefaultTokensCacheKeyPrefix,
 	}
 }
 

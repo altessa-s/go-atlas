@@ -31,7 +31,7 @@ func TestAncillaryValidatorsAreNotATrustDecision(t *testing.T) {
 		{name: "pinned trust domain validator", opts: []mtls.Option{mtls.WithValidator(mtls.TrustDomainValidator("example.org"))}},
 		{name: "expiry only", opts: []mtls.Option{mtls.WithValidator(mtls.ExpiryValidator(nil, time.Minute))}},
 		{name: "revocation list only", opts: []mtls.Option{mtls.WithValidator(mtls.NewRevocationList().Validator())}},
-		{name: "subject pin only", opts: []mtls.Option{mtls.WithValidator(mtls.SubjectValidator(pkix.Name{CommonName: "billing"}))}},
+		{name: "subject pin only", opts: []mtls.Option{mtls.WithValidator(checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "billing"})))}},
 		{name: "empty trust domains", opts: []mtls.Option{mtls.WithTrustDomains()}},
 		{
 			name: "empty trust domains with a validator",
@@ -95,7 +95,7 @@ func TestCustomIdentityTrustDecision(t *testing.T) {
 	require.ErrorIs(t, err, spiffe.ErrNoSVID)
 
 	optIn := newAuthenticator(t, byCN, mtls.WithInsecureAnyTrustDomain(),
-		mtls.WithValidator(mtls.SubjectValidator(pkix.Name{CommonName: "billing"})))
+		mtls.WithValidator(checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "billing"}))))
 	p, err := optIn.Authenticate(t.Context(), dnCert)
 	require.NoError(t, err)
 	require.Equal(t, "billing", p)

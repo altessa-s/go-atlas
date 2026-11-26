@@ -11,7 +11,7 @@
 #  # Default value: not set
 #  rules:
 #    # <string> Scope required for the listed keys.
-#    # An empty scope marks public endpoints, always allowed once authenticated.
+#    # Use public: true instead of scope to allow an action once authenticated.
 #    # Default value: not set
 #    - scope: "files:read"
 #      # <list[string]> Action keys (for gRPC, full method names) guarded by this scope.
@@ -25,6 +25,6 @@
 #        - "/files.v1.Files/Write"
 #        - "/files.v1.Files/Delete"
 #
-#    - scope: ""
+#    - public: true
 #      keys:
 #        - "/health.v1.Health/Check"

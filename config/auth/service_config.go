@@ -90,8 +90,8 @@ type ValidationRulesConfig struct {
 	// Useful for multi-tenant scenarios. Default: false
 	RequireAuthorizedParty *bool `json:"require_authorized_party,omitempty"`
 
-	// AllowedAuthorizedParties restricts allowed 'azp' values.
-	// Only checked if RequireAuthorizedParty is true or azp claim is present.
+	// AllowedAuthorizedParties requires an 'azp' claim matching one of these
+	// values whenever the list is nonempty.
 	AllowedAuthorizedParties []string `json:"allowed_authorized_parties,omitempty"`
 
 	// AllowMissingSubject allows tokens without 'sub' claim.
@@ -248,6 +248,12 @@ func ValidateServiceConfig(config *ServiceConfig) error {
 
 // validateValidationRulesConfig validates a ValidationRulesConfig including CEL rules.
 func validateValidationRulesConfig(config *ValidationRulesConfig, path string) error {
+	for i, party := range config.AllowedAuthorizedParties {
+		if err := nonBlankValue(party); err != nil {
+			return coreerrs.Wrapf(rules.ErrInvalidConfig, "%s.allowed_authorized_parties[%d] must not be blank", path, i)
+		}
+	}
+
 	// Validate leeway
 	if config.Leeway != "" {
 		leeway, err := time.ParseDuration(config.Leeway)

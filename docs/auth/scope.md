@@ -50,11 +50,11 @@ principal fields are composed by the caller inside the `Authorizer`, so the core
 
 `Enforcer.Enforce(p, key)` is fail-closed:
 
-| Case                            | Result                         |
-|---------------------------------|--------------------------------|
-| Unregistered key                | `scope.ErrAccessDenied`        |
-| Key registered with empty scope | allowed (intentionally public) |
-| Otherwise                       | the `Authorizer` decides       |
+| Case                                 | Result                         |
+| ------------------------------------ | ------------------------------ |
+| Unregistered key                     | `scope.ErrAccessDenied`        |
+| Key registered with `RegisterPublic` | allowed (intentionally public) |
+| Otherwise                            | the `Authorizer` decides       |
 
 `ErrAccessDenied` is transport-neutral; adapters map it (gRPC `codes.PermissionDenied`, HTTP `403`). A superuser bypass composed into the
 `Authorizer` does **not** reach unregistered keys: deny-by-default runs before the `Authorizer`, so a brand-new unmapped action is denied to everyone.
@@ -72,7 +72,7 @@ type Principal struct {
 reg := scope.NewRegistry()
 reg.Register("/files.v1.Files/Read", "files:read")
 reg.Register("/files.v1.Files/Write", "files:write")
-reg.Register("/health.v1.Health/Check", "") // public
+reg.RegisterPublic("/health.v1.Health/Check")
 reg.Freeze()
 
 base := scope.ScopeAuthorizer(func(p *Principal) []string { return p.Scopes }, scope.Exact())
@@ -176,7 +176,7 @@ scope:
   rules:
     - scope: "files:read"
       keys: ["/files.v1.Files/Read", "/files.v1.Files/List"]
-    - scope: ""               # public
+    - public: true
       keys: ["/health.v1.Health/Check"]
 ```
 
@@ -185,9 +185,10 @@ scope:
 ## API Reference
 
 | Symbol                                 | Description                                                                                     |
-|----------------------------------------|-------------------------------------------------------------------------------------------------|
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `NewRegistry()`                        | Empty registry ready for registration.                                                          |
-| `Registry.Register(key, scope)`        | Record that `key` requires `scope` (empty scope = public). Panics after `Freeze`.               |
+| `Registry.Register(key, scope)`        | Require a scope for one key. Panics on a blank key or scope and after `Freeze`.                 |
+| `Registry.RegisterPublic(keys…)`       | Allow public access to the keys. Panics on a blank key and after `Freeze`.                      |
 | `Registry.RegisterMany(scope, keys…)`  | Bulk-register many keys with the same scope.                                                    |
 | `Registry.Freeze()`                    | Immutable snapshot, safe for lock-free concurrent reads; further registration panics.           |
 | `Registry.Required(key)`               | `(scope, ok)`; `ok=false` (unregistered) is denied by default, `("", true)` is public.          |

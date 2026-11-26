@@ -41,6 +41,7 @@ type DeviceFlow struct {
 // [WithDeviceFlowInsecureHTTP]) returns an error wrapping [ErrInsecureEndpoint].
 func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts ...DeviceFlowOption) (*DeviceFlow, error) {
 	o := newDeviceFlowOptions(opts...)
+	endpoint.AuthStyle = singleUseAuthStyle(endpoint.AuthStyle, clientSecret)
 	if err := validateEndpoint("device authorization URL", endpoint.DeviceAuthURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}

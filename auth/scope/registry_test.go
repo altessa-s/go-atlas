@@ -18,7 +18,7 @@ func TestRegistryRequired(t *testing.T) {
 
 	r := scope.NewRegistry()
 	r.Register("/files.v1.Files/Read", "files:read")
-	r.Register("/health.v1.Health/Check", "") // public
+	r.RegisterPublic("/health.v1.Health/Check") // public
 
 	got, ok := r.Required("/files.v1.Files/Read")
 	require.True(t, ok)

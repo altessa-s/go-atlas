@@ -27,10 +27,11 @@ caller, so the core bakes in no identity fields.
 ## Functions
 
 | Function                            | Description                                                                                     |
-|-------------------------------------|-------------------------------------------------------------------------------------------------|
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `NewRegistry()`                     | Empty registry ready for registration.                                                          |
-| `Registry.Register(key, scope)`     | Record that `key` requires `scope` (empty scope = public). Panics after `Freeze`.               |
-| `Registry.RegisterMany(scope, ...)` | Bulk-register many keys with the same scope.                                                    |
+| `Registry.Register(key, scope)`     | Require a scope for one key. Panics on a blank key or scope and after `Freeze`.                 |
+| `Registry.RegisterMany(scope, ...)` | Require a scope for multiple keys. Panics on a blank key or scope and after `Freeze`.           |
+| `Registry.RegisterPublic(keys...)`  | Allow public access to the keys. Panics on a blank key and after `Freeze`.                      |
 | `Registry.Freeze()`                 | Immutable snapshot, safe for lock-free concurrent reads; further registration panics.           |
 | `Registry.Required(key)`            | `(scope, ok)`; `ok=false` (unregistered) is denied by default, `("", true)` is public.          |
 | `Exact()`                           | `Matcher` of flat membership (`slices.Contains`). The default strategy.                         |
@@ -45,11 +46,11 @@ caller, so the core bakes in no identity fields.
 
 `Enforce` is fail-closed:
 
-| Case                            | Result                   |
-|---------------------------------|--------------------------|
-| Unregistered key                | `ErrAccessDenied`        |
-| Key registered with empty scope | allowed (public)         |
-| Otherwise                       | the `Authorizer` decides |
+| Case                                 | Result                   |
+| ------------------------------------ | ------------------------ |
+| Unregistered key                     | `ErrAccessDenied`        |
+| Key registered with `RegisterPublic` | allowed (public)         |
+| Otherwise                            | the `Authorizer` decides |
 
 `ErrAccessDenied` is transport-neutral; adapters map it (gRPC `codes.PermissionDenied`, HTTP `403`).
 
@@ -64,7 +65,7 @@ type Principal struct {
 reg := scope.NewRegistry()
 reg.Register("/files.v1.Files/Read", "files:read")
 reg.Register("/files.v1.Files/Write", "files:write")
-reg.Register("/health.v1.Health/Check", "") // public
+reg.RegisterPublic("/health.v1.Health/Check") // public
 reg.Freeze()
 
 base := scope.ScopeAuthorizer(func(p *Principal) []string { return p.Scopes }, scope.Exact())
@@ -82,7 +83,7 @@ if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 
 When a decision depends on the specific resource being acted on (ownership, per-object ACLs), use the resource-aware variants. They mirror the
 action-level API with one extra resource parameter `R`, the same deny-by-default registry, and the same fail-closed decision (unregistered key denied,
-empty scope public and resource not consulted).
+public registration allowed without consulting the resource).
 
 | Type / Function                       | Description                                                                                        |
 |---------------------------------------|----------------------------------------------------------------------------------------------------|

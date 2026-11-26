@@ -48,10 +48,10 @@ func BenchmarkValidators(b *testing.B) {
 	}
 	a := newAuthenticator(b,
 		mtls.WithTrustDomains("example.org"),
-		mtls.WithValidator(mtls.SubjectValidator(pkix.Name{CommonName: "billing"})),
-		mtls.WithValidator(mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})),
-		mtls.WithValidator(mtls.AuthorityKeyIDValidator([]byte{1, 2, 3})),
-		mtls.WithValidator(mtls.DNSNameValidator("api.example.org")),
+		mtls.WithValidator(checkedValidator(b)(mtls.SubjectValidator(pkix.Name{CommonName: "billing"}))),
+		mtls.WithValidator(checkedValidator(b)(mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"}))),
+		mtls.WithValidator(checkedValidator(b)(mtls.AuthorityKeyIDValidator([]byte{1, 2, 3}))),
+		mtls.WithValidator(checkedValidator(b)(mtls.DNSNameValidator("api.example.org"))),
 		mtls.WithValidator(mtls.EKUValidator(x509.ExtKeyUsageClientAuth)),
 	)
 	ctx := b.Context()

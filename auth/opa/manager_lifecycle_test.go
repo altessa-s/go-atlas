@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // gatedSource serves a fixed bundle. While gated, a Fetch signals entered,
@@ -394,5 +396,91 @@ func TestWatchPreviousExitPreservesRestart(t *testing.T) {
 		cancel()
 		require.NoError(t, m.Close())
 		require.True(t, active, "exiting poller cleared the replacement's state")
+	})
+}
+
+func TestBlockingWatchContextCancellation(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := &mutableSource{bundle: adminsBundle("a")}
+		m, err := opa.NewManager(t.Context(), src, "data.t.allow", opa.WithPollInterval(time.Second))
+		require.NoError(t, err)
+		defer m.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sub, err := m.Watch(ctx, opa.WatchOptions{BufferSize: 1, BufferOverflowPolicy: opa.OverflowPolicyBlock})
+		require.NoError(t, err)
+		update(t, m, src, "b")
+		previous := m.Revision()
+		src.set(adminsBundle("c"), nil)
+		require.NoError(t, m.StartWatching(ctx))
+		time.Sleep(time.Second)
+		synctest.Wait()
+		require.NotEqual(t, previous, m.Revision())
+		cancel()
+		stopped := make(chan struct{})
+		go func() { m.StopWatching(); close(stopped) }()
+		synctest.Wait()
+		done := func(ch <-chan struct{}) bool {
+			select {
+			case <-ch:
+				return true
+			default:
+				return false
+			}
+		}
+		subDone, pollStopped := done(sub.Done), done(stopped)
+		sub.Stop()
+		<-stopped
+		require.True(t, subDone, "watch subscription remained open after context cancellation")
+		require.True(t, pollStopped, "StopWatching could not join the blocked poller")
+	})
+}
+
+func TestWatchRejectsNegativeBufferSize(t *testing.T) {
+	t.Parallel()
+	src := &mutableSource{bundle: adminsBundle("a")}
+	m, err := opa.NewManager(t.Context(), src, "data.t.allow")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	require.NotPanics(t, func() {
+		_, err = m.Watch(t.Context(), opa.WatchOptions{BufferSize: -1})
+	})
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+}
+
+func TestStopWatchingReleasesBlockedDeliveryToLiveSubscriber(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := &mutableSource{bundle: adminsBundle("a")}
+		m, err := opa.NewManager(t.Context(), src, "data.t.allow", opa.WithPollInterval(time.Second))
+		require.NoError(t, err)
+		defer m.Close()
+		sub, err := m.Watch(t.Context(), opa.WatchOptions{BufferSize: 1, BufferOverflowPolicy: opa.OverflowPolicyBlock})
+		require.NoError(t, err)
+		defer sub.Stop()
+		update(t, m, src, "b")
+		previous := m.Revision()
+		src.set(adminsBundle("c"), nil)
+		require.NoError(t, m.StartWatching(t.Context()))
+		time.Sleep(time.Second)
+		synctest.Wait()
+		require.NotEqual(t, previous, m.Revision())
+
+		stopped := make(chan struct{})
+		go func() { m.StopWatching(); close(stopped) }()
+		synctest.Wait()
+		select {
+		case <-stopped:
+		default:
+			sub.Stop()
+			<-stopped
+			require.FailNow(t, "StopWatching remained blocked on a live subscriber")
+		}
+		select {
+		case <-sub.Done:
+			require.FailNow(t, "stopping polling closed a live subscription")
+		default:
+		}
 	})
 }

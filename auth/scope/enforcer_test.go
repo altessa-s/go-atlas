@@ -29,7 +29,7 @@ func newEnforcer(t *testing.T, m scope.Matcher) *scope.Enforcer[*principal] {
 	t.Helper()
 	reg := scope.NewRegistry()
 	reg.Register(methodWrite, "files:write")
-	reg.Register(methodHealth, "") // public
+	reg.RegisterPublic(methodHealth) // public
 	reg.Freeze()
 
 	base := scope.ScopeAuthorizer(func(p *principal) []string { return p.scopes }, m)

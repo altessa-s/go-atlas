@@ -16,7 +16,7 @@ func BenchmarkBuild(b *testing.B) {
 	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read", "/files.v1.Files/List"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write", "/files.v1.Files/Delete"}},
-		{Scope: "", Keys: []string{"/health.v1.Health/Check"}},
+		{Public: true, Keys: []string{"/health.v1.Health/Check"}},
 	}}
 	b.ReportAllocs()
 	for b.Loop() {

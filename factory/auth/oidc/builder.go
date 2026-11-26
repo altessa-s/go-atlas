@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -313,13 +314,11 @@ func revocationFilterName(cfg *authconfig.OIDC) string {
 // onto the provider's own, process-local refresh cron.
 func (b *ProviderBuilder) buildRefreshOptions() []oidc.Option {
 	cfg := b.cfg
-	var opts []oidc.Option
-
-	opts = slices.AppendIfFunc(opts,
-		cfg.IsJWKSConfigured() && cfg.JWKS.RefreshEnabled && cfg.JWKS.RefreshSchedule != "",
-		func() []oidc.Option {
-			return []oidc.Option{oidc.WithJWKSRefreshSchedule(cfg.JWKS.RefreshSchedule)}
-		})
+	schedule := authconfig.DefaultOIDCJwks().RefreshSchedule
+	if cfg.IsJWKSConfigured() {
+		schedule = cmp.Or(cfg.JWKS.RefreshSchedule, schedule)
+	}
+	opts := []oidc.Option{oidc.WithJWKSRefreshSchedule(schedule)}
 
 	opts = slices.AppendIfFunc(opts,
 		cfg.IsRevocationConfigured() && cfg.Revocation.Enabled &&

@@ -6,6 +6,7 @@ package scope
 
 import (
 	"iter"
+	"strings"
 	"sync/atomic"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
@@ -21,8 +22,8 @@ import (
 // snapshot safe for lock-free concurrent reads, and further registration panics.
 //
 // Lookups are deny-by-default: [Registry.Required] returns ok=false for an
-// unregistered key, which [Enforcer.Enforce] treats as denied. Register a key
-// with the empty scope to mark it intentionally public.
+// unregistered key, which [Enforcer.Enforce] treats as denied. Use [Registry.RegisterPublic] for
+// intentionally public actions.
 type Registry struct {
 	// building is the mutable map used during the registration phase.
 	building map[string]Scope
@@ -37,21 +38,35 @@ func NewRegistry() *Registry {
 	return &Registry{building: make(map[string]Scope)}
 }
 
-// Register records that key requires scope. The last registration for a key
-// wins. Registering an empty scope marks key as intentionally public. Panics if
-// called after [Registry.Freeze].
+// Register records that key requires scope. The last registration wins.
+// It panics on a blank key or scope or after [Registry.Freeze].
 func (r *Registry) Register(key string, scope Scope) {
-	if r.frozen.Load() != nil {
-		panic("scope: Register called on frozen Registry")
-	}
-	r.building[key] = scope
+	r.RegisterMany(scope, key)
 }
 
-// RegisterMany records that every key in keys requires scope. It is a
-// convenience for bulk registration. Panics if called after [Registry.Freeze].
+// RegisterMany records that every key requires scope. It panics on a blank
+// key or scope or after [Registry.Freeze].
 func (r *Registry) RegisterMany(scope Scope, keys ...string) {
+	if strings.TrimSpace(scope) == "" {
+		panic("scope: registration requires a non-blank scope")
+	}
+	r.register(scope, keys)
+}
+
+// RegisterPublic marks keys as intentionally public. It panics on a blank
+// key or after [Registry.Freeze].
+func (r *Registry) RegisterPublic(keys ...string) {
+	r.register("", keys)
+}
+
+func (r *Registry) register(scope Scope, keys []string) {
 	if r.frozen.Load() != nil {
-		panic("scope: RegisterMany called on frozen Registry")
+		panic("scope: registration on frozen Registry")
+	}
+	for _, key := range keys {
+		if strings.TrimSpace(key) == "" {
+			panic("scope: registration requires a non-blank key")
+		}
 	}
 	for _, key := range keys {
 		r.building[key] = scope
@@ -59,7 +74,7 @@ func (r *Registry) RegisterMany(scope Scope, keys ...string) {
 }
 
 // Freeze converts the registry to an immutable snapshot safe for concurrent
-// reads. Subsequent [Registry.Register] / [Registry.RegisterMany] calls panic.
+// reads. Subsequent registration calls panic.
 // Freeze is idempotent.
 func (r *Registry) Freeze() {
 	if r.frozen.Load() != nil {

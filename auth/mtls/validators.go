@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/spiffe"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var (
@@ -35,9 +37,8 @@ var (
 	// allowed names. Reported by [IssuerValidator].
 	ErrIssuerMismatch = errors.New("mtls: client certificate issuer not allowed")
 	// ErrUnsupportedDNAttribute indicates a [SubjectValidator] or [IssuerValidator]
-	// candidate name carries an attribute the matcher cannot compare (a non-string
-	// value). Such a validator rejects every certificate instead of silently
-	// ignoring the attribute.
+	// candidate name carries a non-string attribute value. The constructor
+	// rejects such a pattern.
 	ErrUnsupportedDNAttribute = errors.New("mtls: unsupported DN attribute in validator configuration")
 	// ErrUntrustedCA indicates the certificate's issuing-CA Authority Key ID is not
 	// in the allowed set. Reported by [AuthorityKeyIDValidator].
@@ -183,11 +184,11 @@ func (rl *RevocationList) Validator() CertValidator {
 // attributes with the same type and string value (Names and ExtraNames add
 // requirements; they never relax a struct field). A pkix.Name copied from a
 // parsed certificate therefore matches that certificate. A candidate attribute
-// with a non-string value cannot be compared, so the whole validator fails
-// closed with [ErrUnsupportedDNAttribute] instead of ignoring it. An empty names
+// with a non-string value returns [ErrUnsupportedDNAttribute] at construction.
+// An empty pattern returns an invalid argument error. An empty names
 // list is a no-op. This is the classic-PKI counterpart to [TrustDomainValidator]:
 // use it when identity lives in the DN rather than a SPIFFE URI.
-func SubjectValidator(names ...pkix.Name) CertValidator {
+func SubjectValidator(names ...pkix.Name) (CertValidator, error) {
 	return dnValidator(names, func(c *x509.Certificate) pkix.Name { return c.Subject }, ErrSubjectMismatch)
 }
 
@@ -196,20 +197,28 @@ func SubjectValidator(names ...pkix.Name) CertValidator {
 // and an uncheckable configuration with [ErrUnsupportedDNAttribute]. The TLS
 // handshake already verified the certificate chains to a trusted CA; this
 // narrows that trust to a specific issuer identity. An empty names list is a
-// no-op.
-func IssuerValidator(names ...pkix.Name) CertValidator {
+// no-op. An empty pattern returns an invalid argument error.
+func IssuerValidator(names ...pkix.Name) (CertValidator, error) {
 	return dnValidator(names, func(c *x509.Certificate) pkix.Name { return c.Issuer }, ErrIssuerMismatch)
 }
 
 // dnValidator builds the shared Subject/Issuer matcher over a deep copy of
 // names, so later mutation of the caller's values cannot change the policy.
-func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismatch error) CertValidator {
+func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismatch error) (CertValidator, error) {
 	allowed := make([]pkix.Name, 0, len(names))
 	for _, n := range names {
+		if n.CommonName != "" && strings.TrimSpace(n.CommonName) == "" {
+			return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "blank certificate common name")
+		}
+		if n.CommonName == "" && n.SerialNumber == "" &&
+			len(n.Country)+len(n.Organization)+len(n.OrganizationalUnit)+len(n.Locality)+
+				len(n.Province)+len(n.StreetAddress)+len(n.PostalCode)+len(n.Names)+len(n.ExtraNames) == 0 {
+			return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "empty certificate DN pattern")
+		}
+		if err := checkDNSupported(n); err != nil {
+			return nil, err
+		}
 		allowed = append(allowed, cloneName(n))
-	}
-	if err := checkDNSupported(allowed); err != nil {
-		return func(context.Context, *x509.Certificate) error { return err }
 	}
 	return func(_ context.Context, cert *x509.Certificate) error {
 		if len(allowed) == 0 {
@@ -219,7 +228,7 @@ func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismat
 			return nil
 		}
 		return mismatch
-	}
+	}, nil
 }
 
 // cloneName deep-copies the parts of n the matcher reads.
@@ -249,12 +258,10 @@ func cloneAttributes(attrs []pkix.AttributeTypeAndValue) []pkix.AttributeTypeAnd
 
 // checkDNSupported rejects a candidate attribute the matcher cannot compare:
 // only string values are supported.
-func checkDNSupported(names []pkix.Name) error {
-	for _, n := range names {
-		for _, a := range slices.Concat(n.Names, n.ExtraNames) {
-			if _, ok := a.Value.(string); !ok {
-				return fmt.Errorf("%w: attribute %s has a %T value", ErrUnsupportedDNAttribute, a.Type, a.Value)
-			}
+func checkDNSupported(n pkix.Name) error {
+	for _, a := range slices.Concat(n.Names, n.ExtraNames) {
+		if _, ok := a.Value.(string); !ok {
+			return ErrUnsupportedDNAttribute
 		}
 	}
 	return nil
@@ -265,10 +272,13 @@ func checkDNSupported(names []pkix.Name) error {
 // the rest with [ErrUntrustedCA]. Combined with the handshake's chain
 // verification this is a robust CA pin — the signature is already proven valid,
 // and this requires the issuer to be the expected one even when the trust pool
-// holds several CAs. An empty keyIDs list is a no-op.
-func AuthorityKeyIDValidator(keyIDs ...[]byte) CertValidator {
+// holds several CAs. An empty key ID is invalid. An empty keyIDs list is a no-op.
+func AuthorityKeyIDValidator(keyIDs ...[]byte) (CertValidator, error) {
 	allowed := make([][]byte, 0, len(keyIDs))
 	for _, k := range keyIDs {
+		if len(k) == 0 {
+			return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "empty authority key ID")
+		}
 		allowed = append(allowed, bytes.Clone(k))
 	}
 	return func(_ context.Context, cert *x509.Certificate) error {
@@ -281,7 +291,7 @@ func AuthorityKeyIDValidator(keyIDs ...[]byte) CertValidator {
 			}
 		}
 		return ErrUntrustedCA
-	}
+	}, nil
 }
 
 // dnMatchesAny reports whether got matches any of the candidate names.
@@ -346,12 +356,18 @@ func containsAll(haystack, needles []string) bool {
 // certificate that is valid for any of names and rejects the rest with
 // [ErrDNSNameMismatch]. Matching uses [x509.Certificate.VerifyHostname], so it
 // honors wildcard SANs (a cert with "*.example.org" satisfies "api.example.org")
-// and ignores the legacy CommonName fallback. An empty names list is a no-op.
+// and ignores the legacy CommonName fallback. An empty name is invalid. An
+// empty names list is a no-op.
 //
 // Because wildcards match, one client certificate with a wildcard SAN
 // satisfies every name it covers. Pinning a single client identity this way
 // requires a CA that does not issue wildcard client certificates.
-func DNSNameValidator(names ...string) CertValidator {
+func DNSNameValidator(names ...string) (CertValidator, error) {
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
+			return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "empty DNS name pattern")
+		}
+	}
 	allowed := slices.Clone(names)
 	return func(_ context.Context, cert *x509.Certificate) error {
 		if len(allowed) == 0 {
@@ -363,7 +379,7 @@ func DNSNameValidator(names ...string) CertValidator {
 			}
 		}
 		return ErrDNSNameMismatch
-	}
+	}, nil
 }
 
 // EKUValidator requires the certificate to assert every extended key usage in

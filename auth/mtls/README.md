@@ -55,11 +55,14 @@ the certificate's SPIFFE ID (its Subject DN when it has none); `subjectOf` names
 | `ExpiryValidator(now, leeway)`          | Re-check the validity window each call (long-lived connections). `now` defaults to `time.Now`.                                                 |
 | `TrustDomainValidator(domains…)`        | The trust-domain pin as a standalone `CertValidator`; without domains it rejects every certificate (`ErrNoTrustDomainPolicy`).                 |
 | `RevocationList` / `NewRevocationList`  | Concurrency-safe serial-number denylist; `Revoke`/`Restore`/`IsRevoked`, `Validator()` → `CertValidator`.                                      |
-| `SubjectValidator(names…)`              | Pin accepted Subject DNs (classic-PKI identity); subset-match on every set `pkix.Name` field, `Names`/`ExtraNames` included; empty list = any. |
-| `IssuerValidator(names…)`               | Pin accepted issuer (CA) DNs; same subset rule, empty list = any.                                                                              |
-| `AuthorityKeyIDValidator(keyIDs…)`      | Pin accepted issuing-CA Authority Key IDs; robust CA pin over the verified chain, empty = any.                                                 |
-| `DNSNameValidator(names…)`              | Pin accepted DNS SANs via `VerifyHostname` (wildcard-aware, so a wildcard client SAN matches every covered name); empty list = any.            |
+| `SubjectValidator(names…)` | Pin subject DNs by subset, including `Names` and `ExtraNames`. An empty list is a no-op. |
+| `IssuerValidator(names…)` | Pin issuer DNs by the same subset rule. An empty list is a no-op. |
+| `AuthorityKeyIDValidator(keyIDs…)` | Pin issuing CA key IDs. An empty list is a no-op. |
+| `DNSNameValidator(names…)` | Pin DNS SANs with wildcard-aware `VerifyHostname`. An empty list is a no-op. |
 | `EKUValidator(ekus…)`                   | Require the cert to assert every given extended key usage (`ExtKeyUsageAny` satisfies all); empty = none.                                      |
+
+Subject, issuer, authority-key-ID, and DNS pin constructors return `(CertValidator, error)`. Handle configuration errors before adding the validator
+with `WithValidator`. Empty entries and whitespace-only common names are invalid.
 
 ## Validation beyond TLS
 
