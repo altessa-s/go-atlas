@@ -13,9 +13,14 @@
 //	    UseDispatcher(eng).
 //	    Build(ctx)
 //
-// The builder builds the memory and sqldb storages. The MongoDB and
-// ClickHouse ones are registered with [AuditorBuilder.UseStorage] from
-// factory/audit/storages/mongo and factory/audit/storages/clickhouse:
+// The builder builds the memory and sqldb storages. When storage.type is
+// omitted, the builder defaults to the bounded in-memory ring buffer
+// (storage.memory.maxEvents, default 10,000) and logs a startup warning (via
+// [slog.Default] when [AuditorBuilder.UseLogger] was not called); set
+// storage.type explicitly to "memory" for dev/tests to suppress that warning.
+// The MongoDB and ClickHouse ones are registered with
+// [AuditorBuilder.UseStorage] from factory/audit/storages/mongo and
+// factory/audit/storages/clickhouse:
 //
 //	auditor, err := factory.New(cfg.Audit).
 //	    UseStorage(auditconfig.StorageTypeMongo, auditmongofactory.Builder(db)).

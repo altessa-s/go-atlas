@@ -94,6 +94,20 @@
 #      # Default value: not set
 #      exportTimeout:
 #
+#    # <object> Per-span retention caps.
+#    spanLimits:
+#      # <int> Maximum distinct attributes retained per span (0 means unlimited). The tracer uses 128 when omitted.
+#      # Default value: not set
+#      maxAttributes:
+#
+#      # <int> Maximum events retained per span (0 means unlimited). The tracer uses 128 when omitted.
+#      # Default value: not set
+#      maxEvents:
+#
+#      # <int> Maximum valid links retained per span (0 means unlimited). The tracer uses 128 when omitted.
+#      # Default value: not set
+#      maxLinks:
+#
 #    # <object> Adapter-specific configurations.
 #    adapters:
 #      # <object> OTLP adapter configuration.

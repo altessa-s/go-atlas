@@ -5,17 +5,23 @@
 package memory_test
 
 import (
+	"fmt"
+	"runtime"
 	"testing"
 	"time"
+	"weak"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/memory"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func TestStorage_Store(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
 	ctx := t.Context()
 
@@ -24,10 +30,12 @@ func TestStorage_Store(t *testing.T) {
 		Action: audit.ActionExecute,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 1, s.Len())
+	require.Equal(t, 1, s.Len())
 }
 
 func TestStorage_StoreBatch(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
 	ctx := t.Context()
 
@@ -39,10 +47,12 @@ func TestStorage_StoreBatch(t *testing.T) {
 
 	err := s.StoreBatch(ctx, events)
 	require.NoError(t, err)
-	assert.Equal(t, 3, s.Len())
+	require.Equal(t, 3, s.Len())
 }
 
 func TestStorage_Query(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		events  []*audit.Event
@@ -147,6 +157,8 @@ func TestStorage_Query(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			s := memory.New()
 			ctx := t.Context()
 
@@ -158,59 +170,222 @@ func TestStorage_Query(t *testing.T) {
 			for range s.Query(ctx, tt.query) {
 				count++
 			}
-			assert.Equal(t, tt.wantLen, count)
+			require.Equal(t, tt.wantLen, count)
 		})
 	}
 }
 
 func TestStorage_Count(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
 	ctx := t.Context()
 
 	for i := range 5 {
-		_ = s.Store(ctx, &audit.Event{
+		require.NoError(t, s.Store(ctx, &audit.Event{
 			Actor:     audit.Actor{ID: "u1"},
 			Timestamp: time.Now().Add(time.Duration(i) * time.Second),
-		})
+		}))
 	}
-	_ = s.Store(ctx, &audit.Event{
+	require.NoError(t, s.Store(ctx, &audit.Event{
 		Actor:     audit.Actor{ID: "u2"},
 		Timestamp: time.Now(),
-	})
+	}))
 
 	count, err := s.Count(ctx, &audit.Query{ActorID: "u1"})
 	require.NoError(t, err)
-	assert.Equal(t, int64(5), count)
+	require.Equal(t, int64(5), count)
 
 	count, err = s.Count(ctx, &audit.Query{})
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), count)
+	require.Equal(t, int64(6), count)
 }
 
 func TestStorage_Events(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, &audit.Event{ID: "e1"})
-	_ = s.Store(ctx, &audit.Event{ID: "e2"})
+	require.NoError(t, s.Store(ctx, &audit.Event{ID: "e1"}))
+	require.NoError(t, s.Store(ctx, &audit.Event{ID: "e2"}))
 
 	events := s.Events()
-	assert.Len(t, events, 2)
+	require.Len(t, events, 2)
 }
 
 func TestStorage_Reset(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, &audit.Event{ID: "e1"})
-	assert.Equal(t, 1, s.Len())
+	require.NoError(t, s.Store(ctx, &audit.Event{ID: "e1"}))
+	require.Equal(t, 1, s.Len())
 
 	s.Reset()
-	assert.Equal(t, 0, s.Len())
+	require.Equal(t, 0, s.Len())
 }
 
 func TestStorage_Close(t *testing.T) {
+	t.Parallel()
+
 	s := memory.New()
-	err := s.Close(t.Context())
-	assert.NoError(t, err)
+	require.NoError(t, s.Close(t.Context()))
+}
+
+func TestStorage_ZeroValue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Store", func(t *testing.T) {
+		t.Parallel()
+
+		var s memory.Storage
+		require.NoError(t, s.Store(t.Context(), &audit.Event{
+			ID:        "z1",
+			Timestamp: time.UnixMilli(1),
+		}))
+		require.Equal(t, memory.DefaultMaxEvents, s.Cap())
+		require.Equal(t, 1, s.Len())
+		require.Equal(t, []string{"z1"}, eventIDs(s.Events()))
+	})
+
+	t.Run("StoreBatch", func(t *testing.T) {
+		t.Parallel()
+
+		var s memory.Storage
+		ctx := t.Context()
+		require.NoError(t, s.StoreBatch(ctx, []*audit.Event{
+			{ID: "b1", Timestamp: time.UnixMilli(1)},
+			{ID: "b2", Timestamp: time.UnixMilli(2)},
+		}))
+		require.Equal(t, memory.DefaultMaxEvents, s.Cap())
+		require.Equal(t, 2, s.Len())
+		require.Equal(t, []string{"b1", "b2"}, eventIDs(s.Events()))
+
+		const overflow = 3
+		large := make([]*audit.Event, memory.DefaultMaxEvents+overflow)
+		for i := range large {
+			large[i] = &audit.Event{
+				ID:        fmt.Sprintf("ev-%d", i),
+				Timestamp: time.UnixMilli(int64(i)),
+			}
+		}
+		require.NoError(t, s.StoreBatch(ctx, large))
+		require.Equal(t, memory.DefaultMaxEvents, s.Len())
+		got := s.Events()
+		require.Equal(t, "ev-3", got[0].ID)
+		require.Equal(t, fmt.Sprintf("ev-%d", memory.DefaultMaxEvents+overflow-1), got[len(got)-1].ID)
+	})
+}
+
+func TestStorage_DefaultBoundedCapacity(t *testing.T) {
+	t.Parallel()
+
+	s := memory.New()
+	require.Equal(t, memory.DefaultMaxEvents, s.Cap())
+
+	const overflow = 5
+	batch := make([]*audit.Event, memory.DefaultMaxEvents+overflow)
+	for i := range batch {
+		batch[i] = &audit.Event{
+			ID:        fmt.Sprintf("ev-%d", i),
+			Timestamp: time.UnixMilli(int64(i)),
+		}
+	}
+	require.NoError(t, s.StoreBatch(t.Context(), batch))
+	require.Equal(t, memory.DefaultMaxEvents, s.Len())
+
+	got := s.Events()
+	require.Len(t, got, memory.DefaultMaxEvents)
+	require.Equal(t, "ev-5", got[0].ID)
+	require.Equal(t, fmt.Sprintf("ev-%d", memory.DefaultMaxEvents+overflow-1), got[len(got)-1].ID)
+}
+
+func TestStorage_RingBufferEvictsOldest(t *testing.T) {
+	t.Parallel()
+
+	// Non-positive capacities are ignored in favor of DefaultMaxEvents.
+	require.Equal(t, memory.DefaultMaxEvents, memory.New(memory.WithMaxEvents(0)).Cap())
+	require.Equal(t, memory.DefaultMaxEvents, memory.New(memory.WithMaxEvents(-3)).Cap())
+
+	s := memory.New(memory.WithMaxEvents(3))
+	require.Equal(t, 3, s.Cap())
+	ctx := t.Context()
+
+	for i := 1; i <= 5; i++ {
+		require.NoError(t, s.Store(ctx, &audit.Event{
+			ID:        fmt.Sprintf("e%d", i),
+			Timestamp: time.UnixMilli(int64(i)),
+		}))
+	}
+	require.Equal(t, 3, s.Len())
+	require.Equal(t, []string{"e3", "e4", "e5"}, eventIDs(s.Events()))
+
+	// Partial wrap via StoreBatch.
+	require.NoError(t, s.StoreBatch(ctx, []*audit.Event{
+		{ID: "e6", Timestamp: time.UnixMilli(6)},
+		{ID: "e7", Timestamp: time.UnixMilli(7)},
+	}))
+	require.Equal(t, []string{"e5", "e6", "e7"}, eventIDs(s.Events()))
+
+	// Nil element in StoreBatch rejects atomically without evicting existing items.
+	err := s.StoreBatch(ctx, []*audit.Event{
+		{ID: "e8", Timestamp: time.UnixMilli(8)},
+		nil,
+	})
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Equal(t, []string{"e5", "e6", "e7"}, eventIDs(s.Events()))
+
+	// Batch larger than ring capacity retains only the newest Cap() events.
+	require.NoError(t, s.StoreBatch(ctx, []*audit.Event{
+		{ID: "e8", Timestamp: time.UnixMilli(8)},
+		{ID: "e9", Timestamp: time.UnixMilli(9)},
+		{ID: "e10", Timestamp: time.UnixMilli(10)},
+		{ID: "e11", Timestamp: time.UnixMilli(11)},
+	}))
+	require.Equal(t, []string{"e9", "e10", "e11"}, eventIDs(s.Events()))
+
+	count, err := s.Count(ctx, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
+	var queried []string
+	for ev, qErr := range s.Query(ctx, &audit.Query{SortOrder: audit.SortOrderAsc}) {
+		require.NoError(t, qErr)
+		queried = append(queried, ev.ID)
+	}
+	require.Equal(t, []string{"e9", "e10", "e11"}, queried)
+}
+
+func TestStorage_ReleasesEvictedAndResetEvents(t *testing.T) {
+	s := memory.New(memory.WithMaxEvents(1))
+	ctx := t.Context()
+
+	var evictedRef, resetRef weak.Pointer[audit.Event]
+	func() {
+		evicted := &audit.Event{ID: "first"}
+		evictedRef = weak.Make(evicted)
+		require.NoError(t, s.Store(ctx, evicted))
+
+		kept := &audit.Event{ID: "second"}
+		resetRef = weak.Make(kept)
+		require.NoError(t, s.Store(ctx, kept))
+	}()
+
+	runtime.GC()
+	require.Nil(t, evictedRef.Value(), "evicted event must not remain reachable from the ring buffer")
+
+	s.Reset()
+	runtime.GC()
+	require.Nil(t, resetRef.Value(), "reset must clear backing references")
+	runtime.KeepAlive(s)
+}
+
+func eventIDs(events []*audit.Event) []string {
+	ids := make([]string, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+	return ids
 }

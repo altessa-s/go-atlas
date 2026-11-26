@@ -40,11 +40,11 @@ option types; a custom `Tracer`, `Recorder` or `Span` resolves them with `ApplyR
 `SetAttributes` (as well as start and sampler-returned attributes) deduplicates keys with last-wins semantics. `WithStackTrace(true)` attaches the
 caller stack under `exception.stacktrace` on both `Span.RecordError` and `Span.AddEvent`.
 
-| Span limit option | Default | Description |
-|-------------------|---------|-------------|
-| `WithMaxAttributes` | 0 (unlimited) | Cap distinct attributes retained per span; overflow increments `SpanData.DroppedAttributeCount` |
-| `WithMaxEvents` | 0 (unlimited) | Cap events retained per span; overflow increments `SpanData.DroppedEventCount` |
-| `WithMaxLinks` | 0 (unlimited) | Cap valid links retained per span after sampling; overflow increments `SpanData.DroppedLinkCount` |
+| Span limit option   | Optional YAML key under `tracing.spanLimits` | Default | Description                                                                                                           |
+|---------------------|----------------------------------------------|---------|-----------------------------------------------------------------------------------------------------------------------|
+| `WithMaxAttributes` | `maxAttributes`                              | 128     | Cap distinct attributes retained per span (`0` means unlimited); overflow increments `SpanData.DroppedAttributeCount` |
+| `WithMaxEvents`     | `maxEvents`                                  | 128     | Cap events retained per span (`0` means unlimited); overflow increments `SpanData.DroppedEventCount`                  |
+| `WithMaxLinks`      | `maxLinks`                                   | 128     | Cap valid links retained per span after sampling (`0` means unlimited); overflow increments `SpanData.DroppedLinkCount` |
 
 ## Batch export
 

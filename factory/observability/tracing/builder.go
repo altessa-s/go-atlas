@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -64,6 +65,11 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.TracerProvider, erro
 		return nil, b.WrapError(err, "batch export settings")
 	}
 
+	spanLimits := &b.cfg.SpanLimits
+	if err := spanLimits.Validate(); err != nil {
+		return nil, b.WrapError(err, "span limit settings")
+	}
+
 	s, err := b.createSampler()
 	if err != nil {
 		return nil, b.WrapError(err, "create sampler")
@@ -86,6 +92,15 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.TracerProvider, erro
 		tracing.WithScheduledDelay(ptr.Unwrap(batch.ScheduledDelay)),
 		tracing.WithExportTimeout(ptr.Unwrap(batch.ExportTimeout)),
 	}
+	opts = coreslices.AppendIfFunc(opts, spanLimits.MaxAttributes != nil, func() []tracing.Option {
+		return []tracing.Option{tracing.WithMaxAttributes(*spanLimits.MaxAttributes)}
+	})
+	opts = coreslices.AppendIfFunc(opts, spanLimits.MaxEvents != nil, func() []tracing.Option {
+		return []tracing.Option{tracing.WithMaxEvents(*spanLimits.MaxEvents)}
+	})
+	opts = coreslices.AppendIfFunc(opts, spanLimits.MaxLinks != nil, func() []tracing.Option {
+		return []tracing.Option{tracing.WithMaxLinks(*spanLimits.MaxLinks)}
+	})
 
 	return tracing.New(opts...), nil //nolint:contextcheck // The export worker lives until tracer shutdown.
 }

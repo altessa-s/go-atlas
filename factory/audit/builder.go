@@ -46,8 +46,9 @@ type StorageBuilder func(ctx context.Context, cfg *auditconfig.Config, logger *s
 // a configured type without one fails at Build naming the package to add.
 type AuditorBuilder struct {
 	corefactory.Base
-	cfg  *auditconfig.Config
-	errs []error
+	cfg       *auditconfig.Config
+	loggerSet bool
+	errs      []error
 
 	// Dependencies
 	dispatcher    audit.Dispatcher
@@ -161,27 +162,56 @@ func (b *AuditorBuilder) onShutdown(hook coreruntime.ShutdownHook) {
 
 // createStorage resolves the configured storage type into an [audit.Storage].
 func (b *AuditorBuilder) createStorage(ctx context.Context) (audit.Storage, error) {
-	if b.cfg.Storage.Type == auditconfig.StorageTypeMemory {
-		return memorystorage.New(), nil
-	}
-	if b.cfg.Storage.Type == auditconfig.StorageTypeSQL {
-		return b.createSQLStorage(ctx)
-	}
-	if build, ok := b.storages[b.cfg.Storage.Type]; ok && b.cfg.Storage.Type != "" {
-		return build(ctx, b.cfg, b.Logger())
-	}
 	switch b.cfg.Storage.Type {
+	case "":
+		return b.createMemoryStorage(true)
+	case auditconfig.StorageTypeMemory:
+		return b.createMemoryStorage(false)
+	case auditconfig.StorageTypeSQL:
+		return b.createSQLStorage(ctx)
 	case auditconfig.StorageTypeMongo:
+		if build, ok := b.storages[b.cfg.Storage.Type]; ok {
+			return build(ctx, b.cfg, b.Logger())
+		}
 		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "audit storage %q is not registered: add factory/audit/storages/mongo "+
 			"with UseStorage(%q, mongofactory.Builder(db))", b.cfg.Storage.Type, b.cfg.Storage.Type)
 	case auditconfig.StorageTypeClickHouse:
+		if build, ok := b.storages[b.cfg.Storage.Type]; ok {
+			return build(ctx, b.cfg, b.Logger())
+		}
 		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "audit storage %q is not registered: add factory/audit/storages/clickhouse "+
 			"with UseStorage(%q, chfactory.Builder(conn))", b.cfg.Storage.Type, b.cfg.Storage.Type)
 	default:
+		if build, ok := b.storages[b.cfg.Storage.Type]; ok {
+			return build(ctx, b.cfg, b.Logger())
+		}
 		return nil, coreerrs.Wrapf(
 			corefactory.Errorf(corefactory.ErrUnsupported, "unsupported storage type: %s", b.cfg.Storage.Type),
 			"invalid configuration for %s", "audit storage")
 	}
+}
+
+func (b *AuditorBuilder) createMemoryStorage(defaulted bool) (audit.Storage, error) {
+	var opts []memorystorage.Option
+	if mem := b.cfg.Storage.Memory; mem != nil {
+		if err := mem.Validate(); err != nil {
+			return nil, corefactory.Errorf(corefactory.ErrConfigRequired,
+				"invalid audit memory storage configuration: %w", err)
+		}
+		opts = append(opts, memorystorage.WithMaxEvents(mem.MaxEvents))
+	}
+	store := memorystorage.New(opts...)
+	if defaulted {
+		warnLogger := b.Logger()
+		if !b.loggerSet {
+			warnLogger = slog.Default()
+		}
+		warnLogger.Warn("audit storage defaulted to volatile bounded in-memory ring buffer; configure a persistent backend for production",
+			slog.String("storage", string(auditconfig.StorageTypeMemory)),
+			slog.Int("max_events", store.Cap()),
+		)
+	}
+	return store, nil
 }
 
 // ErrSQLDBRequired is returned by [AuditorBuilder.Build] when the configured

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	natsconfig "github.com/altessa-s/go-atlas/config/nats"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
@@ -32,6 +33,11 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 		name     string
 		validate func() error
 	}{
+		{"AuditStorageMemory.MaxEvents", func() error {
+			c := auditconfig.DefaultStorageMemory()
+			c.MaxEvents = 0
+			return c.Validate()
+		}},
 		{"Saga.MaxStepAttempts", func() error {
 			c := validSaga()
 			c.MaxStepAttempts = 0
@@ -132,15 +138,16 @@ func TestValidate_ZeroRejectedByMinGuardedFields_BaselinesAreValid(t *testing.T)
 	t.Parallel()
 
 	baselines := map[string]func() error{
-		"Saga":              func() error { c := validSaga(); return c.Validate() },
-		"Nats":              func() error { c := natsconfig.Default(); return c.Validate() },
-		"WAL":               func() error { c := validWAL(t); return c.Validate() },
-		"Health":            func() error { c := observabilityconfig.DefaultHealth(); return c.Validate() },
-		"NatsConsumer":      func() error { c := validNatsConsumer(); return c.Validate() },
-		"StorageNATSConfig": func() error { c := storageconfig.NATSConfig{Bucket: "bucket", Replicas: 3}; return c.Validate() },
-		"NatsRecovery":      func() error { c := natsconfig.DefaultRecovery(); return c.Validate() },
-		"BloomDefaults":     func() error { c := probfilterconfig.NewBloomDefaults(); return c.Validate() },
-		"CuckooDefaults":    func() error { c := probfilterconfig.NewCuckooDefaults(); return c.Validate() },
+		"AuditStorageMemory": func() error { c := auditconfig.DefaultStorageMemory(); return c.Validate() },
+		"Saga":               func() error { c := validSaga(); return c.Validate() },
+		"Nats":               func() error { c := natsconfig.Default(); return c.Validate() },
+		"WAL":                func() error { c := validWAL(t); return c.Validate() },
+		"Health":             func() error { c := observabilityconfig.DefaultHealth(); return c.Validate() },
+		"NatsConsumer":       func() error { c := validNatsConsumer(); return c.Validate() },
+		"StorageNATSConfig":  func() error { c := storageconfig.NATSConfig{Bucket: "bucket", Replicas: 3}; return c.Validate() },
+		"NatsRecovery":       func() error { c := natsconfig.DefaultRecovery(); return c.Validate() },
+		"BloomDefaults":      func() error { c := probfilterconfig.NewBloomDefaults(); return c.Validate() },
+		"CuckooDefaults":     func() error { c := probfilterconfig.NewCuckooDefaults(); return c.Validate() },
 	}
 
 	for name, validate := range baselines {

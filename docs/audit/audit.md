@@ -262,7 +262,7 @@ error).
 
 | Backend    | Package                     | Use case                                   |
 |------------|-----------------------------|--------------------------------------------|
-| Memory     | `audit/storages/memory`     | Dev and tests                              |
+| Memory     | `audit/storages/memory`     | Bounded ring buffer for dev/tests (default fallback; warns on startup) |
 | MongoDB    | `audit/storages/mongo`      | Production                                 |
 | ClickHouse | `audit/storages/clickhouse` | High-volume production, analytical queries |
 | SQL        | `audit/storages/sqldb`      | Production on PostgreSQL, MySQL or MariaDB |

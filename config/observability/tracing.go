@@ -114,8 +114,30 @@ type Tracing struct {
 	// Batch controls asynchronous span export. Omitted settings use tracer defaults.
 	Batch TracingBatch `yaml:"batch"`
 
+	// SpanLimits bounds per-span attributes, events, and links. Omitted settings use tracer defaults (128).
+	SpanLimits TracingSpanLimits `yaml:"spanLimits"`
+
 	// Adapters contains adapter-specific configurations.
 	Adapters *TracingAdapters `yaml:"adapters" default:"-"`
+}
+
+// TracingSpanLimits bounds attributes, events, and links retained per span.
+type TracingSpanLimits struct {
+	// MaxAttributes limits distinct attributes retained per span. Defaults to 128; 0 means unlimited.
+	MaxAttributes *int `yaml:"maxAttributes"`
+	// MaxEvents limits events retained per span. Defaults to 128; 0 means unlimited.
+	MaxEvents *int `yaml:"maxEvents"`
+	// MaxLinks limits links retained per span. Defaults to 128; 0 means unlimited.
+	MaxLinks *int `yaml:"maxLinks"`
+}
+
+// Validate checks non-negative span limit bounds.
+func (l *TracingSpanLimits) Validate() error {
+	return validationconfig.ValidateStruct(l,
+		validation.Field(&l.MaxAttributes, validation.Min(0)),
+		validation.Field(&l.MaxEvents, validation.Min(0)),
+		validation.Field(&l.MaxLinks, validation.Min(0)),
+	)
 }
 
 // TracingBatch configures the bounded span queue and batch worker.
@@ -195,6 +217,7 @@ func (t *Tracing) Validate() error {
 		),
 		validation.Field(&t.Sampler),
 		validationconfig.NestedField(&t.Batch),
+		validationconfig.NestedField(&t.SpanLimits),
 		validation.Field(&t.Adapters,
 			validation.Required.When(t.Type == TracingTypeOTLP || t.Type == TracingTypeConsole),
 		),

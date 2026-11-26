@@ -8,12 +8,16 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
@@ -55,9 +59,45 @@ func TestConfig_Validate(t *testing.T) {
 	}{
 		{"valid", func(*auditconfig.Config) {}, false},
 		{"unknown storage type", func(c *auditconfig.Config) { c.Storage.Type = "sqlite" }, true},
-		{"empty storage type", func(c *auditconfig.Config) { c.Storage.Type = "" }, true},
+		{"omitted storage uses default memory", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{}
+		}, false},
+		{"omitted storage type with memory block", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{Memory: &auditconfig.StorageMemory{MaxEvents: 500}}
+		}, false},
+		{"omitted storage type with zero maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{Memory: &auditconfig.StorageMemory{MaxEvents: 0}}
+		}, true},
 		{"memory needs no block", func(c *auditconfig.Config) {
 			c.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeMemory}
+		}, false},
+		{"memory with valid maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: 1000},
+			}
+		}, false},
+		{"memory with zero maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: 0},
+			}
+		}, true},
+		{"memory with negative maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: -1},
+			}
+		}, true},
+		{"mongo ignores non-positive memory block", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMongo,
+				Mongo:  &auditconfig.StorageMongo{},
+				Memory: &auditconfig.StorageMemory{MaxEvents: 0},
+			}
+		}, false},
+		{"clickhouse ignores non-positive memory block", func(c *auditconfig.Config) {
+			c.Storage.Memory = &auditconfig.StorageMemory{MaxEvents: -1}
 		}, false},
 		{"mongo requires its block", func(c *auditconfig.Config) {
 			c.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeMongo}
@@ -168,4 +208,79 @@ func TestStorageMongo_ValidateTTL(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestConfig_DefaultStorageFromLoader(t *testing.T) {
+	t.Parallel()
+
+	loadAuditYAML := func(t *testing.T, content string) auditconfig.Config {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		var root struct {
+			Audit auditconfig.Config `yaml:"audit"`
+		}
+		_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&root)
+		require.NoError(t, err)
+		return root.Audit
+	}
+
+	t.Run("implicit_memory_leaves_type_empty", func(t *testing.T) {
+		t.Parallel()
+		cfg := loadAuditYAML(t, "audit:\n  enabled: true\n")
+		require.Empty(t, cfg.Storage.Type, "loader must leave omitted storage.type empty so factory/audit can warn on default memory fallback")
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("explicit_memory_populates_defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := loadAuditYAML(t, "audit:\n  enabled: true\n  storage:\n    type: memory\n")
+		require.Equal(t, auditconfig.StorageTypeMemory, cfg.Storage.Type)
+		require.NotNil(t, cfg.Storage.Memory)
+		require.Equal(t, auditconfig.DefaultMemoryMaxEvents, cfg.Storage.Memory.MaxEvents)
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("explicit_mongo_populates_defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := loadAuditYAML(t, "audit:\n  enabled: true\n  storage:\n    type: mongo\n")
+		require.Equal(t, auditconfig.StorageTypeMongo, cfg.Storage.Type)
+		require.NotNil(t, cfg.Storage.Mongo)
+		require.Equal(t, "audit_events", cfg.Storage.Mongo.CollectionName)
+		require.Equal(t, 30*time.Second, cfg.Storage.Mongo.IndexTimeout)
+		require.Zero(t, cfg.Storage.Mongo.TTL)
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("explicit_clickhouse_populates_defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := loadAuditYAML(t, "audit:\n  enabled: true\n  storage:\n    type: clickhouse\n")
+		require.Equal(t, auditconfig.StorageTypeClickHouse, cfg.Storage.Type)
+		require.NotNil(t, cfg.Storage.ClickHouse)
+		require.Equal(t, "audit_events", cfg.Storage.ClickHouse.TableName)
+		require.Equal(t, "ReplacingMergeTree", cfg.Storage.ClickHouse.Engine)
+		require.Equal(t, 10_000, cfg.Storage.ClickHouse.MaxBatchSize)
+		require.Equal(t, 30*time.Second, cfg.Storage.ClickHouse.DDLTimeout)
+		require.Equal(t, "warn", cfg.Storage.ClickHouse.TimeRangeMode)
+		require.Equal(t, "warn", cfg.Storage.ClickHouse.SchemaCheckMode)
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("explicit_sqldb_populates_defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := loadAuditYAML(t, "audit:\n  enabled: true\n  storage:\n    type: sqldb\n")
+		require.Equal(t, auditconfig.StorageTypeSQL, cfg.Storage.Type)
+		require.NotNil(t, cfg.Storage.SQL)
+		require.Equal(t, auditconfig.SQLDialectPostgres, cfg.Storage.SQL.Dialect)
+		require.Equal(t, "audit_events", cfg.Storage.SQL.TableName)
+		require.Equal(t, 500, cfg.Storage.SQL.MaxBatchRows)
+		require.Equal(t, time.Minute, cfg.Storage.SQL.PurgeInterval)
+		require.Equal(t, 1000, cfg.Storage.SQL.PurgeBatchSize)
+		require.NoError(t, cfg.Validate())
+	})
+
+	memDefaults := auditconfig.DefaultStorageMemory()
+	require.Equal(t, auditconfig.DefaultMemoryMaxEvents, memDefaults.MaxEvents)
+	require.NoError(t, memDefaults.Validate())
 }
