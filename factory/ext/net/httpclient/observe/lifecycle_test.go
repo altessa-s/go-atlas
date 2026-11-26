@@ -88,7 +88,12 @@ func TestObserverCloseJoinsNotifier(t *testing.T) {
 			close(closed)
 		}()
 		synctest.Wait()
-		closedEarly := len(closed) > 0
+		var closedEarly bool
+		select {
+		case <-closed:
+			closedEarly = true
+		default:
+		}
 		close(b.first)
 		close(b.second)
 		<-closed

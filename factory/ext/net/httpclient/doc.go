@@ -7,9 +7,11 @@
 // # Usage
 //
 //	obs := observe.New(meter, coord, factory.HealthOptions(cfg.Health)...)
+//	defer obs.Close()
 //	c := httpclient.New(httpclient.WithObserver(obs))
 //
 // HealthOptions configures the health reporting of an observe.Observer and SSRFOptions validates and materializes
-// CIDR exemptions and the allow/deny egress policy.
+// CIDR exemptions and the allow/deny egress policy. Close the observer returned
+// by observe.New when the client is retired.
 // Proxy options are assembled in factory/ext/net/proxydial.
 package factory
