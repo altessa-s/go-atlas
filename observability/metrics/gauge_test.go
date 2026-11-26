@@ -54,12 +54,13 @@ func (a *gatedMemoryAdapter) RecordGauge(name string, labels map[string]string, 
 
 // gatedPromAdapter gates the bound (Binder) gauge path.
 type gatedPromAdapter struct {
-	*prometheusadapter.Adapter
+	adapters.Adapter
+	prom *prometheusadapter.Adapter
 	gate *publishGate
 }
 
 func (a *gatedPromAdapter) BindGauge(name string, labels map[string]string) (adapters.BoundGauge, bool) {
-	h, ok := a.Adapter.BindGauge(name, labels)
+	h, ok := a.prom.BindGauge(name, labels)
 	if !ok {
 		return nil, false
 	}
@@ -118,10 +119,8 @@ func TestGauge_ConcurrentIncPublishesLatest_Bound(t *testing.T) {
 
 	gate := newPublishGate()
 	reg := prometheus.NewRegistry()
-	adapter := &gatedPromAdapter{
-		Adapter: prometheusadapter.New(prometheusadapter.WithRegisterer(reg), prometheusadapter.WithGatherer(reg)),
-		gate:    gate,
-	}
+	prom := prometheusadapter.New(prometheusadapter.WithRegistry(reg))
+	adapter := &gatedPromAdapter{Adapter: prom, prom: prom, gate: gate}
 	c := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("svc"))
 	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "inflight", Help: "test", LabelNames: []string{"m"}}).
 		WithLabels(metrics.Labels{"m": "GET"})
@@ -164,4 +163,40 @@ func TestGauge_EquivalentLabelHandlesShareValue_Prometheus(t *testing.T) {
 
 	got, _ := promValue(t, reg, "svc_conns", map[string]string{"a": "x"})
 	require.InDelta(t, 3.0, got, 0)
+}
+
+type setOnlyNativeGaugeAdapter struct {
+	*gatedPromAdapter
+	adapters.GaugeAdder
+}
+
+func TestGauge_SetOnlyBindingUsesAdapterAdd(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	gate := newPublishGate()
+	prom := prometheusadapter.New(prometheusadapter.WithRegistry(reg))
+	adapter := &setOnlyNativeGaugeAdapter{
+		gatedPromAdapter: &gatedPromAdapter{Adapter: prom, prom: prom, gate: gate},
+		GaugeAdder:       prom,
+	}
+	close(gate.release)
+	c1 := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("svc"))
+	c2 := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("svc"))
+
+	opts := metrics.MetricOpts{Name: "workers"}
+	metrics.MustGauge(c1, opts).Inc()
+	metrics.MustGauge(c2, opts).Inc()
+
+	labeled := metrics.MetricOpts{Name: "pool_workers", LabelNames: []string{"pool"}}
+	labels := metrics.Labels{"pool": "main"}
+	first := metrics.MustGauge(c1, labeled).WithLabels(labels)
+	second := metrics.MustGauge(c2, labeled).WithLabels(labels)
+	labels["pool"] = "wrong"
+	first.Inc()
+	second.Inc()
+
+	value, _ := promValue(t, reg, "svc_workers", nil)
+	labeledValue, _ := promValue(t, reg, "svc_pool_workers", metrics.Labels{"pool": "main"})
+	require.Equal(t, []float64{2, 2}, []float64{value, labeledValue})
 }

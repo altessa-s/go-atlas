@@ -31,7 +31,7 @@ type Adapter struct {
 	descsMu  sync.Mutex
 	descs    map[string]*adapters.Desc
 	counters sync.Map // string -> *prometheus.CounterVec
-	gauges   sync.Map // string -> *prometheus.GaugeVec
+	gauges   sync.Map // string -> *gaugeVec or *prometheus.GaugeVec
 	histos   sync.Map // string -> *prometheus.HistogramVec
 
 	droppedObservations atomic.Uint64
@@ -73,11 +73,8 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 	}
 
 	norm := desc.Clone()
-	switch norm.Type {
-	case adapters.TypeHistogram, adapters.TypeTimer:
-		if len(norm.Buckets) == 0 {
-			norm.Buckets = slices.Clone(metrics.DefaultDurationBuckets)
-		}
+	if len(norm.Buckets) == 0 && (norm.Type == adapters.TypeHistogram || norm.Type == adapters.TypeTimer) {
+		norm.Buckets = slices.Clone(metrics.DefaultDurationBuckets)
 	}
 
 	a.descsMu.Lock()
@@ -100,11 +97,7 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 		err = registerVec(a.registerer, &a.counters, norm.Name, vec)
 
 	case adapters.TypeGauge:
-		vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: norm.Name,
-			Help: norm.Help,
-		}, norm.LabelNames)
-		err = registerVec(a.registerer, &a.gauges, norm.Name, vec)
+		err = a.registerGauge(norm)
 
 	case adapters.TypeHistogram, adapters.TypeTimer:
 		err = a.registerHistogram(norm)
@@ -118,6 +111,26 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 	}
 
 	a.descs[norm.Name] = norm
+	return nil
+}
+
+func (a *Adapter) registerGauge(desc *adapters.Desc) error {
+	vec := newGaugeVec(desc)
+	var collector prometheus.Collector = vec
+	if err := a.registerer.Register(vec); err != nil {
+		already, ok := errors.AsType[prometheus.AlreadyRegisteredError](err)
+		if !ok {
+			return err
+		}
+		switch existing := already.ExistingCollector.(type) {
+		case *gaugeVec, *prometheus.GaugeVec:
+			collector = existing
+		default:
+			return fmt.Errorf("prometheus: metric %q already registered as %T: %w: %w",
+				desc.Name, existing, adapters.ErrDescriptorConflict, err)
+		}
+	}
+	a.gauges.Store(desc.Name, collector)
 	return nil
 }
 
@@ -193,38 +206,40 @@ func (a *Adapter) RecordCounter(name string, labels map[string]string, delta flo
 
 // RecordGauge implements adapters.Adapter.
 func (a *Adapter) RecordGauge(name string, labels map[string]string, value float64) {
-	raw, ok := a.gauges.Load(name)
-	if !ok {
-		return
+	if g, ok := a.gaugeChild(name, labels); ok {
+		g.Set(value)
 	}
-	vec, ok := raw.(*prometheus.GaugeVec)
-	if !ok {
-		return
-	}
-	g, err := vec.GetMetricWith(normalizeLabels(labels))
-	if err != nil {
-		a.droppedObservations.Add(1)
-		return
-	}
-	g.Set(value)
 }
 
 // AddGauge implements adapters.GaugeAdder.
 func (a *Adapter) AddGauge(name string, labels map[string]string, delta float64) {
+	if g, ok := a.gaugeChild(name, labels); ok {
+		g.Add(delta)
+	}
+}
+
+func (a *Adapter) gaugeChild(name string, labels map[string]string) (adapters.BoundGaugeAdder, bool) {
 	raw, ok := a.gauges.Load(name)
 	if !ok {
-		return
+		return nil, false
 	}
-	vec, ok := raw.(*prometheus.GaugeVec)
-	if !ok {
-		return
+	switch vec := raw.(type) {
+	case *gaugeVec:
+		m, err := vec.GetMetricWith(normalizeLabels(labels))
+		if err == nil {
+			g, ok := m.(*gauge)
+			return g, ok
+		}
+	case *prometheus.GaugeVec:
+		g, err := vec.GetMetricWith(normalizeLabels(labels))
+		if err == nil {
+			return g, true
+		}
+	default:
+		return nil, false
 	}
-	g, err := vec.GetMetricWith(normalizeLabels(labels))
-	if err != nil {
-		a.droppedObservations.Add(1)
-		return
-	}
-	g.Add(delta)
+	a.droppedObservations.Add(1)
+	return nil, false
 }
 
 // RecordHistogram implements adapters.Adapter.
@@ -266,19 +281,7 @@ func (a *Adapter) BindCounter(name string, labels map[string]string) (adapters.B
 
 // BindGauge implements adapters.Binder.
 func (a *Adapter) BindGauge(name string, labels map[string]string) (adapters.BoundGauge, bool) {
-	raw, ok := a.gauges.Load(name)
-	if !ok {
-		return nil, false
-	}
-	vec, ok := raw.(*prometheus.GaugeVec)
-	if !ok {
-		return nil, false
-	}
-	g, err := vec.GetMetricWith(normalizeLabels(labels))
-	if err != nil {
-		return nil, false
-	}
-	return g, true
+	return a.gaugeChild(name, labels)
 }
 
 // BindHistogram implements adapters.Binder.

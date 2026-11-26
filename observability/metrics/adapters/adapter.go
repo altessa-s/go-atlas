@@ -7,6 +7,7 @@ package adapters
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -189,11 +190,17 @@ type Binder interface {
 	// BindCounter resolves a counter child for the given label set.
 	BindCounter(name string, labels map[string]string) (BoundCounter, bool)
 
-	// BindGauge resolves a gauge child for the given label set.
-	BindGauge(name string, labels map[string]string) (BoundGauge, bool)
+	GaugeBinder
 
 	// BindHistogram resolves a histogram child for the given label set.
 	BindHistogram(name string, labels map[string]string) (BoundHistogram, bool)
+}
+
+// GaugeBinder is the optional [Binder] capability for resolving gauge
+// children. Adapters can support gauge binding independently.
+type GaugeBinder interface {
+	// BindGauge resolves a gauge child for the given label set.
+	BindGauge(name string, labels map[string]string) (BoundGauge, bool)
 }
 
 type shadowGaugeSeries struct {
@@ -205,8 +212,7 @@ type shadowGaugeSeries struct {
 // Not safe for concurrent modification after construction; concurrent
 // method calls are safe.
 type MultiAdapter struct {
-	adapters        []Adapter
-	hasShadowGauges bool
+	adapters []Adapter
 
 	descsMu sync.Mutex
 	descs   map[string]*Desc
@@ -216,21 +222,7 @@ type MultiAdapter struct {
 
 // NewMultiAdapter creates an adapter that broadcasts to multiple adapters.
 func NewMultiAdapter(children ...Adapter) *MultiAdapter {
-	cloned := slices.Clone(children)
-	var hasShadow bool
-	for _, a := range cloned {
-		if a == nil {
-			continue
-		}
-		if _, ok := a.(GaugeAdder); !ok {
-			hasShadow = true
-			break
-		}
-	}
-	return &MultiAdapter{
-		adapters:        cloned,
-		hasShadowGauges: hasShadow,
-	}
+	return &MultiAdapter{adapters: slices.Clone(children)}
 }
 
 // Name implements Adapter.
@@ -288,64 +280,63 @@ func (m *MultiAdapter) RecordCounter(name string, labels map[string]string, delt
 }
 
 // RecordGauge implements Adapter.
-// Broadcasts gauge value to all adapters and updates shadow state for children
-// that do not implement [GaugeAdder].
 func (m *MultiAdapter) RecordGauge(name string, labels map[string]string, value float64) {
-	if !m.hasShadowGauges {
-		for _, a := range m.adapters {
-			if a != nil {
-				a.RecordGauge(name, labels, value)
-			}
-		}
-		return
-	}
+	m.setGauge(m.seriesFor(name, labels), name, labels, value)
+}
 
-	for _, a := range m.adapters {
-		if _, ok := a.(GaugeAdder); ok {
-			a.RecordGauge(name, labels, value)
-		}
-	}
-
-	s := m.seriesFor(name, labels)
+func (m *MultiAdapter) setGauge(s *shadowGaugeSeries, name string, labels map[string]string, value float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.value = value
 	for _, a := range m.adapters {
-		if a == nil {
-			continue
-		}
-		if _, ok := a.(GaugeAdder); !ok {
+		if a != nil {
 			a.RecordGauge(name, labels, value)
 		}
 	}
 }
 
 // AddGauge implements [GaugeAdder].
-// Delegates additive gauge updates directly to children implementing [GaugeAdder]
-// and publishes the shadow absolute value to children without it.
 func (m *MultiAdapter) AddGauge(name string, labels map[string]string, delta float64) {
-	for _, a := range m.adapters {
-		if ga, ok := a.(GaugeAdder); ok {
-			ga.AddGauge(name, labels, delta)
-		}
-	}
-	if !m.hasShadowGauges {
-		return
-	}
+	m.addGauge(m.seriesFor(name, labels), name, labels, delta)
+}
 
-	s := m.seriesFor(name, labels)
+func (m *MultiAdapter) addGauge(s *shadowGaugeSeries, name string, labels map[string]string, delta float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.value += delta
-	val := s.value
 	for _, a := range m.adapters {
 		if a == nil {
 			continue
 		}
-		if _, ok := a.(GaugeAdder); !ok {
-			a.RecordGauge(name, labels, val)
+		if adder, ok := a.(GaugeAdder); ok {
+			adder.AddGauge(name, labels, delta)
+		} else {
+			a.RecordGauge(name, labels, s.value)
 		}
 	}
+}
+
+// BindGauge implements [GaugeBinder]. It resolves the series once so updates
+// through the handle skip key construction and lookup.
+func (m *MultiAdapter) BindGauge(name string, labels map[string]string) (BoundGauge, bool) {
+	return &multiGauge{adapter: m, series: m.seriesFor(name, labels), name: name, labels: maps.Clone(labels)}, true
+}
+
+type multiGauge struct {
+	adapter *MultiAdapter
+	series  *shadowGaugeSeries
+	name    string
+	labels  map[string]string
+}
+
+func (g *multiGauge) Set(value float64) {
+	g.adapter.setGauge(g.series, g.name, g.labels, value)
+}
+
+func (g *multiGauge) Add(delta float64) {
+	g.adapter.addGauge(g.series, g.name, g.labels, delta)
 }
 
 // RecordHistogram implements Adapter.
@@ -424,8 +415,9 @@ func multiSeriesKey(name string, labels map[string]string) string {
 
 // Ensure MultiAdapter implements required interfaces.
 var (
-	_ Adapter    = (*MultiAdapter)(nil)
-	_ GaugeAdder = (*MultiAdapter)(nil)
-	_ Flusher    = (*MultiAdapter)(nil)
-	_ Closer     = (*MultiAdapter)(nil)
+	_ Adapter     = (*MultiAdapter)(nil)
+	_ GaugeAdder  = (*MultiAdapter)(nil)
+	_ GaugeBinder = (*MultiAdapter)(nil)
+	_ Flusher     = (*MultiAdapter)(nil)
+	_ Closer      = (*MultiAdapter)(nil)
 )

@@ -36,7 +36,7 @@ type gauge struct {
 // bindUnlabeled resolves the unlabeled child once. The collector calls it
 // after registration and before publishing the handle.
 func (g *gauge) bindUnlabeled() {
-	if b, ok := g.adapter.(adapters.Binder); ok {
+	if b, ok := g.adapter.(adapters.GaugeBinder); ok {
 		if h, ok := b.BindGauge(g.name, nil); ok {
 			g.bound = h
 			if ba, ok := h.(adapters.BoundGaugeAdder); ok {
@@ -72,12 +72,12 @@ func (g *gauge) Set(value float64) {
 	if g.shutdown.Load() {
 		return
 	}
-	if g.boundAdder != nil {
-		g.bound.Set(value)
-		return
-	}
-	if g.bound == nil && g.gaugeAdder != nil {
-		g.adapter.RecordGauge(g.name, nil, value)
+	if g.boundAdder != nil || g.gaugeAdder != nil {
+		if g.bound != nil {
+			g.bound.Set(value)
+		} else {
+			g.adapter.RecordGauge(g.name, nil, value)
+		}
 		return
 	}
 	g.unlabeled.mu.Lock()
@@ -102,7 +102,7 @@ func (g *gauge) Add(delta float64) {
 		g.boundAdder.Add(delta)
 		return
 	}
-	if g.bound == nil && g.gaugeAdder != nil {
+	if g.gaugeAdder != nil {
 		g.gaugeAdder.AddGauge(g.name, nil, delta)
 		return
 	}
@@ -169,7 +169,7 @@ func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
 		bound      adapters.BoundGauge
 		boundAdder adapters.BoundGaugeAdder
 	)
-	if b, ok := parent.adapter.(adapters.Binder); ok {
+	if b, ok := parent.adapter.(adapters.GaugeBinder); ok {
 		if h, ok := b.BindGauge(parent.name, labels); ok {
 			bound = h
 			if ba, ok := h.(adapters.BoundGaugeAdder); ok {
@@ -177,7 +177,7 @@ func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
 			}
 		}
 	}
-	needShadow := boundAdder == nil && (bound != nil || parent.gaugeAdder == nil)
+	needShadow := boundAdder == nil && parent.gaugeAdder == nil
 	var series *gaugeSeries
 	if needShadow {
 		series = parent.seriesFor(labels)
@@ -185,7 +185,7 @@ func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
 	return &labeledGauge{
 		parent:     parent,
 		shutdown:   parent.shutdown,
-		labels:     retainLabels(labels, bound == nil),
+		labels:     retainLabels(labels, bound == nil || (boundAdder == nil && parent.gaugeAdder != nil)),
 		series:     series,
 		bound:      bound,
 		boundAdder: boundAdder,
@@ -206,12 +206,8 @@ func (l *labeledGauge) Set(value float64) {
 	if l.shutdown.Load() {
 		return
 	}
-	if l.boundAdder != nil {
-		l.bound.Set(value)
-		return
-	}
-	if l.bound == nil && l.parent.gaugeAdder != nil {
-		l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
+	if l.series == nil {
+		l.record(value)
 		return
 	}
 	l.series.mu.Lock()
@@ -236,7 +232,7 @@ func (l *labeledGauge) Add(delta float64) {
 		l.boundAdder.Add(delta)
 		return
 	}
-	if l.bound == nil && l.parent.gaugeAdder != nil {
+	if l.parent.gaugeAdder != nil {
 		l.parent.gaugeAdder.AddGauge(l.parent.name, l.labels, delta)
 		return
 	}
@@ -250,7 +246,7 @@ func (l *labeledGauge) Sub(delta float64) {
 	l.Add(-delta)
 }
 
-// record publishes value; callers hold l.series.mu.
+// record publishes value. Shadow gauge callers hold l.series.mu.
 func (l *labeledGauge) record(value float64) {
 	if l.bound != nil {
 		l.bound.Set(value)
