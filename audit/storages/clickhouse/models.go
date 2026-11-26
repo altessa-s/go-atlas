@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/internal/jsonx"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -298,7 +299,7 @@ func decodeFields(s string) (map[string]any, error) {
 	}
 
 	var m map[string]any
-	if err := audit.UnmarshalJSON([]byte(s), &m); err != nil {
+	if err := jsonx.Decode([]byte(s), &m); err != nil {
 		return nil, fmt.Errorf("decode audit column: %w", err)
 	}
 	if len(m) == 0 {

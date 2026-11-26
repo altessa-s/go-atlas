@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,6 +56,8 @@ type Auditor struct {
 	opts                   *options
 	metrics                *auditMetrics
 	dispatcher             Dispatcher
+	lifecycleMu            sync.Mutex
+	shutdownHookOnce       sync.Once
 	state                  atomic.Uint32
 	notStartedDropLogged   atomic.Bool
 	shutdownDropLogged     atomic.Bool
@@ -76,34 +79,53 @@ func New(dispatcher Dispatcher, opts ...Option) (*Auditor, error) {
 	}, nil
 }
 
-// Start marks the auditor as active and registers a shutdown hook so the
-// auditor stops accepting events on termination. The underlying [Dispatcher]
-// must already be started by the caller.
+// Start marks the auditor as active and registers a shutdown hook (once per
+// [Auditor]) so the auditor stops accepting events on termination. Calling
+// Start on an already active auditor returns [ErrAuditorAlreadyStarted].
+//
+// An auditor stopped via [Auditor.Shutdown] may be started again while the
+// externally owned [Dispatcher] remains running. A [dispatch.Engine] is
+// single-use once shut down, so when the engine itself was stopped (for example
+// via a shared [runtime.HookGroup] in [factory/audit]), build a new engine and
+// auditor instead.
 //
 // The hook goes into the process-wide registry by default, which runs once for
 // the whole program — pass [WithShutdownHooks] to register into a scope that
 // can be shut down on its own.
 func (a *Auditor) Start() error {
-	if !a.state.CompareAndSwap(auditorStateUnstarted, auditorStateStarted) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
+	if a.state.Load() == auditorStateStarted {
 		return ErrAuditorAlreadyStarted
 	}
+	a.shutdownDropLogged.Store(false)
+	a.state.Store(auditorStateStarted)
 
-	if a.opts.shutdownHooks != nil {
-		a.opts.shutdownHooks.OnShutdown(a.Shutdown)
-	} else {
-		runtime.OnShutdown(a.Shutdown)
-	}
+	a.shutdownHookOnce.Do(func() {
+		if a.opts.shutdownHooks != nil {
+			a.opts.shutdownHooks.OnShutdown(a.Shutdown)
+		} else {
+			runtime.OnShutdown(a.Shutdown)
+		}
+	})
 
 	a.opts.logger.Info("auditor started")
 
 	return nil
 }
 
-// Shutdown stops the auditor from accepting new events.
+// Shutdown stops the auditor from accepting new events without closing the
+// externally owned [Dispatcher]. Calling [Auditor.Start] again re-enables
+// admission over that dispatcher.
 func (a *Auditor) Shutdown(_ context.Context) error {
-	if !a.state.CompareAndSwap(auditorStateStarted, auditorStateShutdown) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
+	if a.state.Load() != auditorStateStarted {
 		return nil
 	}
+	a.state.Store(auditorStateShutdown)
 
 	a.opts.logger.Info("auditor stopped")
 	return nil

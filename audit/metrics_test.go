@@ -232,3 +232,50 @@ func TestAuditor_EmitLifecycleAndDropReasons(t *testing.T) {
 		require.NotContains(t, logs.String(), "buffer full")
 	})
 }
+
+func TestAuditor_RestartLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tc := metricstest.NewTestCollector()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	store := memory.New()
+	eng := newTestEngine(t, store)
+	require.NoError(t, eng.Start())
+	t.Cleanup(func() { _ = eng.Shutdown(context.WithoutCancel(t.Context())) })
+
+	var hooks coreruntime.HookGroup
+	a, err := audit.New(eng,
+		audit.WithMeter(tc),
+		audit.WithLogger(logger),
+		audit.WithShutdownHooks(&hooks),
+	)
+	require.NoError(t, err)
+
+	// First Start -> Emit -> Shutdown cycle.
+	require.NoError(t, a.Start())
+	require.True(t, a.Emit(&audit.Event{ID: "first-cycle", Type: audit.EventTypeBusinessEvent, Action: audit.ActionCreate}))
+
+	require.NoError(t, a.Shutdown(t.Context()))
+	require.False(t, a.Emit(&audit.Event{Type: audit.EventTypeSystem, Action: audit.ActionDelete}))
+	require.False(t, a.Emit(&audit.Event{Type: audit.EventTypeSystem, Action: audit.ActionDelete}))
+	require.InDelta(t, 2.0, metricstest.GetCounterValue(t, tc, "test_audit_events_dropped_total", "reason", audit.DropReasonShutdown), 0)
+	require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"), "first shutdown must log drop warning once")
+
+	// Restart over the still-running external dispatcher.
+	logs.Reset()
+	require.NoError(t, a.Start())
+	require.ErrorIs(t, a.Start(), audit.ErrAuditorAlreadyStarted)
+	require.True(t, a.Emit(&audit.Event{ID: "second-cycle", Type: audit.EventTypeBusinessEvent, Action: audit.ActionUpdate}))
+
+	// Second Shutdown must stop admission again and log once for the new shutdown epoch.
+	require.NoError(t, a.Shutdown(t.Context()))
+	require.False(t, a.Emit(&audit.Event{Type: audit.EventTypeSystem, Action: audit.ActionDelete}))
+	require.False(t, a.Emit(&audit.Event{Type: audit.EventTypeSystem, Action: audit.ActionDelete}))
+	require.InDelta(t, 4.0, metricstest.GetCounterValue(t, tc, "test_audit_events_dropped_total", "reason", audit.DropReasonShutdown), 0)
+	require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"), "second shutdown must log drop warning once")
+
+	require.NoError(t, eng.Shutdown(t.Context()))
+	require.Equal(t, 2, store.Len())
+}
