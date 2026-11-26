@@ -30,6 +30,7 @@ type fieldEncryption struct {
 	provider         kms.MasterKeyProvider
 	vaultDatabase    string
 	vaultCollection  string
+	mu               sync.RWMutex
 	encryptionClient clientEncryption
 	registry         *bson.Registry
 	dkids            sync.Map
@@ -74,15 +75,22 @@ func (m *fieldEncryption) open(ctx context.Context, client *mongo.Client) error 
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
 	m.encryptionClient = ce
+	m.mu.Unlock()
 	return nil
 }
 
 func (m *fieldEncryption) close(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.encryptionClient == nil {
 		return nil
 	}
-	return m.encryptionClient.Close(ctx)
+	client := m.encryptionClient
+	m.encryptionClient = nil
+	m.dkids.Clear()
+	return client.Close(ctx)
 }
 
 // EncryptionAlg represents the encryption algorithm used for field-level encryption.
@@ -154,11 +162,13 @@ func (m *Mongo) IsEncryptionConfigured() bool {
 //		return err
 //	}
 func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
+	m.encryption.mu.RLock()
+	defer m.encryption.mu.RUnlock()
 	return m.encryption.dataKey(ctx, altName, create)
 }
 
 func (m *fieldEncryption) dataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
-	if m.provider == nil {
+	if m.provider == nil || m.encryptionClient == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
@@ -197,11 +207,13 @@ func (m *fieldEncryption) dataKey(ctx context.Context, altName string, create bo
 //   - *DataKeyId: The created or existing data key identifier
 //   - error: Error if encryption is not enabled or key creation fails
 func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
+	m.encryption.mu.RLock()
+	defer m.encryption.mu.RUnlock()
 	return m.encryption.createDataKey(ctx, altName)
 }
 
 func (m *fieldEncryption) createDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
-	if m.provider == nil {
+	if m.provider == nil || m.encryptionClient == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
@@ -318,11 +330,13 @@ func (m *Mongo) InvalidateAllDataKeys() {
 //	// Store in document
 //	doc := bson.M{"user_id": userID, "credit_card": encryptedCC}
 func (m *Mongo) Encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
+	m.encryption.mu.RLock()
+	defer m.encryption.mu.RUnlock()
 	return m.encryption.encrypt(ctx, data, alg, altName)
 }
 
 func (m *fieldEncryption) encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
-	if m.provider == nil {
+	if m.provider == nil || m.encryptionClient == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
@@ -367,6 +381,8 @@ func (m *fieldEncryption) encodePlaintext(data any) (bson.RawValue, error) {
 }
 
 func (m *fieldEncryption) encryptDocumentField(ctx context.Context, raw bson.RawValue, algorithm, key string) (bson.Binary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.provider == nil || m.encryptionClient == nil {
 		return bson.Binary{}, ErrEncryptionNotEnabled
 	}
