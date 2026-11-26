@@ -7,6 +7,8 @@ package mongoit_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,7 +67,7 @@ func effectCount(t *testing.T, db *mongo.Database) int64 {
 // and v1's down is not called.
 func TestRollbackKeepsEarlierRuns(t *testing.T) {
 	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_rollback_earlier")
+	db := livebackend.MongoDatabase(t, "mg")
 	var ups, downs atomic.Int32
 	up1, down1 := counted("v1", &ups, &downs)
 
@@ -88,7 +90,7 @@ func TestRollbackKeepsEarlierRuns(t *testing.T) {
 // TestRollbackNilDownAppliedOnce: a migration without a down is applied exactly once across two runs.
 func TestRollbackNilDownAppliedOnce(t *testing.T) {
 	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_rollback_nildown")
+	db := livebackend.MongoDatabase(t, "mg")
 	var ups, downs atomic.Int32
 	up1, _ := counted("v1", &ups, &downs)
 
@@ -103,41 +105,51 @@ func TestRollbackNilDownAppliedOnce(t *testing.T) {
 	require.Equal(t, uint64(1), ledgerVersion(t, db))
 }
 
-// TestRollbackOnlyThisRunNewestFirst: v1 and v2 are applied in this run and v3 fails: v2 then v1 are reverted, v3's down is not called.
+// TestRollbackOnlyThisRunNewestFirst: v1 is applied by an earlier run; this run applies v2 and v3 and v4 fails: v3 then v2 are
+// reverted, v1 and the failed step's down are not called.
 func TestRollbackOnlyThisRunNewestFirst(t *testing.T) {
 	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_rollback_run")
+	db := livebackend.MongoDatabase(t, "mg")
+	var mu sync.Mutex
 	var order []string
 	var ups, downs atomic.Int32
+	record := func(name string, down migrations.MigrationFunc) migrations.MigrationFunc {
+		return func(ctx context.Context, d *mongo.Database) error {
+			mu.Lock()
+			order = append(order, name)
+			mu.Unlock()
+			return down(ctx, d)
+		}
+	}
 	up1, down1 := counted("v1", &ups, &downs)
 	up2, down2 := counted("v2", &ups, &downs)
-	var thirdDown atomic.Int32
+	up3, down3 := counted("v3", &ups, &downs)
+	var fourthDown atomic.Int32
+
+	var earlier migrations.Registry
+	require.NoError(t, earlier.Register(1, "one", up1, record("v1", down1)))
+	require.NoError(t, migrations.Run(t.Context(), db, migrations.WithRegistry(&earlier)))
 
 	var reg migrations.Registry
-	require.NoError(t, reg.Register(1, "one", up1, func(ctx context.Context, d *mongo.Database) error {
-		order = append(order, "v1")
-		return down1(ctx, d)
-	}))
-	require.NoError(t, reg.Register(2, "two", up2, func(ctx context.Context, d *mongo.Database) error {
-		order = append(order, "v2")
-		return down2(ctx, d)
-	}))
-	require.NoError(t, reg.Register(3, "three", failing, func(context.Context, *mongo.Database) error {
-		thirdDown.Add(1)
+	require.NoError(t, reg.Register(1, "one", up1, record("v1", down1)))
+	require.NoError(t, reg.Register(2, "two", up2, record("v2", down2)))
+	require.NoError(t, reg.Register(3, "three", up3, record("v3", down3)))
+	require.NoError(t, reg.Register(4, "four", failing, func(context.Context, *mongo.Database) error {
+		fourthDown.Add(1)
 		return nil
 	}))
 	err := migrations.Run(t.Context(), db, migrations.WithRegistry(&reg), migrations.WithRollbackOnFailure())
 	require.ErrorIs(t, err, errStepFailed)
-	require.Equal(t, []string{"v2", "v1"}, order)
-	require.Zero(t, thirdDown.Load(), "the failed step's own down is not invoked")
-	require.Zero(t, effectCount(t, db))
-	require.Zero(t, ledgerVersion(t, db))
+	require.Equal(t, []string{"v3", "v2"}, order)
+	require.Zero(t, fourthDown.Load(), "the failed step's own down is not invoked")
+	require.Equal(t, int64(1), effectCount(t, db), "only v1 of the earlier run remains")
+	require.Equal(t, uint64(1), ledgerVersion(t, db))
 }
 
 // TestRollbackStopsAtIrreversible: v1 has no down, v2 is applied, v3 fails: v2 is reverted, rollback stops at v1.
 func TestRollbackStopsAtIrreversible(t *testing.T) {
 	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_rollback_irrev")
+	db := livebackend.MongoDatabase(t, "mg")
 	var ups, downs atomic.Int32
 	up1, _ := counted("v1", &ups, &downs)
 	up2, down2 := counted("v2", &ups, &downs)
@@ -154,50 +166,143 @@ func TestRollbackStopsAtIrreversible(t *testing.T) {
 	require.Equal(t, int64(1), effectCount(t, db))
 }
 
-// TestLeaseRenewedWhileUpIgnoresContext: A's up outlives one lease period ignoring its context while B starts meanwhile; the lease
-// is renewed several times, so up is entered once.
-func TestLeaseRenewedWhileUpIgnoresContext(t *testing.T) {
-	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_lease_renew")
-	var entered atomic.Int32
-	var reg migrations.Registry
-	require.NoError(t, reg.Register(1, "slow", func(context.Context, *mongo.Database) error {
-		entered.Add(1)
-		time.Sleep(migrations.MigrationTimeout + 5*time.Second)
-		return nil
-	}, nil))
-
-	done := make(chan error, 1)
-	go func() { done <- migrations.Run(t.Context(), db, migrations.WithRegistry(&reg)) }()
-	time.Sleep(time.Second)
-	bDone := make(chan error, 1)
-	go func() { bDone <- migrations.Run(t.Context(), db, migrations.WithRegistry(&reg)) }()
-
-	require.NoError(t, <-done)
-	<-bDone // B either gave up waiting or found the version applied; it must not have run the step.
-	require.Equal(t, int32(1), entered.Load())
+// lockDocument removes the lease document, as a successor taking over after expiry would replace it.
+func removeLease(ctx context.Context, d *mongo.Database) error {
+	_, err := d.Collection("migrations_lock").DeleteOne(ctx, bson.M{"_id": migrations.LockID})
+	return err
 }
 
-// TestLeaseLostCancelsWorkAndSkipsRollback: the lock document disappears during up: the work context is canceled and no rollback runs.
-func TestLeaseLostCancelsWorkAndSkipsRollback(t *testing.T) {
+// TestLeaseLostBeforeRollbackSkipsRollback: the lease is gone when the failed step returns: no down runs and the ledger is untouched.
+func TestLeaseLostBeforeRollbackSkipsRollback(t *testing.T) {
 	t.Parallel()
-	db := livebackend.MongoDatabase(t, "mig_lease_lost")
+	db := livebackend.MongoDatabase(t, "mg")
 	var ups, downs atomic.Int32
 	up1, down1 := counted("v1", &ups, &downs)
 	var reg migrations.Registry
 	require.NoError(t, reg.Register(1, "one", up1, down1))
 	require.NoError(t, reg.Register(2, "two", func(ctx context.Context, d *mongo.Database) error {
-		_, err := d.Collection("migrations_lock").DeleteOne(ctx, bson.M{"_id": migrations.LockID})
-		require.NoError(t, err)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(migrations.MigrationTimeout):
-			return errors.New("work context was not canceled")
-		}
+		require.NoError(t, removeLease(ctx, d))
+		return errStepFailed
 	}, nil))
 	err := migrations.Run(t.Context(), db, migrations.WithRegistry(&reg), migrations.WithRollbackOnFailure())
+	require.ErrorIs(t, err, errStepFailed)
 	require.ErrorIs(t, err, migrations.ErrLeaseLost)
 	require.Zero(t, downs.Load(), "no rollback after ownership is lost")
+	require.Equal(t, uint64(1), ledgerVersion(t, db))
+}
+
+// TestLeaseLostDuringDownStopsRollback: the lease disappears while a down runs: its context is canceled, no later down runs and no
+// ledger record is written.
+func TestLeaseLostDuringDownStopsRollback(t *testing.T) {
+	t.Parallel()
+	db := livebackend.MongoDatabase(t, "mg")
+	var ups, downs atomic.Int32
+	up1, down1 := counted("v1", &ups, &downs)
+	up2, _ := counted("v2", &ups, &downs)
+	var reg migrations.Registry
+	require.NoError(t, reg.Register(1, "one", up1, down1))
+	require.NoError(t, reg.Register(2, "two", up2, func(ctx context.Context, d *mongo.Database) error {
+		downs.Add(1)
+		require.NoError(t, removeLease(ctx, d))
+		<-ctx.Done() // Canceled by the heartbeat once the renewal finds the lease gone.
+		return ctx.Err()
+	}))
+	require.NoError(t, reg.Register(3, "three", failing, nil))
+	err := migrations.Run(t.Context(), db, migrations.WithRegistry(&reg), migrations.WithRollbackOnFailure())
+	require.ErrorIs(t, err, errStepFailed)
+	require.ErrorIs(t, err, migrations.ErrLeaseLost)
+	require.Equal(t, int32(1), downs.Load(), "only the interrupted down of v2 ran")
+	require.Equal(t, uint64(2), ledgerVersion(t, db), "no ledger write after the loss")
+}
+
+// TestRollbackStopsOnLedgerDrift: the ledger holds a version this run did not record: nothing is reverted.
+func TestRollbackStopsOnLedgerDrift(t *testing.T) {
+	t.Parallel()
+	db := livebackend.MongoDatabase(t, "mg")
+	var ups, downs atomic.Int32
+	up1, down1 := counted("v1", &ups, &downs)
+	var reg migrations.Registry
+	require.NoError(t, reg.Register(1, "one", up1, down1))
+	require.NoError(t, reg.Register(2, "two", func(ctx context.Context, d *mongo.Database) error {
+		_, err := d.Collection(migrations.MigrationCollectionName).InsertOne(ctx, bson.M{"version": int64(99), "timestamp": time.Now()})
+		require.NoError(t, err)
+		return errStepFailed
+	}, nil))
+	err := migrations.Run(t.Context(), db, migrations.WithRegistry(&reg), migrations.WithRollbackOnFailure())
+	require.ErrorIs(t, err, errStepFailed)
+	require.Zero(t, downs.Load())
+	require.Equal(t, uint64(99), ledgerVersion(t, db))
+}
+
+// leaseDocument reads the lease expiry, the lease's observable heartbeat.
+func leaseExpiry(ctx context.Context, d *mongo.Database) (time.Time, error) {
+	var doc struct {
+		ExpiresAt time.Time `bson:"expiresAt"`
+	}
+	err := d.Collection("migrations_lock").FindOne(ctx, bson.M{"_id": migrations.LockID}).Decode(&doc)
+	return doc.ExpiresAt, err
+}
+
+// TestLeaseHeldPastTheBudget: A's step ignores its deadline-bound context past the work budget while B waits for the lease. The lease
+// is renewed throughout, so the step is entered once and never overlaps; the step's result is recorded although it finished after the
+// budget, and a later run applies nothing.
+func TestLeaseHeldPastTheBudget(t *testing.T) {
+	t.Parallel()
+	db := livebackend.MongoDatabase(t, "mg")
+	var entered, concurrent, maxConcurrent atomic.Int32
+	enteredCh := make(chan struct{}, 1)
+	var reg migrations.Registry
+	require.NoError(t, reg.Register(1, "slow", func(ctx context.Context, _ *mongo.Database) error {
+		entered.Add(1)
+		n := concurrent.Add(1)
+		maxConcurrent.Store(max(maxConcurrent.Load(), n))
+		enteredCh <- struct{}{}
+		<-ctx.Done() // The budget ends; the step carries on regardless of it.
+		concurrent.Add(-1)
+		return nil
+	}, nil))
+
+	aDone := make(chan error, 1)
+	go func() { aDone <- migrations.Run(t.Context(), db, migrations.WithRegistry(&reg)) }()
+	<-enteredCh
+	bErr := migrations.Run(t.Context(), db, migrations.WithRegistry(&reg))
+
+	require.NoError(t, <-aDone, "the over-budget step is recorded")
+	require.Equal(t, uint64(1), ledgerVersion(t, db))
+	if bErr == nil { // B won the lease after A released it and found the version recorded.
+		require.Equal(t, int32(1), entered.Load())
+	} else {
+		require.True(t, errors.Is(bErr, context.DeadlineExceeded) || errors.Is(bErr, context.Canceled), "unexpected: %v", bErr)
+	}
+	require.Equal(t, int32(1), entered.Load(), "the step is entered once")
+	require.Equal(t, int32(1), maxConcurrent.Load(), "no overlap")
+	require.NoError(t, migrations.Run(t.Context(), db, migrations.WithRegistry(&reg)))
+	require.Equal(t, int32(1), entered.Load(), "a later run is a no-op")
+}
+
+// TestLeaseRenewedSeveralTimes: a step that runs through several renewals within its budget completes and is recorded.
+func TestLeaseRenewedSeveralTimes(t *testing.T) {
+	t.Parallel()
+	db := livebackend.MongoDatabase(t, "mg")
+	var reg migrations.Registry
+	require.NoError(t, reg.Register(1, "renewed", func(ctx context.Context, d *mongo.Database) error {
+		seen := map[time.Time]struct{}{}
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for len(seen) < 3 { // The initial confirmation and two heartbeats move the expiry.
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("lease was not renewed: %w", ctx.Err())
+			case <-ticker.C:
+			}
+			exp, err := leaseExpiry(ctx, d)
+			if err != nil {
+				return err
+			}
+			seen[exp] = struct{}{}
+		}
+		return nil
+	}, nil))
+	require.NoError(t, migrations.Run(t.Context(), db, migrations.WithRegistry(&reg)))
 	require.Equal(t, uint64(1), ledgerVersion(t, db))
 }

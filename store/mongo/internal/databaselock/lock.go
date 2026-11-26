@@ -7,7 +7,8 @@ package databaselock
 import (
 	"context"
 	"errors"
-	"sync/atomic"
+	"fmt"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -30,6 +31,8 @@ const (
 	opSet          = "$set"
 	// renewDivisor is the number of heartbeats per lease.
 	renewDivisor = 3
+	// marginDivisor sizes the safety margin that is subtracted from the confirmed validity of the lease.
+	marginDivisor = 6
 )
 
 // serverNow uses the database clock for lease comparisons and timestamps.
@@ -137,10 +140,11 @@ func Release(ctx context.Context, collection *mongo.Collection, id string, owner
 	return err
 }
 
-// Renew extends the lease of the mutex document id by lease from the server clock, while owner still holds the document. A document
-// owned by someone else, or missing, is [ErrLeaseLost].
+// Renew extends the lease of the mutex document id by lease from the server clock, while owner still holds it and the lease has not
+// lapsed. A document owned by someone else, missing, or already expired is [ErrLeaseLost].
 func Renew(ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease time.Duration) error {
-	result, err := collection.UpdateOne(ctx, bson.M{lockFieldID: id, lockFieldOwner: owner}, mongo.Pipeline{
+	filter := bson.M{lockFieldID: id, lockFieldOwner: owner, "$expr": bson.M{"$gt": bson.A{"$expiresAt", serverNow}}}
+	result, err := collection.UpdateOne(ctx, filter, mongo.Pipeline{
 		bson.D{{Key: opSet, Value: bson.M{lockFieldExp: bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}}}}},
 	})
 	switch {
@@ -153,64 +157,175 @@ func Renew(ctx context.Context, collection *mongo.Collection, id string, owner b
 	}
 }
 
+// Lease is the view fn gets of a lease kept alive by [Hold].
+type Lease struct {
+	work, scope context.Context
+	h           *holder
+}
+
+// Work is the context of the work: it carries the budget and is canceled when the budget ends, when the caller's context is
+// canceled, or when the lease is lost.
+func (l *Lease) Work() context.Context { return l.work }
+
+// Scope is a context detached from the budget and from the caller's cancellation, canceled only when the lease is lost (or Hold
+// returns). Work that must outlive the budget but never the lease, such as recording a result or a rollback, derives from it.
+func (l *Lease) Scope() context.Context { return l.scope }
+
+// Held reports whether the lease is still owned with a safety margin: the last successful renewal was sent less than a lease minus
+// the margin ago, and no renewal found the lease taken.
+func (l *Lease) Held() bool { return l.h.held() }
+
+// Verify asks the server whether this process still owns the lease, extending it when it does. It returns [ErrLeaseLost] otherwise,
+// or when the margin already lapsed.
+func (l *Lease) Verify(ctx context.Context) error {
+	remaining := l.h.remaining()
+	if remaining <= 0 || !l.h.held() {
+		l.h.lose()
+		return ErrLeaseLost
+	}
+	return l.h.attempt(ctx, remaining)
+}
+
+// holder tracks the confirmed validity of a lease on the local monotonic clock.
+type holder struct {
+	renew  func(context.Context) error
+	lease  time.Duration
+	margin time.Duration
+	onLose func()
+
+	mu         sync.Mutex
+	validUntil time.Time
+	lost       bool
+}
+
+func (h *holder) held() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return !h.lost && time.Now().Before(h.validUntil)
+}
+
+func (h *holder) remaining() time.Duration {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Until(h.validUntil)
+}
+
+func (h *holder) lose() {
+	h.mu.Lock()
+	already := h.lost
+	h.lost = true
+	h.mu.Unlock()
+	if !already {
+		h.onLose()
+	}
+}
+
+// attempt sends one renewal bounded by bound. Validity is counted from the moment the request was sent, never from the response: the
+// server stamps the expiry no later than the response arrives.
+func (h *holder) attempt(ctx context.Context, bound time.Duration) error {
+	sent := time.Now()
+	renewCtx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	err := h.renew(renewCtx)
+	switch {
+	case err == nil:
+		h.mu.Lock()
+		if until := sent.Add(h.lease - h.margin); !h.lost && until.After(h.validUntil) {
+			h.validUntil = until
+		}
+		h.mu.Unlock()
+	case errors.Is(err, ErrLeaseLost):
+		h.lose()
+	}
+	return err
+}
+
+func (h *holder) heartbeat(ctx context.Context) {
+	interval := h.lease / renewDivisor
+	next := time.Now().Add(interval)
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		wake := next
+		if until := time.Now().Add(h.remaining()); until.Before(wake) {
+			wake = until
+		}
+		timer.Reset(time.Until(wake))
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		now := time.Now()
+		remaining := h.remaining()
+		if remaining <= 0 {
+			h.lose()
+			return
+		}
+		if now.Before(next) {
+			continue
+		}
+		next = now.Add(interval)
+		_ = h.attempt(ctx, remaining) //nolint:errcheck // the outcome is recorded in the holder
+		h.mu.Lock()
+		lost := h.lost
+		h.mu.Unlock()
+		if lost {
+			return
+		}
+	}
+}
+
 // Hold runs fn while keeping the lease of the mutex document id, taken by [Acquire] for owner, alive. The lease is a renewable
-// resource separate from the work budget: a heartbeat renews it every lease/3 until fn returns, independently of the work context.
-// The work context passed to fn carries the budget and is canceled when the budget ends, when ctx is canceled, or when a renewal
-// fails for good (ownership lost, or no renewal succeeded for a whole lease). After the work context is canceled the heartbeat
-// keeps renewing while fn still runs, so a step that ignores its context never overlaps a successor as long as renewals succeed.
-// held reports whether the lease is still believed to be owned; it turns false once ownership is lost. When the lease was lost
-// during fn, the result wraps [ErrLeaseLost].
+// resource separate from the work budget: ownership is confirmed once up front, then a heartbeat renews it every lease/3 until fn
+// returns, independently of the work context. Validity is counted from the send time of the last successful renewal minus a safety
+// margin (lease/6); when it lapses, or a renewal finds the lease taken, the lease is lost and the work and scope contexts of l are
+// canceled at that moment. Each renewal is bounded by the remaining validity and canceled when fn returns. A step that ignores its
+// context therefore never overlaps a successor as long as renewals succeed. When fn fails and the lease was lost meanwhile, the
+// result wraps [ErrLeaseLost]; when fn succeeded its result stands.
 func Hold(
 	ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease, budget time.Duration,
-	fn func(work context.Context, held func() bool) error,
+	fn func(l *Lease) error,
 ) error {
 	renew := func(ctx context.Context) error { return Renew(ctx, collection, id, owner, lease) }
 	return hold(ctx, renew, lease, budget, fn)
 }
 
-func hold(
-	ctx context.Context, renew func(context.Context) error, lease, budget time.Duration,
-	fn func(work context.Context, held func() bool) error,
-) error {
-	interval := lease / renewDivisor
-	workCtx, cancelWork := context.WithTimeout(ctx, budget)
+func hold(ctx context.Context, renew func(context.Context) error, lease, budget time.Duration, fn func(l *Lease) error) error {
+	if lease/renewDivisor <= 0 || budget <= 0 {
+		return fmt.Errorf("databaselock: lease %v and budget %v must be positive and at least %d ns", lease, budget, renewDivisor)
+	}
+	detached := context.WithoutCancel(ctx)
+	scope, cancelScope := context.WithCancel(detached)
+	defer cancelScope()
+	work, cancelWork := context.WithTimeout(ctx, budget)
 	defer cancelWork()
+	h := &holder{renew: renew, lease: lease, margin: lease / marginDivisor, onLose: func() { cancelScope(); cancelWork() }}
 
-	var lost atomic.Bool
-	held := func() bool { return !lost.Load() }
-	stop := make(chan struct{})
+	// Confirm ownership before any work: the validity clock starts at this send.
+	if err := h.attempt(scope, lease); err != nil {
+		return err
+	}
+
+	heartbeatCtx, stopHeartbeat := context.WithCancel(detached)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Renewals run detached from the work context: they must outlive its cancellation.
-		renewBase := context.WithoutCancel(ctx)
-		lastOK := time.Now()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-			}
-			renewCtx, cancel := context.WithTimeout(renewBase, interval)
-			err := renew(renewCtx)
-			cancel()
-			switch {
-			case err == nil:
-				lastOK = time.Now()
-			case errors.Is(err, ErrLeaseLost) || time.Since(lastOK) >= lease:
-				lost.Store(true)
-				cancelWork()
-				return
-			}
-		}
+		h.heartbeat(heartbeatCtx)
+	}()
+	defer func() {
+		stopHeartbeat()
+		<-done
 	}()
 
-	err := fn(workCtx, held)
-	close(stop)
-	<-done
-	if lost.Load() {
+	err := fn(&Lease{work: work, scope: scope, h: h})
+	if err == nil {
+		return nil
+	}
+	h.mu.Lock()
+	lost := h.lost
+	h.mu.Unlock()
+	if lost {
 		return errors.Join(err, ErrLeaseLost)
 	}
 	return err

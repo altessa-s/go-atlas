@@ -105,11 +105,9 @@ func TestConnectUsesMigrationRegistry(t *testing.T) {
 	opts := mongoOptions.Client()
 	opts.Deployment = drivertest.NewMockDeployment(
 		ok, bson.D{{Key: "ok", Value: 1}, {Key: "version", Value: "8.0"}, {Key: "versionArray", Value: bson.A{int32(8), int32(0), int32(0), int32(0)}}},
-		ok, ok, // Seed and acquire the migration lease.
+		ok, ok, ok, // Seed, acquire and verify the migration lease.
 		cursor("test.$cmd.listCollections", bson.A{bson.M{"name": "migrations"}}),
-		cursor("test.migrations", bson.A{}), // The version the run starts from.
-		cursor("test.$cmd.listCollections", bson.A{bson.M{"name": "migrations"}}),
-		cursor("test.migrations", bson.A{}), ok, // The version Up reads, then release the lease.
+		cursor("test.migrations", bson.A{}), ok, // No applied version, then release the lease.
 	)
 	m, err := New("test", WithClientOptions(opts), WithMigrationRegistry(&r))
 	require.NoError(t, err)

@@ -128,9 +128,10 @@ func recreateMismatched(ctx context.Context, coll *mongo.Collection, models []mo
 
 	// The lease is renewed until the work returns; the work context keeps the IndexLockLease budget and is canceled only when a
 	// renewal fails.
-	return databaselock.Hold(ctx, locks, id, owner, IndexLockLease, IndexLockLease, func(workCtx context.Context, _ func() bool) error {
+	//nolint:contextcheck // the lease carries the work and scope contexts
+	return databaselock.Hold(ctx, locks, id, owner, IndexLockLease, IndexLockLease, func(l *databaselock.Lease) error {
 		for i, model := range models {
-			if err := reconcileIndex(workCtx, coll, model, names[i]); err != nil {
+			if err := reconcileIndex(l.Work(), coll, model, names[i]); err != nil {
 				return err
 			}
 		}
