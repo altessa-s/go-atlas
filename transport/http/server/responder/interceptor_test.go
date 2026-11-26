@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/transport/respwriter"
 )
 
 func TestErrorInterceptor_PassThrough(t *testing.T) {
@@ -107,4 +109,60 @@ func TestErrorInterceptor_Hijack_NotSupported(t *testing.T) {
 
 	_, _, err := ei.Hijack()
 	require.Error(t, err)
+}
+
+func TestErrorInterceptor_LargeErrorBodyIsBounded(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	ei := NewErrorInterceptor(rec, req, &mockErrorWriter{})
+
+	ei.WriteHeader(http.StatusBadGateway)
+	chunk := make([]byte, 32<<10)
+	for range 320 { // 10 MiB
+		n, err := ei.Write(chunk)
+		require.NoError(t, err)
+		require.Equal(t, len(chunk), n, "the handler sees every byte accepted")
+	}
+	require.LessOrEqual(t, ei.buffer.Len(), maxCapturedBody)
+
+	ei.release()
+	require.LessOrEqual(t, ei.buffer.Cap(), maxCapturedBody, "an oversized buffer is not pooled")
+}
+
+func TestErrorInterceptor_MarkedResponsePassesThrough(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
+
+	respwriter.MarkStructured(ei)
+	ei.WriteHeader(http.StatusNotFound)
+	_, err := ei.Write([]byte(`{"error":{}}`))
+	require.NoError(t, err)
+	ei.Finish()
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.JSONEq(t, `{"error":{}}`, rec.Body.String())
+	require.False(t, w.called, "an already structured response is not rewritten")
+}
+
+func TestErrorInterceptor_FirstFinalStatusWins(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
+
+	ei.WriteHeader(http.StatusEarlyHints)
+	ei.WriteHeader(http.StatusNotFound)
+	ei.WriteHeader(http.StatusServiceUnavailable)
+	ei.Finish()
+
+	require.True(t, w.called)
+	require.Equal(t, http.StatusNotFound, w.status)
 }

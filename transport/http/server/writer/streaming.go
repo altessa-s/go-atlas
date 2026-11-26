@@ -5,10 +5,12 @@
 package writer
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/transport/respwriter"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -42,6 +44,7 @@ func (wr *Writer) WriteStream(w http.ResponseWriter, r *http.Request, data any) 
 	// Write headers first (cannot be changed after body starts)
 	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	respwriter.MarkStructured(w)
 	w.WriteHeader(statusCode)
 
 	// Stream directly to ResponseWriter
@@ -60,9 +63,9 @@ func (wr *Writer) WriteStreamWithFlush(w http.ResponseWriter, r *http.Request, d
 		return err
 	}
 
-	// Flush if the ResponseWriter supports it
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
+	// Flush through the wrapper chain; a writer that cannot flush is not an error.
+	if err := http.NewResponseController(w).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return coreerrs.WrapOperation(err, "flush response")
 	}
 
 	return nil

@@ -12,7 +12,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/altessa-s/go-atlas/internal/transport/respwriter"
 )
+
+// maxCapturedBody caps the error body kept as diagnostic text for the
+// rewritten response; the rest is discarded. A buffer that grew past it is
+// not returned to the pool.
+const maxCapturedBody = 64 << 10
 
 // ErrorInterceptor wraps [http.ResponseWriter] to intercept error responses
 // (status codes >= 400) and rewrite them using the configured [ErrorWriter].
@@ -21,8 +28,16 @@ import (
 // For non-error status codes, writes pass through directly to the underlying
 // writer. For error codes, both the status and body are buffered until
 // [ErrorInterceptor.Finish] is called, at which point the buffered message
-// is converted to a structured error response. [ErrorInterceptor.Flush]
-// implements [http.Flusher] for streaming responses and never ends the request.
+// is converted to a structured error response. A response the writer package
+// already structured (see [respwriter.MarkStructured]) passes through as is.
+// [ErrorInterceptor.Flush] implements [http.Flusher] for streaming responses
+// and never ends the request.
+//
+// The first final status wins: informational statuses other than 101 are
+// forwarded and do not count, a later status after the first final one is
+// ignored. Only the first 64 KiB of a buffered error body are kept, and the
+// handler's Content-Length, Content-Encoding and ETag are dropped when the
+// body is rewritten.
 //
 // ErrorInterceptor is NOT safe for concurrent use. It is designed for
 // single-request, single-goroutine usage within middleware chains.
@@ -35,8 +50,17 @@ type ErrorInterceptor struct {
 	statusCode  int
 	buffer      bytes.Buffer
 	intercepted bool
-	written     bool
+	// final reports whether the first final status was accepted, whether it
+	// was forwarded or buffered.
+	final bool
+	// written reports whether the response reached the underlying writer.
+	written bool
+	// structured is set by [ErrorInterceptor.MarkStructured] for a response
+	// the writer already formatted.
+	structured bool
 }
+
+var _ respwriter.StructuredMarker = (*ErrorInterceptor)(nil)
 
 var interceptorPool = sync.Pool{
 	New: func() any {
@@ -63,18 +87,31 @@ func NewErrorInterceptor(w http.ResponseWriter, r *http.Request, writer ErrorWri
 	e.statusCode = 0
 	e.buffer.Reset()
 	e.intercepted = false
+	e.final = false
 	e.written = false
+	e.structured = false
 	return e
 }
 
+// MarkStructured implements [respwriter.StructuredMarker]: the response about
+// to be written is already a structured error, so it is forwarded as is.
+func (e *ErrorInterceptor) MarkStructured() { e.structured = true }
+
 // WriteHeader intercepts error status codes (>= 400) and buffers them
-// instead of writing directly to the underlying ResponseWriter.
+// instead of writing directly to the underlying ResponseWriter. The first
+// final status wins.
 func (e *ErrorInterceptor) WriteHeader(code int) {
-	if e.written {
+	if e.final {
 		return
 	}
 
-	if code >= http.StatusBadRequest {
+	if !respwriter.IsFinal(code) {
+		e.ResponseWriter.WriteHeader(code)
+		return
+	}
+	e.final = true
+
+	if code >= http.StatusBadRequest && !e.structured {
 		e.statusCode = code
 		e.intercepted = true
 		return // Don't write yet, wait for body
@@ -88,13 +125,15 @@ func (e *ErrorInterceptor) WriteHeader(code int) {
 // For error responses, the body is buffered for later processing.
 func (e *ErrorInterceptor) Write(b []byte) (int, error) {
 	if e.intercepted {
-		return e.buffer.Write(b)
+		if remaining := maxCapturedBody - e.buffer.Len(); remaining > 0 {
+			e.buffer.Write(b[:min(len(b), remaining)])
+		}
+		return len(b), nil
 	}
 
 	// If WriteHeader wasn't called, this is a 200 OK
-	if !e.written {
-		e.written = true
-	}
+	e.final = true
+	e.written = true
 
 	// CodeQL: False positive - ErrorInterceptor is a transparent middleware proxy that
 	// conditionally buffers error responses for custom formatting. For non-error responses,
@@ -122,6 +161,12 @@ func (e *ErrorInterceptor) Finish() {
 
 	err := errors.New(message)
 
+	// The rewritten body has its own length, encoding and validators.
+	h := e.Header()
+	h.Del("Content-Length")
+	h.Del("Content-Encoding")
+	h.Del("ETag")
+
 	// Write structured error response
 	_ = e.writer.WriteError(e.ResponseWriter, e.request, err, e.statusCode) //nolint:errcheck // Best effort, response already committed
 }
@@ -131,7 +176,11 @@ func (e *ErrorInterceptor) release() {
 	e.ResponseWriter = nil
 	e.request = nil
 	e.writer = nil
-	e.buffer.Reset()
+	if e.buffer.Cap() > maxCapturedBody {
+		e.buffer = bytes.Buffer{}
+	} else {
+		e.buffer.Reset()
+	}
 	interceptorPool.Put(e)
 }
 
@@ -149,18 +198,23 @@ func (e *ErrorInterceptor) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, errors.New("underlying ResponseWriter does not support hijacking")
 }
 
-// Flush implements [http.Flusher] for streaming responses: it forwards to the
-// underlying writer and commits the response. While an error response is being
-// buffered it is a no-op, so [ErrorInterceptor.Finish] can still write it.
-// Flush does not end the request.
-func (e *ErrorInterceptor) Flush() {
+// Flush implements [http.Flusher]; see [ErrorInterceptor.FlushError].
+func (e *ErrorInterceptor) Flush() { _ = e.FlushError() } //nolint:errcheck // http.Flusher has no error result
+
+// FlushError forwards a flush to the underlying writer and commits the
+// response. While an error response is being buffered it is a no-op, so
+// [ErrorInterceptor.Finish] can still write it. Flush does not end the
+// request.
+func (e *ErrorInterceptor) FlushError() error {
 	if e.intercepted {
-		return
+		return nil
 	}
-	if flusher, ok := e.ResponseWriter.(http.Flusher); ok {
+	err := http.NewResponseController(e.ResponseWriter).Flush()
+	if err == nil {
+		e.final = true
 		e.written = true
-		flusher.Flush()
 	}
+	return err
 }
 
 // Push implements http.Pusher interface for HTTP/2 server push.
