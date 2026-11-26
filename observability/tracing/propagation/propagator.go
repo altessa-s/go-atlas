@@ -57,6 +57,17 @@ func (h HeaderCarrier) Set(key, value string) {
 	http.Header(h).Set(key, value)
 }
 
+// Values returns all header field values associated with key in wire order.
+func (h HeaderCarrier) Values(key string) []string {
+	return http.Header(h).Values(key)
+}
+
+// Del removes all header values associated with key.
+func (h HeaderCarrier) Del(key string) {
+	http.Header(h).Del(key)
+	delete(h, key)
+}
+
 // Keys implements TextMapCarrier.
 func (h HeaderCarrier) Keys() []string {
 	return slices.Collect(maps.Keys(h))
@@ -73,6 +84,11 @@ func (m MapCarrier) Get(key string) string {
 // Set implements TextMapCarrier.
 func (m MapCarrier) Set(key, value string) {
 	m[key] = value
+}
+
+// Del removes key from the carrier.
+func (m MapCarrier) Del(key string) {
+	delete(m, key)
 }
 
 // Keys implements TextMapCarrier.

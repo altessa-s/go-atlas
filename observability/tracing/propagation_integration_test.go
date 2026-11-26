@@ -112,4 +112,9 @@ func TestExtractStartInject_OversizedTracestateBounded(t *testing.T) {
 	p.Inject(ctx, out)
 	require.NotEmpty(t, out["traceparent"])
 	require.LessOrEqual(t, len(out["tracestate"]), 512)
+
+	// Reusing the populated inbound carrier must remove the rejected tracestate.
+	p.Inject(ctx, in)
+	_, hasTracestate := in["tracestate"]
+	require.False(t, hasTracestate)
 }

@@ -11,20 +11,23 @@ import (
 
 // W3C Trace Context tracestate limits.
 const (
-	MaxTraceStateMembers = 32
-	MaxTraceStateLen     = 512
-	maxTraceStateRawLen  = 4096
-	maxTraceStateKeyLen  = 256
-	maxTraceStateValLen  = 256
-	maxTenantIDLen       = 241
-	maxSystemIDLen       = 14
+	MaxTraceStateMembers       = 32
+	MaxTraceStateLen           = 512
+	maxTraceStateOversizedItem = 128
+	maxTraceStateRawLen        = 4096
+	maxTraceStateKeyLen        = 256
+	maxTraceStateValLen        = 256
+	maxTenantIDLen             = 241
+	maxSystemIDLen             = 14
 )
 
 // ParseTraceState validates raw against the W3C Trace Context tracestate
 // grammar, normalizes optional whitespace and empty list elements, and bounds
 // the result to at most [MaxTraceStateMembers] entries and [MaxTraceStateLen]
-// bytes by dropping trailing whole entries when valid input exceeds the cap.
-// Any syntactically invalid entry or duplicate key rejects the entire header.
+// bytes. When valid input exceeds the byte budget, entries longer than 128
+// bytes are removed from right to left first, followed by trailing entries
+// until both limits are satisfied. Any syntactically invalid entry or
+// duplicate key rejects the entire header.
 func ParseTraceState(raw string) (string, bool) {
 	if raw == "" || len(raw) > maxTraceStateRawLen {
 		return "", false
@@ -32,7 +35,7 @@ func ParseTraceState(raw string) (string, bool) {
 
 	var (
 		seen       traceStateKeySet
-		acc        traceStateAccumulator
+		list       traceStateList
 		needsBuild bool
 	)
 
@@ -50,18 +53,38 @@ func ParseTraceState(raw string) (string, bool) {
 		if !ok || !isValidTraceStateKey(key) || !isValidTraceStateValue(val) || !seen.add(key) {
 			return "", false
 		}
-		if !acc.tryAppend(member) {
-			needsBuild = true
-		}
+		list.append(member)
 	}
 
-	if acc.count == 0 {
+	if list.count == 0 {
 		return "", false
 	}
-	if !needsBuild && acc.byteLen == len(raw) {
-		return raw, true
+	if list.count <= MaxTraceStateMembers && list.byteLen <= MaxTraceStateLen {
+		if !needsBuild && list.byteLen == len(raw) {
+			return raw, true
+		}
+		return joinTraceStateMembers(list.arr[:list.count], list.byteLen), true
 	}
-	return acc.build(), true
+
+	items := list.materialize()
+	byteLen := list.byteLen
+	if byteLen > MaxTraceStateLen {
+		for i := len(items) - 1; i >= 0 && byteLen > MaxTraceStateLen; i-- {
+			if len(items[i]) > maxTraceStateOversizedItem {
+				byteLen -= removedMemberBytes(len(items[i]), len(items))
+				items = slices.Delete(items, i, i+1)
+			}
+		}
+	}
+	for len(items) > 0 && (len(items) > MaxTraceStateMembers || byteLen > MaxTraceStateLen) {
+		last := items[len(items)-1]
+		byteLen -= removedMemberBytes(len(last), len(items))
+		items = items[:len(items)-1]
+	}
+	if len(items) == 0 {
+		return "", false
+	}
+	return joinTraceStateMembers(items, byteLen), true
 }
 
 type traceStateKeySet struct {
@@ -91,37 +114,48 @@ func (s *traceStateKeySet) add(key string) bool {
 	return true
 }
 
-type traceStateAccumulator struct {
-	kept    [MaxTraceStateMembers]string
+type traceStateList struct {
+	arr     [MaxTraceStateMembers]string
+	more    []string
 	count   int
 	byteLen int
 }
 
-func (a *traceStateAccumulator) tryAppend(member string) bool {
-	if a.count >= MaxTraceStateMembers {
-		return false
+func (l *traceStateList) append(member string) {
+	if l.count > 0 {
+		l.byteLen++
 	}
-	sep := 0
-	if a.count > 0 {
-		sep = 1
+	l.byteLen += len(member)
+	if l.count < MaxTraceStateMembers {
+		l.arr[l.count] = member
+	} else {
+		l.more = append(l.more, member)
 	}
-	if a.byteLen+sep+len(member) > MaxTraceStateLen {
-		return false
-	}
-	a.kept[a.count] = member
-	a.count++
-	a.byteLen += sep + len(member)
-	return true
+	l.count++
 }
 
-func (a *traceStateAccumulator) build() string {
+func (l *traceStateList) materialize() []string {
+	items := make([]string, l.count)
+	n := copy(items, l.arr[:min(l.count, MaxTraceStateMembers)])
+	copy(items[n:], l.more)
+	return items
+}
+
+func removedMemberBytes(memberLen, currentCount int) int {
+	if currentCount <= 1 {
+		return memberLen
+	}
+	return memberLen + 1
+}
+
+func joinTraceStateMembers(items []string, byteLen int) string {
 	var b strings.Builder
-	b.Grow(a.byteLen)
-	for i := range a.count {
+	b.Grow(byteLen)
+	for i, item := range items {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(a.kept[i])
+		b.WriteString(item)
 	}
 	return b.String()
 }

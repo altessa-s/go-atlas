@@ -20,6 +20,9 @@ const (
 
 	// traceparent format version
 	supportedVersion = "00"
+
+	// Upper bound on combined raw tracestate field lines before parsing.
+	maxCombinedTraceStateLen = 4096
 )
 
 // traceContextRegex matches valid traceparent header values.
@@ -57,10 +60,16 @@ func (tc *TraceContext) Inject(ctx context.Context, carrier TextMapCarrier) {
 	traceparent := supportedVersion + "-" + sc.TraceID() + "-" + sc.SpanID() + "-" + flags
 	carrier.Set(traceparentHeader, traceparent)
 
+	var validState string
 	if state, ok := sc.(interface{ TraceState() string }); ok && state.TraceState() != "" {
 		if parsed, valid := tracing.ParseTraceState(state.TraceState()); valid {
-			carrier.Set(tracestateHeader, parsed)
+			validState = parsed
 		}
+	}
+	if validState != "" {
+		carrier.Set(tracestateHeader, validState)
+	} else {
+		clearCarrierKey(carrier, tracestateHeader)
 	}
 }
 
@@ -76,15 +85,49 @@ func (tc *TraceContext) Extract(ctx context.Context, carrier TextMapCarrier) con
 		return ctx
 	}
 
-	// Parse and validate tracestate if present
-	if tracestate := carrier.Get(tracestateHeader); tracestate != "" {
-		if parsed, valid := tracing.ParseTraceState(tracestate); valid {
-			sc.traceState = parsed
-		}
+	// Parse and validate tracestate across all field lines if present.
+	if parsed, valid := extractTraceState(carrier); valid {
+		sc.traceState = parsed
 	}
 
 	// Create a remote span context and store in context
 	return tracing.ContextWithSpanContext(ctx, &RemoteSpanContext{data: sc})
+}
+
+func clearCarrierKey(carrier TextMapCarrier, key string) {
+	if d, ok := carrier.(interface{ Del(string) }); ok {
+		d.Del(key)
+		return
+	}
+	if carrier.Get(key) != "" {
+		carrier.Set(key, "")
+	}
+}
+
+func extractTraceState(carrier TextMapCarrier) (string, bool) {
+	if mv, ok := carrier.(interface{ Values(string) []string }); ok {
+		vals := mv.Values(tracestateHeader)
+		switch len(vals) {
+		case 0:
+			return "", false
+		case 1:
+			return tracing.ParseTraceState(vals[0])
+		default:
+			totalLen := len(vals) - 1
+			for _, v := range vals {
+				totalLen += len(v)
+				if totalLen > maxCombinedTraceStateLen {
+					return "", false
+				}
+			}
+			return tracing.ParseTraceState(strings.Join(vals, ","))
+		}
+	}
+	raw := carrier.Get(tracestateHeader)
+	if raw == "" {
+		return "", false
+	}
+	return tracing.ParseTraceState(raw)
 }
 
 // Fields implements TextMapPropagator.
