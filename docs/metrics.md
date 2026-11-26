@@ -616,12 +616,15 @@ Package `observability/tracing`. Enable these instruments with `tracing.WithMete
 
 | Name | Type | Labels | Description |
 |------|------|--------|-------------|
-| `tracing_spans_exported_total` | Counter | -- | Spans in batches successfully exported by the adapter |
-| `tracing_spans_dropped_total` | Counter | -- | Sampled spans dropped because the queue was full |
-| `tracing_export_failures_total` | Counter | -- | Batch export calls that returned an error, including timeouts |
+| `tracing_spans_exported_total` | Counter | -- | Spans accepted by every configured exporter |
+| `tracing_spans_rejected_total` | Counter | `exporter` | Spans rejected by the collector in partial-success responses |
+| `tracing_spans_dropped_total` | Counter | -- | Sampled spans dropped because the queue was full or the shutdown deadline expired |
+| `tracing_export_failures_total` | Counter | `exporter` | Batch export calls that returned an error, including timeouts |
 | `tracing_queue_length` | Gauge | -- | Spans waiting in the queue, excluding the in-flight batch |
 
-The tracer publishes queue length and queue-full drops once per second and on flush or shutdown. Shutdown discards are excluded from the drop counter.
+The tracer publishes queue length and queue-full drops once per second and on flush. At the shutdown deadline, remaining queued batches and any
+unfinished or failing in-flight batch are counted in `tracing_spans_dropped_total` before metric writers are fenced; spans ended after `Shutdown`
+closes admission remain excluded from the drop counter.
 
 ---
 
