@@ -74,6 +74,7 @@ var (
 type statements struct {
 	confirmHeads                                                                     string
 	fetchPending, fetchFailed, unlock, stuck, deleteProcessed, update, expire, stats string
+	release                                                                          string
 }
 
 // New creates a Store over db for the given dialect. It performs no I/O; call
@@ -194,6 +195,7 @@ func (s *Store) buildStatements() statements {
 		// SKIP LOCKED lets concurrent sweeps take disjoint chunks.
 		deleteProcessed: d.bind("DELETE FROM " + t +
 			" WHERE id IN (SELECT id FROM " + t + " WHERE " + processed + limit + " FOR UPDATE SKIP LOCKED)"),
+		release: d.bind("UPDATE " + t + unlockSet + " WHERE id = ? AND lock_token = ?"),
 		update: d.bind("UPDATE " + t + " SET status = ?, attempts = ?, error = ?, last_attempt_on = " + now + ", locked_on = ?," +
 			" published_at = CASE WHEN ? THEN " + now + " ELSE NULL END," +
 			" next_attempt_at = CASE WHEN ? THEN " + d.shifted("+") + " ELSE NULL END," +
@@ -583,7 +585,8 @@ func (s *Store) scanEvent(rows *sql.Rows) (readyEvent, error) {
 // token: a write whose token no longer matches — the sweeper reclaimed the
 // event and another dispatcher took it — affects no row and is dropped. The
 // attempt time, the completion time and the retry deadline (now + RetryAfter)
-// all come from the database clock. All writes share one transaction, which
+// all come from the database clock. A pending outcome clears the lock and retry
+// deadline while preserving attempt history. All writes share one transaction, which
 // takes its row locks in primary-key order — the order the unlock sweep takes
 // them in — and is retried if the database still reports a deadlock.
 func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error {
@@ -605,6 +608,12 @@ func (s *Store) updateEvents(ctx context.Context, tx *sql.Tx, events []outbox.Ev
 	defer func() { _ = stmt.Close() }()
 
 	for _, ev := range events {
+		if ev.Status == outbox.StatusPending {
+			if _, err := tx.ExecContext(ctx, s.stmts.release, string(ev.Status), s.dialect.textArg(ev.Id), ev.LockToken); err != nil {
+				return coreerrs.WrapOperation(err, "release outbox claim")
+			}
+			continue
+		}
 		if _, err := stmt.ExecContext(ctx,
 			string(ev.Status), int64(ev.Attempts), nullableBytes(ev.LastError), s.dialect.timeArg(ev.LockedOn),
 			!ev.PublishedAt.IsZero(),

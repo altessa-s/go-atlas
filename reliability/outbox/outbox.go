@@ -417,7 +417,6 @@ func (o *Outbox) dispatchBatch(ctx context.Context, events []Event) []Event {
 			canceled := canceledByCycle(ctx, handleCtx, err)
 			if interrupted || canceled {
 				event.Attempts = claim.Attempts
-				event.LastAttemptOn = claim.LastAttemptOn
 			}
 			o.recordDispatchFailure(handleCtx, &event, err, interrupted, canceled)
 		}
@@ -428,21 +427,12 @@ func (o *Outbox) dispatchBatch(ctx context.Context, events []Event) []Event {
 	return updates
 }
 
-// canceledByCycle identifies an error from the parent rather than the local
-// handling deadline, which uses the same DeadlineExceeded sentinel.
+// canceledByCycle identifies a handler interrupted by parent cancellation.
 func canceledByCycle(parent, handleCtx context.Context, err error) bool {
-	parentErr := parent.Err()
-	if parentErr == nil || handleCtx.Err() != parentErr {
+	if parent.Err() != context.Canceled || handleCtx.Err() != context.Canceled {
 		return false
 	}
-	if parentErr == context.DeadlineExceeded {
-		parentDeadline, _ := parent.Deadline()
-		handleDeadline, _ := handleCtx.Deadline()
-		if handleDeadline.Before(parentDeadline) {
-			return false
-		}
-	}
-	return errors.Is(err, parentErr) || errors.Is(err, context.Cause(parent))
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.Cause(parent))
 }
 
 func (o *Outbox) recordDispatchFailure(ctx context.Context, event *Event, err error, interrupted, canceled bool) {

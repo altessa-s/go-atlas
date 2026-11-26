@@ -5,13 +5,56 @@
 package mongo
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
+
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	mongoevent "go.mongodb.org/mongo-driver/v2/event"
+	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+func TestUpdateEventsReleasesClaimWithoutWritingAttemptHistory(t *testing.T) {
+	t.Parallel()
+
+	var update bson.Raw
+	opts := mongooptions.Client().SetMonitor(&mongoevent.CommandMonitor{
+		Started: func(_ context.Context, evt *mongoevent.CommandStartedEvent) {
+			if evt.CommandName == "update" {
+				update = append(bson.Raw(nil), evt.Command...)
+			}
+		},
+	})
+	opts.Deployment = drivertest.NewMockDeployment(bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}})
+	client, err := mongo.Connect(opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
+	store := &Store{collection: client.Database("test").Collection("outbox")}
+
+	require.NoError(t, store.UpdateEvents(t.Context(), outbox.Event{
+		Id: "claimed", Status: outbox.StatusPending, LockToken: "lease",
+	}))
+	write := update.Lookup("updates", "0").Document()
+	require.Equal(t, "claimed", write.Lookup("q", collectionFieldId).StringValue())
+	require.Equal(t, "lease", write.Lookup("q", collectionFieldLockToken).StringValue())
+	set := write.Lookup("u", "0", opSet).Document()
+	require.NoError(t, set.Validate())
+	require.Equal(t, string(outbox.StatusPending), set.Lookup(collectionFieldStatus).StringValue())
+	require.Equal(t, bson.TypeNull, set.Lookup(collectionFieldLockedOn).Type)
+	require.Equal(t, bson.TypeNull, set.Lookup(collectionFieldLockToken).Type)
+	require.Equal(t, bson.TypeNull, set.Lookup(collectionFieldNextAttemptAt).Type)
+	_, err = set.LookupErr(collectionFieldLastAttempts)
+	require.Error(t, err)
+	_, err = set.LookupErr(collectionFieldLastAttemptOn)
+	require.Error(t, err)
+}
 
 // A zero batch size must be refused before the store reaches MongoDB, where a
 // limit of 0 means no limit; the zero Store has no collection to reach.

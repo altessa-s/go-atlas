@@ -100,6 +100,36 @@ func TestDispatchCycleHandleTimeoutConsumesAttempts(t *testing.T) {
 	})
 }
 
+func TestDispatchCycleParentDeadlineConsumesAttempts(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		store := &batchStore{batch: []outbox.Event{{Id: "hanging", Key: "test"}}}
+		out := outbox.New(store, func(ctx context.Context, _ outbox.Event) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}, outbox.WithRetryMaxAttempts(2), outbox.WithHandleTimeout(20*time.Second))
+
+		run := func() {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			require.NoError(t, out.RunDispatchCycle(ctx))
+		}
+		run()
+		require.Len(t, store.updated, 1)
+		require.Equal(t, outbox.StatusFailed, store.updated[0].Status)
+		require.EqualValues(t, 1, store.updated[0].Attempts)
+		require.Positive(t, store.updated[0].RetryAfter)
+
+		store.batch = []outbox.Event{store.updated[0]}
+		time.Sleep(store.updated[0].RetryAfter)
+		run()
+		require.Len(t, store.updated, 2)
+		require.Equal(t, outbox.StatusMaxAttemptReached, store.updated[1].Status)
+		require.EqualValues(t, 2, store.updated[1].Attempts)
+	})
+}
+
 func TestDispatchCycleBoundsHandlerDeadline(t *testing.T) {
 	t.Parallel()
 

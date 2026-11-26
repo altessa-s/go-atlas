@@ -7,6 +7,7 @@ package outboxit_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -59,7 +60,11 @@ func TestDispatch_CanceledCyclePreservesAttemptsAndConfirmedSend(t *testing.T) {
 			return nil
 		}
 		ob := outbox.New(f.store, handler, outbox.WithRetryMaxAttempts(1))
-		events := f.save(t, ob, outbox.Event{Key: "cancel"}, outbox.Event{Key: "sent"})
+		// A single worker must confirm the send before entering the blocking handler.
+		now := time.Now()
+		events := f.save(t, ob,
+			outbox.Event{Key: "sent", CreatedAt: now.Add(-time.Second)},
+			outbox.Event{Key: "cancel", CreatedAt: now})
 
 		go func() { done <- ob.RunDispatchCycle(ctx) }()
 		select {
@@ -75,14 +80,14 @@ func TestDispatch_CanceledCyclePreservesAttemptsAndConfirmedSend(t *testing.T) {
 		cancel()
 		require.NoError(t, <-done)
 
-		failed := f.load(t, events[0].Id)
+		failed := f.load(t, events[1].Id)
 		require.Equal(t, string(outbox.StatusFailed), failed.Status)
 		require.Zero(t, failed.Attempts)
 		require.Empty(t, failed.LockToken)
 		require.Nil(t, failed.LockedOn)
 		require.Nil(t, failed.NextAttemptAt)
 
-		sent := f.load(t, events[1].Id)
+		sent := f.load(t, events[0].Id)
 		require.Equal(t, string(outbox.StatusSent), sent.Status)
 		require.EqualValues(t, 1, sent.Attempts)
 		require.NotNil(t, sent.PublishedAt)
@@ -90,6 +95,45 @@ func TestDispatch_CanceledCyclePreservesAttemptsAndConfirmedSend(t *testing.T) {
 		recovered := f.newOutbox(t)
 		require.NoError(t, recovered.RunDispatchCycle(t.Context()))
 		require.Equal(t, 1, f.recorder.Count())
-		require.Equal(t, string(outbox.StatusSent), f.load(t, events[0].Id).Status)
+		require.Equal(t, string(outbox.StatusSent), f.load(t, events[1].Id).Status)
+	})
+}
+
+func TestDispatch_NeverStartedClaimsKeepAttemptHistory(t *testing.T) {
+	t.Parallel()
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		ob := outbox.New(f.store, func(context.Context, outbox.Event) error {
+			panic("handler started after the cycle was canceled")
+		}, outbox.WithCompaction(), outbox.WithCompactionFilter(func(string) bool {
+			cancel()
+			return true
+		}))
+		retried := f.save(t, ob, outbox.Event{Key: "retried"})[0]
+		claims, err := f.store.FetchUnprocessedEvents(t.Context(), 1)
+		require.NoError(t, err)
+		require.Len(t, claims, 1)
+		claims[0].Status = outbox.StatusFailed
+		claims[0].Attempts = 1
+		claims[0].LockedOn = time.Time{}
+		require.NoError(t, f.store.UpdateEvents(t.Context(), claims...))
+		before := f.load(t, retried.Id)
+		require.NotNil(t, before.LastAttemptOn)
+
+		fresh := f.save(t, ob, outbox.Event{Key: "fresh"})[0]
+		require.NoError(t, ob.RunDispatchCycle(ctx))
+
+		freshRow := f.load(t, fresh.Id)
+		require.Zero(t, freshRow.Attempts)
+		require.Nil(t, freshRow.LastAttemptOn)
+		retriedRow := f.load(t, retried.Id)
+		require.Equal(t, before.Attempts, retriedRow.Attempts)
+		require.Equal(t, before.LastAttemptOn, retriedRow.LastAttemptOn)
+		for _, row := range []storedEvent{freshRow, retriedRow} {
+			require.Equal(t, string(outbox.StatusPending), row.Status)
+			require.Empty(t, row.LockToken)
+			require.Nil(t, row.LockedOn)
+		}
 	})
 }
