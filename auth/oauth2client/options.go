@@ -11,6 +11,7 @@ package oauth2client
 //go:generate go tool optgen generate --type=exchangerOptions --option-type=ExchangerOption --output=exchanger_options_gen.go --option-prefix=Exchanger
 //go:generate go tool optgen generate --type=jwtBearerOptions --option-type=JWTBearerOption --output=jwt_bearer_options_gen.go --option-prefix=JWTBearer --new-func-name=newJWTBearerOptions
 //go:generate go tool optgen generate --type=revokerOptions --option-type=RevokerOption --output=revoker_options_gen.go --option-prefix=Revoker
+//go:generate go tool optgen generate --type=retryTransportOptions --option-type=RetryTransportOption --output=retry_transport_options_gen.go
 
 import (
 	"context"
@@ -179,4 +180,16 @@ func withHTTPClient(ctx context.Context, client *http.Client) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, oauth2.HTTPClient, client)
+}
+
+type retryTransportOptions struct {
+	// WithTransportAttempts sets attempts.
+	attempts int `optgen:"manual,default=DefaultTransportRetryAttempts"`
+	// WithTransportBackoff sets baseDelay and maxDelay.
+	baseDelay time.Duration `optgen:"manual,default=DefaultTransportRetryBaseDelay"`
+	// WithTransportBackoff sets maxDelay.
+	maxDelay time.Duration `optgen:"manual,default=DefaultTransportRetryMaxDelay"`
+	// WithInsecureRetrySingleUseGrants permits replay after ambiguous failures.
+	// Replaying a consumed refresh token can revoke the entire token family.
+	insecureRetrySingleUseGrants bool
 }

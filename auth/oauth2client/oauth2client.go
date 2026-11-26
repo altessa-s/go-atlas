@@ -154,7 +154,7 @@ func Refresh(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken
 	cfg := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Endpoint:     oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: o.authStyle},
+		Endpoint:     oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: singleUseAuthStyle(o.authStyle, clientSecret)},
 	}
 	ctx, response := withResponseClient(ctx, endpointClient(o.httpClient, o.insecureHTTP))
 	src := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
@@ -188,6 +188,7 @@ type AuthCode struct {
 // [ErrInsecureEndpoint].
 func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL string, opts ...AuthCodeOption) (*AuthCode, error) {
 	o := newAuthCodeOptions(opts...)
+	endpoint.AuthStyle = singleUseAuthStyle(endpoint.AuthStyle, clientSecret)
 	for _, u := range []struct{ name, raw string }{
 		{"authorization URL", endpoint.AuthURL},
 		{"token URL", endpoint.TokenURL},
@@ -242,4 +243,15 @@ func (a *AuthCode) Exchange(
 		return nil, nil, err
 	}
 	return measure(redacted(a.cfg.TokenSource(ctx, tok), response), grantAuthorizationCode, a.metrics, a.logger), tok, nil
+}
+
+// An auth-style probe may resubmit a consumed grant after any error.
+func singleUseAuthStyle(style oauth2.AuthStyle, secret string) oauth2.AuthStyle {
+	if style != oauth2.AuthStyleAutoDetect {
+		return style
+	}
+	if secret == "" {
+		return oauth2.AuthStyleInParams
+	}
+	return oauth2.AuthStyleInHeader
 }

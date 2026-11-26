@@ -56,7 +56,11 @@
 // [WithJWTBearerEarlyExpiry] set the refresh margin for their respective grants.
 // [Revoker] revokes an acquired token at the IdP revocation endpoint (RFC 7009).
 // [Exchanger] and [JWTBearer] have built-in retry options. Other grants can
-// use an HTTP client whose transport is wrapped with [RetryTransport].
+// use an HTTP client whose transport is wrapped with [RetryTransport]. A
+// refresh token, authorization code, or device code is retried only after a
+// dial or TLS handshake failure unless [WithInsecureRetrySingleUseGrants] is
+// set. These flows use an explicit client authentication style to avoid
+// replay during automatic style detection.
 //
 // # Secrets
 //
