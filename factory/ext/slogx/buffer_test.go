@@ -42,7 +42,8 @@ func TestBufferBypassLevel(t *testing.T) {
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer func() {
 					unblock()
-					require.NoError(t, logger.Shutdown(t.Context()))
+					_, err := logger.Shutdown(t.Context())
+					require.NoError(t, err)
 				}()
 
 				done := make(chan struct{})

@@ -92,3 +92,27 @@ func TestNewCatalog_ConfigAliases(t *testing.T) {
 		require.NoError(t, err, name)
 	}
 }
+
+func TestLoggerBuilder_WithOutputAndShutdown(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	b := New(&observabilityconfig.Logger{
+		Level:        observabilityconfig.LoggerLevelInfo,
+		OutputFormat: observabilityconfig.LogFormatJSON,
+		Buffer:       observabilityconfig.LoggerBuffer{Enabled: true, Size: 8, BypassLevel: observabilityconfig.LoggerLevelError},
+	}).WithOutput(&buf)
+
+	stats, err := b.Shutdown(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, stats)
+
+	logger, err := b.Build()
+	require.NoError(t, err)
+	logger.Info("hello")
+
+	stats, err = b.Shutdown(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.Written)
+	require.Contains(t, buf.String(), "hello")
+}

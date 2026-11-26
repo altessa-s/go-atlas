@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"io"
 	"strings"
 )
 
@@ -52,5 +53,12 @@ func (b *LoggerBuilder) WithServiceId(v string) *LoggerBuilder {
 	if v = strings.TrimSpace(v); v != "" {
 		b.serviceID = v
 	}
+	return b
+}
+
+// WithOutput directs log output to w instead of the console stream selected
+// by the configuration. A nil w keeps the configured console output.
+func (b *LoggerBuilder) WithOutput(w io.Writer) *LoggerBuilder {
+	b.output = w
 	return b
 }

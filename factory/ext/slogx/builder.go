@@ -6,12 +6,14 @@ package factory
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 
+	"github.com/altessa-s/go-slogx/bufwriter"
 	"github.com/altessa-s/go-slogx/mask"
 	"github.com/altessa-s/go-slogx/setup"
 
@@ -35,6 +37,7 @@ type LoggerBuilder struct {
 	appName       string
 	appVersion    string
 	serviceID     string
+	output        io.Writer
 
 	// built is the logger of the last successful Build; SetLevel and
 	// GetLevel act on it.
@@ -55,7 +58,7 @@ func New(cfg *observabilityconfig.Logger) *LoggerBuilder {
 // Build assembles the logger. It fails on a nil config or any invalid mask
 // rule, before building anything. A config at level none yields a discard
 // logger. When buffering is enabled, the logger's buffer is drained by a
-// [runtime.OnShutdown] hook.
+// [runtime.OnShutdown] hook that calls [LoggerBuilder.Shutdown].
 func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -77,10 +80,23 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	b.built = built
 
 	if b.cfg.Buffer.Enabled {
-		runtime.OnShutdown(built.Shutdown)
+		runtime.OnShutdown(func(ctx context.Context) error {
+			_, err := b.Shutdown(ctx)
+			return err
+		})
 	}
 
 	return built.Logger(), nil
+}
+
+// Shutdown drains the buffer of the logger built last, bounded by ctx, and
+// reports delivery statistics. Without a successful Build or buffering it
+// returns zero statistics and a nil error.
+func (b *LoggerBuilder) Shutdown(ctx context.Context) (bufwriter.Stats, error) {
+	if b.built == nil {
+		return bufwriter.Stats{}, nil
+	}
+	return b.built.Shutdown(ctx)
 }
 
 // SetLevel changes the default level of the logger built last. Before a
@@ -103,8 +119,11 @@ func (b *LoggerBuilder) GetLevel() slog.Level {
 	return parseLevel(b.cfg.Level)
 }
 
-// writer returns the configured console output.
+// writer returns the injected output, or the configured console output.
 func (b *LoggerBuilder) writer() io.Writer {
+	if b.output != nil {
+		return b.output
+	}
 	if b.cfg.Output == observabilityconfig.LoggerConsoleOutputStderr {
 		return os.Stderr
 	}

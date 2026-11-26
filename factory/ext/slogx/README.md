@@ -44,6 +44,7 @@ The default prefix key `slogx.ModuleKey` from `github.com/altessa-s/go-slogx` eq
 | `WithAppName(name)` | Overrides the application name included in log metadata |
 | `WithAppVersion(version)` | Overrides the application version included in log metadata |
 | `WithServiceId(id)` | Sets the service ID included in log metadata |
+| `WithOutput(w)` | Writes log output to `w` instead of the console stream selected by `output` (nil keeps the configured stream) |
 
 ### Mask types
 
@@ -63,3 +64,4 @@ The default prefix key `slogx.ModuleKey` from `github.com/altessa-s/go-slogx` eq
 | `Build` | Assembles and returns the `*slog.Logger`; fails on a nil config or any invalid `maskRules` entry |
 | `SetLevel(level)` | Changes the logging level at runtime after `Build` |
 | `GetLevel()` | Returns the current logging level |
+| `Shutdown(ctx)` | Drains the buffer of the built logger within `ctx` and returns `bufwriter.Stats` (written, failed, pending, dropped); also run by a `runtime.OnShutdown` hook when buffering is enabled |
