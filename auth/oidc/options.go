@@ -22,6 +22,10 @@ import (
 )
 
 const (
+	// DefaultJWKSUnknownKidRefreshInterval is the minimum time between
+	// JWKS refresh attempts triggered by unknown signing keys.
+	DefaultJWKSUnknownKidRefreshInterval = time.Minute
+
 	// DefaultJWKSHTTPTimeout is the timeout for JWKS HTTP requests.
 	DefaultJWKSHTTPTimeout = 30 * time.Second
 
@@ -222,6 +226,10 @@ type options struct {
 
 	jwksHTTPTimeout  time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
 	jwksMaxStaleness time.Duration `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
+	// WithJWKSUnknownKidRefreshInterval sets the minimum time between JWKS
+	// refresh attempts triggered by unknown signing keys. Zero disables the
+	// throttle; negative values are ignored.
+	jwksUnknownKidRefreshInterval time.Duration `opt:"JWKSUnknownKidRefreshInterval" optcheck:"min=0" optgen:"default=DefaultJWKSUnknownKidRefreshInterval,onfail=skip"` //nolint:lll
 	// WithJWKSFailureMode selects how the provider reacts when its locally
 	// cached JWKS has not been refreshed within [WithJWKSMaxStaleness].
 	// Defaults to [JWKSFailureModeEnforce]. Unknown / empty modes leave the

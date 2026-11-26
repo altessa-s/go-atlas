@@ -608,20 +608,20 @@ Controls JSON Web Key Set refresh behavior.
 ```yaml
 oidc:
   jwks:
-    refreshEnabled: true
     refreshSchedule: "0 */5 * * * *"
     httpTimeout: 30s
 ```
 
 | Field             | Type       | Default         | Description                                                            |
 |-------------------|------------|-----------------|------------------------------------------------------------------------|
-| `refreshEnabled`  | `bool`     | `true`          | Enable proactive JWKS refresh on the provider's own process-local cron |
 | `refreshSchedule` | `string`   | `"0 0 * * * *"` | Cron expression (6-field with seconds)                                 |
 | `httpTimeout`     | `duration` | `30s`           | HTTP timeout for JWKS endpoint requests                                |
 
-Each provider runs the refresh on its own process-local cron, so every replica keeps its own key set fresh. With `refreshEnabled: false`
-(or no schedule) JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`. Only signature-eligible keys are loaded
-from the JWK Set: `use` must be `"sig"` or omitted, and when `key_ops` is present it must include `"verify"`.
+The factory schedules JWKS refresh in every provider, even when the `jwks` block is omitted. When constructing a provider directly, supply
+`WithJWKSRefreshSchedule` to schedule refreshes or call `provider.RefreshJWKS(ctx)` manually. An unknown key ID can also trigger a refresh,
+at most once per minute by default. Use `WithJWKSUnknownKidRefreshInterval` to configure that interval when constructing a provider directly.
+
+Only signature-eligible keys are loaded. The JWK's `use` must be `"sig"` or omitted, and when `key_ops` is present it must include `"verify"`.
 
 #### Staleness check (Go-only)
 
@@ -1143,7 +1143,8 @@ All `Use*` methods return `*ProviderBuilder` for chaining. Errors accumulate and
 | `revocation.syncTimeout`                          | `WithRevocationSyncTimeout`                                                                     | `revocation.enabled`                                                    |
 | `revocation.maxResponseBytes`                     | `URLRevocationLoader.MaxResponseBytes`                                                          | `revocation.enabled` + `source.url`, storage built by the factory       |
 | `revocation.allowEmpty`                           | `WithRevocationAllowEmpty`                                                                      | `revocation.enabled` + `allowEmpty`                                     |
-| `jwks.refreshSchedule`, `revocation.syncSchedule` | `WithJWKSRefreshSchedule`, `WithRevocationSyncSchedule`                                         | `refreshEnabled` / `syncEnabled` (sync also needs a revocation storage) |
+| `jwks.refreshSchedule` | `WithJWKSRefreshSchedule` | Always scheduled by the factory; defaults to hourly. |
+| `revocation.syncSchedule` | `WithRevocationSyncSchedule` | Requires `syncEnabled` and revocation storage. |
 
 ### Combined: YAML + Service Config
 
@@ -1162,7 +1163,6 @@ oidc:
   cache:
     enabled: true
   jwks:
-    refreshEnabled: true
     refreshSchedule: "0 */5 * * * *"
 ```
 
@@ -1559,7 +1559,6 @@ oidc:
     tokensKeyPrefix: "oidc:tokens:"
     revokedTokensKeyPrefix: "oidc:revoked:"
   jwks:
-    refreshEnabled: true
     refreshSchedule: "0 */10 * * * *"
     httpTimeout: 15s
   validation:
@@ -1600,7 +1599,6 @@ oidc:
   cache:
     enabled: true
   jwks:
-    refreshEnabled: true
 ```
 
 **User service (user-svc-rules.json):**
@@ -1685,7 +1683,6 @@ oidc:
   cache:
     enabled: true
   jwks:
-    refreshEnabled: true
     refreshSchedule: "0 */5 * * * *"
 ```
 
@@ -1777,7 +1774,6 @@ oidc:
   cache:
     enabled: true
   jwks:
-    refreshEnabled: true
     refreshSchedule: "0 */2 * * * *"
     httpTimeout: 10s
   validation:

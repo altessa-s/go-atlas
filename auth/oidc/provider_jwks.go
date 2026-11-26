@@ -20,6 +20,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
+	"github.com/altessa-s/go-atlas-core/time/clock"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -27,23 +28,24 @@ import (
 )
 
 type jwksKeySource struct {
-	schedule              string
-	info                  *discoveryInfo
-	client                *http.Client
-	logger                *slog.Logger
-	metrics               *oidcMetrics
-	backgroundCtx         context.Context
-	jwks                  keyfunc.Keyfunc
-	keyResolver           authjwt.KeyResolver
-	lastKeyFingerprint    atomic.Pointer[keyFingerprintMemo]
-	jwksRefreshTask       *cycle.Guard
-	refreshFlight         *singleflight.Group[struct{}, struct{}]
-	lastUnknownKidAttempt *time.Time // owned by the shared refresh flight
-	clock                 freshnessClock
-	lastJWKSRefresh       atomic.Pointer[freshnessRecord]
-	jwksHTTPTimeout       time.Duration
-	jwksMaxStaleness      time.Duration
-	jwksFailureMode       JWKSFailureMode
+	schedule                      string
+	info                          *discoveryInfo
+	client                        *http.Client
+	logger                        *slog.Logger
+	metrics                       *oidcMetrics
+	backgroundCtx                 context.Context
+	jwks                          keyfunc.Keyfunc
+	keyResolver                   authjwt.KeyResolver
+	lastKeyFingerprint            atomic.Pointer[keyFingerprintMemo]
+	jwksRefreshTask               *cycle.Guard
+	refreshFlight                 *singleflight.Group[struct{}, struct{}]
+	lastUnknownKidAttempt         *time.Time // owned by the shared refresh flight
+	clock                         freshnessClock
+	lastJWKSRefresh               atomic.Pointer[freshnessRecord]
+	jwksUnknownKidRefreshInterval time.Duration
+	jwksHTTPTimeout               time.Duration
+	jwksMaxStaleness              time.Duration
+	jwksFailureMode               JWKSFailureMode
 }
 
 // jwksVerificationUses lists the JWK "use" values of a key that may verify a
@@ -224,7 +226,7 @@ func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
 	}
 }
 
-const defaultJWKSUnknownKidRefreshInterval = time.Minute
+const skippedJWKSRefreshBackoff = 10 * time.Millisecond
 
 var errUnknownKidRefreshSkipped = errors.New("oidc: unknown-key JWKS refresh skipped")
 
@@ -236,19 +238,38 @@ func (p *jwksKeySource) refreshJWKSInternal(ctx context.Context) error {
 			return err
 		}
 		// A scheduled or manual refresh cannot be throttled, even if it
-		// joined an unknown-key flight that was.
+		// joined an unknown-key flight that was. Pause before trying again
+		// so repeated joins cannot keep this loop spinning.
+		if err := clock.Real().Sleep(ctx, skippedJWKSRefreshBackoff); err != nil {
+			return err
+		}
+	}
+}
+
+// stopRefreshes stops new refreshes, cancels the provider lifetime and joins
+// refresh callbacks before the provider releases its HTTP client.
+func (p *jwksKeySource) stopRefreshes(cancel context.CancelFunc) {
+	if p.refreshFlight != nil {
+		p.refreshFlight.Close()
+	}
+	cancel()
+	if p.refreshFlight != nil {
+		p.refreshFlight.Wait()
 	}
 }
 
 // refreshJWKS coalesces fetches across scheduled, manual, and unknown-key
 // refreshes. A non-nil observed record identifies a lookup-triggered refresh.
 func (p *jwksKeySource) refreshJWKS(ctx context.Context, observed *freshnessRecord) error {
+	if err := p.backgroundCtx.Err(); err != nil {
+		return err
+	}
 	_, err := p.refreshFlight.Do(ctx, struct{}{}, func(ctx context.Context) (struct{}, error) {
 		if observed != nil {
 			if p.lastJWKSRefresh.Load() != observed {
 				return struct{}{}, errUnknownKidRefreshSkipped
 			}
-			if p.lastUnknownKidAttempt != nil && p.clock.elapsed(*p.lastUnknownKidAttempt) < defaultJWKSUnknownKidRefreshInterval {
+			if p.lastUnknownKidAttempt != nil && p.clock.elapsed(*p.lastUnknownKidAttempt) < p.jwksUnknownKidRefreshInterval {
 				return struct{}{}, errUnknownKidRefreshSkipped
 			}
 			now := p.clock.observe()
