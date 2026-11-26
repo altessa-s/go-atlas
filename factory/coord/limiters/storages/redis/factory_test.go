@@ -5,6 +5,7 @@
 package factory_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	redisstorage "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	budgetfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/redis"
 	tokenbucketfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
@@ -80,4 +82,34 @@ func TestBuilder_Errors(t *testing.T) {
 	_, err = factory.Builder(client)(t.Context(), &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+}
+
+func TestBuilder_EmptyKeysPrefixUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		prefix string
+	}{
+		{name: "empty", prefix: ""},
+		{name: "whitespace", prefix: "   "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client, mr := redistest.RedisClient(t)
+
+			l, err := budgetfactory.New(&limiterconfig.Budget{
+				Limit:   2,
+				Period:  time.Hour,
+				Storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis, Redis: &storageconfig.RedisConfig{KeysPrefix: tc.prefix}},
+			}).UseStorage(limiterconfig.StorageTypeRedis, factory.Builder(client)).Build(t.Context())
+			require.NoError(t, err)
+
+			require.NoError(t, l.Allow(t.Context(), "tenant"))
+			require.NotEmpty(t, mr.Keys())
+			for _, k := range mr.Keys() {
+				require.True(t, strings.HasPrefix(k, redisstorage.DefaultKeyPrefix), "key %q must use default prefix %q", k, redisstorage.DefaultKeyPrefix)
+			}
+		})
+	}
 }
