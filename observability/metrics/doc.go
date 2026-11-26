@@ -51,6 +51,9 @@
 // Must* helpers, and on the unchecked [Meter] methods log once at Error and return a
 // no-op handle.
 //
+// Shutdown stops admission, drains accepted observations on adapters with a
+// lifecycle, and then flushes and closes those adapters.
+//
 // # Scoped Meter
 //
 // Components can use WithSubsystem to create a scoped [Meter] with a subsystem prefix.

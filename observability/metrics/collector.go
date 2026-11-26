@@ -124,6 +124,8 @@ func entryKindString(e *metricEntry) string {
 type collector struct {
 	serviceName  string
 	adapter      adapters.Adapter
+	recording    adapters.Adapter
+	admission    *admission
 	logger       *slog.Logger
 	entries      sync.Map   // fullName (string) -> *metricEntry
 	loggedErrors sync.Map   // keys.Compose(fullName, kind) -> struct{}
@@ -148,11 +150,23 @@ func New(opts ...Option) Collector {
 		logger = slog.Default()
 	}
 
-	return &collector{
+	r := &collector{
 		serviceName: cfg.serviceName,
 		adapter:     cfg.adapter,
+		recording:   cfg.adapter,
 		logger:      logger,
 	}
+	_, flushes := cfg.adapter.(adapters.Flusher)
+	_, closes := cfg.adapter.(adapters.Closer)
+	if flushes || closes {
+		r.admission = &admission{closed: &r.shutdown}
+		guarded := &guardedAdapter{Adapter: cfg.adapter, gate: r.admission}
+		r.recording = guarded
+		if adder, ok := cfg.adapter.(adapters.GaugeAdder); ok {
+			r.recording = &guardedAdapterAdder{guardedAdapter: guarded, adder: adder}
+		}
+	}
+	return r
 }
 
 // Counter implements Collector.
@@ -226,11 +240,15 @@ func (r *collector) WithSubsystem(subsystem string) Meter {
 // Shutdown implements Collector.
 func (r *collector) Shutdown(_ context.Context) error {
 	r.shutdownOnce.Do(func() {
-		flushErr := r.flush()
-
 		r.createMu.Lock()
 		r.shutdown.Store(true)
 		r.createMu.Unlock()
+
+		if r.admission != nil {
+			r.admission.mu.Lock()
+			r.admission.mu.Unlock() //nolint:staticcheck // The lock acquisition waits for accepted backend calls.
+		}
+		flushErr := r.flush()
 
 		var closeErr error
 		if closer, ok := r.adapter.(adapters.Closer); ok {
@@ -245,6 +263,12 @@ func (r *collector) Shutdown(_ context.Context) error {
 func (r *collector) ForceFlush(_ context.Context) error {
 	if r.shutdown.Load() {
 		return ErrCollectorShutdown
+	}
+	if r.admission != nil {
+		if !r.admission.enter() {
+			return ErrCollectorShutdown
+		}
+		defer r.admission.mu.RUnlock()
 	}
 	return r.flush()
 }
@@ -264,7 +288,7 @@ func (r *collector) tryGetOrCreateCounter(subsystem string, opts MetricOpts) (Co
 		help:       opts.Help,
 	}
 	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Counter, func()) {
-		c := newCounter(name, r.adapter, &r.shutdown)
+		c := newCounter(name, r.recording, &r.shutdown)
 		return c, c.bindUnlabeled
 	})
 }
@@ -277,7 +301,7 @@ func (r *collector) tryGetOrCreateGauge(subsystem string, opts MetricOpts) (Gaug
 		help:       opts.Help,
 	}
 	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Gauge, func()) {
-		g := newGauge(name, r.adapter, &r.shutdown)
+		g := newGauge(name, r.recording, &r.shutdown)
 		return g, g.bindUnlabeled
 	})
 }
@@ -291,7 +315,7 @@ func (r *collector) tryGetOrCreateHistogram(subsystem string, opts HistogramOpts
 		buckets:    bucketsOrDefault(opts.Buckets),
 	}
 	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Histogram, func()) {
-		h := newHistogram(name, r.adapter, &r.shutdown)
+		h := newHistogram(name, r.recording, &r.shutdown)
 		return h, h.bindUnlabeled
 	})
 }
@@ -305,7 +329,7 @@ func (r *collector) tryGetOrCreateTimer(subsystem string, opts HistogramOpts) (T
 		buckets:    bucketsOrDefault(opts.Buckets),
 	}
 	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Timer, func()) {
-		tm := newTimer(name, r.adapter, &r.shutdown)
+		tm := newTimer(name, r.recording, &r.shutdown)
 		return tm, tm.bindUnlabeled
 	})
 }
