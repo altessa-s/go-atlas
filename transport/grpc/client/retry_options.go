@@ -15,10 +15,10 @@ type retryOptions struct {
 	maxAttempts int `optgen:"default=DefaultMaxRetryAttempts" optval:"positive"`
 
 	// initialBackoff is the initial backoff duration between retries.
-	initialBackoff time.Duration `optgen:"default=DefaultInitialBackoff"`
+	initialBackoff time.Duration `optcheck:"min=0" optgen:"default=DefaultInitialBackoff"`
 
 	// maxBackoff is the maximum backoff duration.
-	maxBackoff time.Duration `optgen:"default=DefaultMaxBackoff"`
+	maxBackoff time.Duration `optcheck:"min=0" optgen:"default=DefaultMaxBackoff"`
 
 	// backoffMultiplier is the multiplier for exponential backoff.
 	backoffMultiplier float64 `optgen:"default=DefaultBackoffMultiplier" optval:"positive"`

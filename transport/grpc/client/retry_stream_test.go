@@ -20,15 +20,19 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-// TestRetryDoesNotImposeDeadline streams for longer than the product of the
-// retry attempts and the maximum backoff: enabling retries must not cut calls.
+// TestRetryDoesNotImposeDeadline holds a stream open across the product of
+// the retry attempts and the maximum backoff: enabling retries must not cut
+// calls. The server sends only when the test releases it, so the outcome does
+// not depend on scheduling.
 func TestRetryDoesNotImposeDeadline(t *testing.T) {
 	t.Parallel()
 
 	const (
-		messages = 12
-		interval = 100 * time.Millisecond
+		backoff = 100 * time.Millisecond
+		// held keeps the stream open well past attempts*backoff, the former implicit deadline.
+		held = 6 * backoff
 	)
+	release := make(chan struct{})
 	lis := bufconn.Listen(1 << 20)
 	desc := grpc.ServiceDesc{
 		ServiceName: "test.Ticker",
@@ -41,19 +45,15 @@ func TestRetryDoesNotImposeDeadline(t *testing.T) {
 				if err := stream.RecvMsg(in); err != nil {
 					return err
 				}
-				ticker := time.NewTicker(interval)
-				defer ticker.Stop()
-				for range messages {
-					select {
-					case <-stream.Context().Done():
-						return stream.Context().Err()
-					case <-ticker.C:
-					}
-					if err := stream.SendMsg(wrapperspb.String("tick")); err != nil {
-						return err
-					}
+				if err := stream.SendMsg(wrapperspb.String("first")); err != nil {
+					return err
 				}
-				return nil
+				select {
+				case <-stream.Context().Done():
+					return stream.Context().Err()
+				case <-release:
+				}
+				return stream.SendMsg(wrapperspb.String("second"))
 			},
 		}},
 	}
@@ -65,7 +65,7 @@ func TestRetryDoesNotImposeDeadline(t *testing.T) {
 	c, err := client.New(t.Context(), "passthrough:///ticker",
 		client.WithInsecure(), client.WithoutHealthCheck(),
 		client.WithDialOptions(grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) })),
-		client.WithRetry(client.WithRetryMaxAttempts(2), client.WithRetryMaxBackoff(interval)),
+		client.WithRetry(client.WithRetryMaxAttempts(2), client.WithRetryMaxBackoff(backoff)),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close(context.WithoutCancel(t.Context())) })
@@ -79,17 +79,15 @@ func TestRetryDoesNotImposeDeadline(t *testing.T) {
 	require.NoError(t, stream.SendMsg(wrapperspb.String("go")))
 	require.NoError(t, stream.CloseSend())
 
-	received := 0
 	start := time.Now()
-	for {
-		out := &wrapperspb.StringValue{}
-		err := stream.RecvMsg(out)
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err, "stream cut after %d messages", received)
-		received++
-	}
-	require.Equal(t, messages, received)
-	require.Greater(t, time.Since(start), time.Second)
+	out := &wrapperspb.StringValue{}
+	require.NoError(t, stream.RecvMsg(out))
+	require.Equal(t, "first", out.GetValue())
+
+	time.Sleep(held - time.Since(start))
+	close(release)
+
+	require.NoError(t, stream.RecvMsg(out), "stream cut by an implicit deadline")
+	require.Equal(t, "second", out.GetValue())
+	require.Equal(t, io.EOF, stream.RecvMsg(out))
 }

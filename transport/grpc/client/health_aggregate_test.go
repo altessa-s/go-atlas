@@ -8,7 +8,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -50,50 +49,65 @@ func (aggregateBinding) GetConnection(context.Context) (*grpc.ClientConn, error)
 	return grpc.NewClient("passthrough:///aggregate", grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
+// recordingReporter is a synchronous ScopedReporter that records every status
+// the client pushes.
+type recordingReporter struct {
+	mu   sync.Mutex
+	sent []health.ServingStatus
+}
+
+func (r *recordingReporter) RegisterScopedService(string, health.Checker) (func(health.ServingStatus), func()) {
+	return func(s health.ServingStatus) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.sent = append(r.sent, s)
+	}, func() {}
+}
+
+func (r *recordingReporter) last(t *testing.T) health.ServingStatus {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	require.NotEmpty(t, r.sent, "no status was pushed")
+	return r.sent[len(r.sent)-1]
+}
+
+func (r *recordingReporter) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.sent)
+}
+
 // TestPoolEventPushesTargetAggregate emits a TransientFailure event of one
 // connection while the target aggregate stays Ready. The pushed status must
-// equal the registered checker's answer, not the single connection's state.
+// be the aggregate the registered checker reports, not the single
+// connection's state; and when the aggregate itself degrades the push follows.
 func TestPoolEventPushesTargetAggregate(t *testing.T) {
 	t.Parallel()
 
-	coord := health.New()
-	t.Cleanup(coord.Close)
+	rec := &recordingReporter{}
 	fake := &aggregatePool{state: connectivity.Ready}
 
 	c, err := New(t.Context(), "passthrough:///aggregate",
-		WithInsecure(), WithPool(fake), WithHealthCoordinator(coord))
+		WithInsecure(), WithPool(fake), WithScopedHealthReporter(rec))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close(t.Context()) })
-
-	sub, err := coord.Subscribe(t.Context(), DefaultClientHealthServiceName)
-	require.NoError(t, err)
-	t.Cleanup(sub.Close)
-	drainUpdates(sub, 100*time.Millisecond)
 
 	fake.mu.Lock()
 	notify := fake.notify
 	fake.mu.Unlock()
 	require.NotNil(t, notify)
 
+	before := rec.count()
 	notify(connectivity.TransientFailure)
+	require.Greater(t, rec.count(), before, "the event pushed nothing")
+	require.Equal(t, health.StatusServing, rec.last(t), "push must equal the checker result")
+	require.Equal(t, health.StatusServing, c.health.CheckHealth(t.Context()))
 
-	want := c.health.CheckHealth(t.Context())
-	require.Equal(t, health.StatusServing, want)
-	for _, got := range drainUpdates(sub, 200*time.Millisecond) {
-		require.Equal(t, want, got, "push must equal the checker result")
-	}
-}
-
-// drainUpdates collects the updates delivered within d.
-func drainUpdates(sub health.Subscriber, d time.Duration) []health.ServingStatus {
-	var got []health.ServingStatus
-	timer := time.After(d)
-	for {
-		select {
-		case s := <-sub.Updates():
-			got = append(got, s)
-		case <-timer:
-			return got
-		}
-	}
+	fake.mu.Lock()
+	fake.state = connectivity.TransientFailure
+	fake.mu.Unlock()
+	notify(connectivity.TransientFailure)
+	require.Equal(t, health.StatusDegraded, rec.last(t))
+	require.Equal(t, health.StatusDegraded, c.health.CheckHealth(t.Context()))
 }

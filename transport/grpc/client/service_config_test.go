@@ -150,3 +150,9 @@ func TestNew_RetryDurationsAreValidServiceConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryDurationsRejectNegative(t *testing.T) {
+	t.Parallel()
+	require.Panics(t, func() { WithRetryInitialBackoff(-time.Second)(&retryOptions{}) })
+	require.Panics(t, func() { WithRetryMaxBackoff(-time.Second)(&retryOptions{}) })
+}
