@@ -91,8 +91,10 @@ handler := brokeridem.Wrap(myHandler, keeper, "email_consumer",
 | Key is `IN_PROGRESS` | Redelivery delay (`NakWithBackOff`) with `busy` metric | No |
 
 Upon completion:
-- **`Ack`**: marks the lock as complete (`Complete`, `processed` metric) and forwards `Ack`; a `Complete` failure is logged and counted as
-  `lock_stolen` (`ErrLockStolen`) or `storage_error`, and `Ack` is still forwarded.
+- **`Ack`**: marks the lock as complete (`Complete`, `processed` metric) and forwards `Ack`. `Complete` is retried with bounded backoff inside the
+  release timeout. A final failure is logged and counted as `lock_stolen` (`ErrLockStolen`) or `complete_failed`, and `Ack` is still forwarded, never
+  `Nak`: the effect is applied. Residual: with a persistent storage outage the record stays in progress, so a duplicate arriving after
+  `MaxLockDuration` runs the handler again. Logs never carry the business key or the storage key composed from it.
 - **`Nak` / `NakWithBackOff`**: releases the lock (`Release`) and forwards negative acknowledgment for redelivery.
 - **`Term`**: releases the lock (`Release`) and forwards terminal acknowledgment.
 - **Panic**: releases the lock (`Release`) and re-panics so the broker runtime can record failure.

@@ -31,6 +31,11 @@ const (
 
 	// defaultReleaseTimeout is the maximum time budgeted for Complete/Release calls.
 	defaultReleaseTimeout = 5 * time.Second
+
+	// completeMaxRetries, completeRetryBase and completeRetryMax bound the retries of Complete inside the release timeout.
+	completeMaxRetries = 3
+	completeRetryBase  = 100 * time.Millisecond
+	completeRetryMax   = time.Second
 )
 
 var (
