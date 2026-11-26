@@ -25,8 +25,8 @@ func TestRecoveryDependencyOrder(t *testing.T) {
 			t.Run(fmt.Sprintf("logger=%t/auth=%t", logEnabled, authEnabled), func(t *testing.T) {
 				t.Parallel()
 				cfg := &grpcconfig.Config{Interceptors: &grpcconfig.Interceptors{
-					Logger:    &grpcconfig.LoggerInterceptor{BaseInterceptor: grpcconfig.BaseInterceptor{Enabled: logEnabled}},
-					Auth:      &grpcconfig.AuthInterceptor{BaseInterceptor: grpcconfig.BaseInterceptor{Enabled: authEnabled}},
+					Logger:    &grpcconfig.LoggerInterceptor{Enabled: logEnabled},
+					Auth:      &grpcconfig.AuthInterceptor{Enabled: authEnabled},
 					ErrStatus: &grpcconfig.ErrStatusInterceptor{Enabled: true},
 					Recovery:  &grpcconfig.RecoveryInterceptor{BaseInterceptor: enabled},
 					FieldMask: &grpcconfig.FieldMaskInterceptor{BaseInterceptor: enabled},

@@ -53,8 +53,8 @@ func indexKeys(t *testing.T, kv jetstream.KeyValue) []string {
 	}
 	var out []string
 	for _, k := range keys {
-		if strings.HasPrefix(k, "=rec.") {
-			out = append(out, strings.TrimPrefix(k, "=rec."))
+		if after, ok := strings.CutPrefix(k, "=rec."); ok {
+			out = append(out, after)
 		}
 	}
 	slices.Sort(out)

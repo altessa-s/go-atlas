@@ -39,7 +39,7 @@ func TestCollector_DescriptorConflictAcrossCollectors(t *testing.T) {
 			}
 			c1 := metrics.New(metrics.WithAdapter(tc.first))
 			c2 := metrics.New(metrics.WithAdapter(second))
-			opts := metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "latency_" + tc.name, LabelNames: []string{"route"}}, Buckets: []float64{1, 2}}
+			opts := metrics.HistogramOpts{Name: "latency_" + tc.name, LabelNames: []string{"route"}, Buckets: []float64{1, 2}}
 			_, err := metrics.RegisterHistogram(c1, opts)
 			require.NoError(t, err)
 			_, err = metrics.RegisterTimer(c2, opts)
@@ -54,7 +54,7 @@ func TestCollector_BucketConflictAcrossPrometheusAdapters(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	c1 := metrics.New(metrics.WithAdapter(prometheusadapter.New(prometheusadapter.WithRegistry(reg))))
 	c2 := metrics.New(metrics.WithAdapter(prometheusadapter.New(prometheusadapter.WithRegistry(reg))))
-	opts := metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "latency", LabelNames: []string{"route"}}, Buckets: []float64{1, 2}}
+	opts := metrics.HistogramOpts{Name: "latency", LabelNames: []string{"route"}, Buckets: []float64{1, 2}}
 	_, err := metrics.RegisterHistogram(c1, opts)
 	require.NoError(t, err)
 	different := opts

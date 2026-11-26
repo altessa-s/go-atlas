@@ -90,11 +90,11 @@ func TestFactoriesUseScopedHealthRegistration(t *testing.T) {
 				if method.Sel.Name == "RegisterOwnedChecker" {
 					index = 0
 				}
-				for i := len(ancestors) - 1; i >= 0; i-- {
-					if _, parens := ancestors[i].(*ast.ParenExpr); parens {
+				for _, ancestor := range slices.Backward(ancestors) {
+					if _, parens := ancestor.(*ast.ParenExpr); parens {
 						continue
 					}
-					if discardsResult(call, index, ancestors[i]) {
+					if discardsResult(call, index, ancestor) {
 						t.Errorf("%s: retain the unregister callback and release it on close", fset.Position(call.Pos()))
 					}
 					break

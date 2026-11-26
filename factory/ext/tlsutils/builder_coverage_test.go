@@ -204,7 +204,7 @@ func TestBuildRollsBackBeforeRetry(t *testing.T) {
 	reg := &testhelpers.MockTaskRegistrar{}
 	var opened []*ownedProvider
 	b := factory.New(cfg).UseScheduler(reg).UseProvider(tlsproviders.ProviderTypeVault, func(*tlsconfig.Provider, factory.ProviderEnv) (tlsproviders.Provider, error) {
-		p := &ownedProvider{fakeProvider: fakeProvider{typ: tlsproviders.ProviderTypeVault}}
+		p := &ownedProvider{typ: tlsproviders.ProviderTypeVault}
 		opened = append(opened, p)
 		return p, nil
 	})
