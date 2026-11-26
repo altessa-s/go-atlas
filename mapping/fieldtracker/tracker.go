@@ -198,7 +198,9 @@ func (ft *Tracker) GetChangedFields(before, after any) []string {
 // are tracked, so the same pair reached independently through two fields still
 // produces changes for both field paths.
 type comparison struct {
-	changed               []string
+	changed []string
+	// unlimited lifts the depth limit, for the comparison of a value the limit stopped the walk at.
+	unlimited             bool
 	beforeRoot, afterRoot reflect.Value
 
 	// The common shallow path stays entirely on the stack. For deeper
@@ -256,8 +258,16 @@ func (c *comparison) isRoot(ref referencePair) bool {
 		ref.before == c.beforeRoot.UnsafePointer() && ref.after == c.afterRoot.UnsafePointer()
 }
 
-func (ft *Tracker) depthExceeded(depth int) bool {
-	return ft.opts.maxDepth > 0 && depth > ft.opts.maxDepth
+func (ft *Tracker) depthExceeded(state *comparison, depth int) bool {
+	return !state.unlimited && ft.opts.maxDepth > 0 && depth > ft.opts.maxDepth
+}
+
+// equalBeyondLimit decides whether two values the depth limit stops the walk at differ, with the same field selection as the walk
+// itself (promoted fields of embedded structs, json:"-" and ignored fields): they are compared with the limit lifted and the
+// result is collapsed to the enclosing path by the caller.
+func (ft *Tracker) equalBeyondLimit(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
+	sub := comparison{beforeRoot: state.beforeRoot, afterRoot: state.afterRoot, unlimited: true}
+	return ft.fastCompare(before, after, prefix, &sub, depth) && len(sub.changed) == 0
 }
 
 // compareStructsFast uses optimized comparison with zero-allocation path building.
@@ -373,8 +383,8 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, state
 	case reflect.Struct:
 		info := ft.getTypeInfo(before.Type())
 		if info.trackable {
-			if ft.depthExceeded(depth) {
-				return valuesEqual(before, after)
+			if ft.depthExceeded(state, depth) {
+				return ft.equalBeyondLimit(before, after, prefix, state, depth)
 			}
 			ft.compareStructsFast(before, after, prefix, state, depth)
 			return true
@@ -387,8 +397,8 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, state
 		return ft.compareReferencedCollection(before, after, prefix, state, depth)
 
 	case reflect.Array:
-		if ft.depthExceeded(depth) {
-			return valuesEqual(before, after)
+		if ft.depthExceeded(state, depth) {
+			return ft.equalBeyondLimit(before, after, prefix, state, depth)
 		}
 		return ft.compareSliceFast(before, after, prefix, state, depth)
 
@@ -410,8 +420,8 @@ func (ft *Tracker) comparePointer(before, after reflect.Value, prefix string, st
 	// A single pointer has the depth of its field or collection slot.
 	// Additional indirection within the slot also consumes depth.
 	if before.Kind() == reflect.Pointer || before.Kind() == reflect.Interface {
-		if ft.depthExceeded(depth) {
-			return valuesEqual(before, after)
+		if ft.depthExceeded(state, depth) {
+			return ft.equalBeyondLimit(before, after, prefix, state, depth)
 		}
 		depth++
 	}
@@ -424,8 +434,8 @@ func (ft *Tracker) compareReferencedCollection(before, after reflect.Value, pref
 	}
 	// Beyond the depth limit the collection is not traversed: it is one value, equal or changed as a whole, so the enclosing path
 	// is reported instead of silently dropping a difference.
-	if ft.depthExceeded(depth) {
-		return valuesEqual(before, after)
+	if ft.depthExceeded(state, depth) {
+		return ft.equalBeyondLimit(before, after, prefix, state, depth)
 	}
 	ref := referenceOf(before, after)
 	if (ref.before == ref.after && ref.beforeLen == ref.afterLen) || !state.enter(ref) {
@@ -496,12 +506,25 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 	return true
 }
 
+// isNilReference reports whether v is a nil pointer, interface, map, slice, func or channel; user methods are never called on it.
+func isNilReference(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 // valuesEqual compares two values as opaque wholes: with their Equal(T) bool method when the type has one (time.Time, decimals, whose
 // equal values need not be deeply equal), otherwise with reflect.DeepEqual. Values reached through unexported fields are not part of
 // the diff and compare equal.
 func valuesEqual(before, after reflect.Value) bool {
 	if !before.CanInterface() || !after.CanInterface() {
 		return true
+	}
+	if isNilReference(before) || isNilReference(after) {
+		return reflect.DeepEqual(before.Interface(), after.Interface())
 	}
 	if m := before.MethodByName("Equal"); m.IsValid() {
 		if mt := m.Type(); mt.NumIn() == 1 && mt.In(0) == after.Type() && mt.NumOut() == 1 && mt.Out(0).Kind() == reflect.Bool {
