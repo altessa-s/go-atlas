@@ -227,8 +227,8 @@ func subsystemLevels(levels map[string]observabilityconfig.LoggerLevel) map[stri
 	return out
 }
 
-// parseLevel maps a configured level to a slog level; unknown values map to
-// error.
+// parseLevel maps a configured level to a slog level; none maps to
+// [slogx.LevelOff] and unknown values map to error.
 func parseLevel(level observabilityconfig.LoggerLevel) slog.Level {
 	switch level {
 	case observabilityconfig.LoggerLevelDebug:
@@ -237,6 +237,8 @@ func parseLevel(level observabilityconfig.LoggerLevel) slog.Level {
 		return slog.LevelInfo
 	case observabilityconfig.LoggerLevelWarning:
 		return slog.LevelWarn
+	case observabilityconfig.LoggerLevelNone:
+		return slogx.LevelOff
 	default:
 		return slog.LevelError
 	}

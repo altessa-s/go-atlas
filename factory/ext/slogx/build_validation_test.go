@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/ext/slogx"
 
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 // isolatedCapture registers a uniquely named capture format and returns the
@@ -193,4 +194,28 @@ func TestBuild_LevelNoneDiscards(t *testing.T) {
 	require.NoError(t, err)
 	logger.Error("x")
 	require.Zero(t, buf.Len())
+}
+
+func TestBuild_SubsystemLevelNoneSuppressesAllRecords(t *testing.T) {
+	t.Parallel()
+
+	cfg := &observabilityconfig.Logger{
+		Level: observabilityconfig.LoggerLevelInfo,
+		Subsystems: map[string]observabilityconfig.LoggerLevel{
+			"noisy": observabilityconfig.LoggerLevelNone,
+			"chat":  observabilityconfig.LoggerLevelDebug,
+		},
+	}
+	b, buf := isolatedCapture(t, cfg)
+
+	logger, err := b.Build()
+	require.NoError(t, err)
+
+	noisy := logger.With(slogx.Module("noisy"))
+	noisy.Error("error must be suppressed")
+	noisy.Log(t.Context(), slog.LevelError+4, "above error must also be suppressed")
+	require.Zero(t, buf.Len(), "subsystem at level none must emit nothing")
+
+	logger.With(slogx.Module("chat")).Debug("debug allowed")
+	require.Equal(t, "debug allowed", decodeRecord(t, buf)["msg"])
 }
