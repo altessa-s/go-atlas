@@ -7,15 +7,17 @@ package factory_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/factory/observability/health"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/health"
 
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	factory "github.com/altessa-s/go-atlas/factory/observability/health"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -153,4 +155,40 @@ func TestBuild_RegistersOnCallerContext(t *testing.T) {
 	_, err := factory.New(&cfg).UseScheduler(registrar).Build(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "startup", registrar.got)
+}
+
+func TestBuildRejectsZeroWatcherSettings(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{"watcherChannelBuffer", "maxWatchersPerService"} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			cfg := observabilityconfig.DefaultHealth()
+			if field == "watcherChannelBuffer" {
+				cfg.WatcherChannelBuffer = 0
+			} else {
+				cfg.MaxWatchersPerService = 0
+			}
+			require.Error(t, cfg.Validate())
+			_, err := factory.New(&cfg).Build(t.Context())
+			require.ErrorContains(t, err, field)
+		})
+	}
+}
+
+func TestBuildDisablesStatusCacheWithZeroTTL(t *testing.T) {
+	t.Parallel()
+	cfg := observabilityconfig.DefaultHealth()
+	cfg.StatusCacheTTL = 0
+	c, err := factory.New(&cfg).Build(t.Context())
+	require.NoError(t, err)
+	defer c.Close()
+	var calls atomic.Int32
+	c.RegisterService("api", health.Func(func(context.Context) health.ServingStatus {
+		calls.Add(1)
+		return health.StatusServing
+	}))
+	for range 2 {
+		require.Equal(t, health.StatusServing, c.CheckStatus(t.Context(), "api"))
+	}
+	require.EqualValues(t, 2, calls.Load())
 }

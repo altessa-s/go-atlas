@@ -137,7 +137,7 @@ func TestHealth_Validate(t *testing.T) {
 		{name: "zero HealthCheckInterval fails", mutate: func(h *observabilityconfig.Health) { h.HealthCheckInterval = 0 }, wantErr: true},
 		{name: "negative WatcherChannelBuffer fails", mutate: func(h *observabilityconfig.Health) { h.WatcherChannelBuffer = -1 }, wantErr: true},
 		{name: "negative MaxWatchersPerService fails", mutate: func(h *observabilityconfig.Health) { h.MaxWatchersPerService = -1 }, wantErr: true},
-		{name: "zero MaxWatchersPerService passes (0 == unlimited)", mutate: func(h *observabilityconfig.Health) { h.MaxWatchersPerService = 0 }},
+		{name: "zero MaxWatchersPerService fails", mutate: func(h *observabilityconfig.Health) { h.MaxWatchersPerService = 0 }, wantErr: true},
 		{name: "zero NumShards fails", mutate: func(h *observabilityconfig.Health) { h.NumShards = 0 }, wantErr: true},
 		{name: "zero MaxConcurrentHealthChecks fails", mutate: func(h *observabilityconfig.Health) { h.MaxConcurrentHealthChecks = 0 }, wantErr: true},
 		{name: "zero StatusCacheTTL passes (NonNegativeDuration)", mutate: func(h *observabilityconfig.Health) { h.StatusCacheTTL = 0 }},

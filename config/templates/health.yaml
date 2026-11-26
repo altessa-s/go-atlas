@@ -10,13 +10,13 @@
 #  healthCheckInterval: "5s"
 #
 #  # <int> Specifies the base buffer size for status update channels.
-#  # Controls how many status changes can be queued before blocking.
+#  # Must be at least 1. Updates can be dropped when the buffer is full.
 #  # Default value: 10
 #  watcherChannelBuffer: 10
 #
 #  # <int> Maximum concurrent subscriptions allowed per service.
 #  # Limits resource usage by preventing excessive number of watchers.
-#  # Must be positive; values <= 0 are ignored and the default limit applies.
+#  # Must be at least 1.
 #  # Default value: 1000
 #  maxWatchersPerService: 1000
 #
@@ -31,12 +31,12 @@
 #  maxConcurrentHealthChecks: 10
 #
 #  # <duration> Specifies how long to cache health check results.
-#  # Reduces frequency of actual check execution by reusing recent results.
+#  # Reuses recent results. Use "0s" to disable caching.
 #  # Default value: 500ms
 #  statusCacheTTL: "500ms"
 #
 #  # <duration> Specifies the maximum time to wait for a single health check.
-#  # Prevents hung check logic from blocking the coordinator indefinitely.
+#  # Caps the context deadline passed to each checker.
 #  # Default value: 2s
 #  checkTimeout: "2s"
 #

@@ -87,8 +87,8 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 				} else if api == "service" || api == "cached service" {
 					want = health.StatusServiceUnknown
 				}
-				if api == "list" {
-					want = checked
+				if api == "list" && !replace {
+					want = health.StatusUnknown
 				}
 				require.Equal(t, want, <-done)
 				require.Equal(t, 0, c.GetMetrics()["cached_statuses"], "a changed registration must not populate the cache")

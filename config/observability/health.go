@@ -36,12 +36,12 @@ type Health struct {
 
 	// WatcherChannelBuffer is the base buffer size for notification channels.
 	// Controls how many status changes can be queued before non-blocking drops.
-	// Defaults to 10.
+	// Must be at least 1. Defaults to 10.
 	WatcherChannelBuffer int `yaml:"watcherChannelBuffer" default:"10"`
 
 	// MaxWatchersPerService limits concurrent subscriptions per service.
 	// Protects resources by capping the number of active watchers.
-	// Value 0 means unlimited. Defaults to 1000.
+	// Must be at least 1. Defaults to 1000.
 	MaxWatchersPerService int `yaml:"maxWatchersPerService" default:"1000"`
 
 	// NumShards is the number of lock shards for contention reduction.
@@ -56,7 +56,7 @@ type Health struct {
 
 	// StatusCacheTTL is the cache duration for check results.
 	// Reduces the load on checked services by reusing recent results.
-	// Defaults to 500ms.
+	// A value of 0 disables caching. Defaults to 500ms.
 	StatusCacheTTL time.Duration `yaml:"statusCacheTTL" default:"500ms"`
 
 	// CheckTimeout is the timeout per individual health check.
@@ -103,8 +103,8 @@ func DefaultHealth() Health {
 func (h *Health) Validate() error {
 	return validationconfig.ValidateStruct(h,
 		validation.Field(&h.HealthCheckInterval, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
-		validation.Field(&h.WatcherChannelBuffer, validation.Min(0)),
-		validation.Field(&h.MaxWatchersPerService, validation.Min(0)),
+		validation.Field(&h.WatcherChannelBuffer, validation.Required, validation.Min(1)),
+		validation.Field(&h.MaxWatchersPerService, validation.Required, validation.Min(1)),
 		validation.Field(&h.NumShards, validation.Required, validation.Min(1)),
 		validation.Field(&h.MaxConcurrentHealthChecks, validation.Required, validation.Min(1)),
 		validation.Field(&h.StatusCacheTTL, validationconfig.NonNegativeDuration()),

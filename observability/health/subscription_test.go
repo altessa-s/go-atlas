@@ -18,7 +18,7 @@ func TestSubscription_InitialStatus(t *testing.T) {
 func TestSubscription_Close_Idempotent(t *testing.T) {
 	called := 0
 	sub := &Subscription{
-		cancel: func() { called++ },
+		watcher: &watcher{remove: func(bool) { called++ }},
 	}
 	sub.Close()
 	sub.Close()
@@ -45,14 +45,16 @@ func TestWatcher_Notify(t *testing.T) {
 
 func TestWatcher_Notify_AfterClose(t *testing.T) {
 	w := newWatcher(1, StatusUnknown)
-	w.close()
+	w.remove = w.close
+	w.stop(false)
 	w.notify(StatusServing) // should not panic
 }
 
 func TestWatcher_Close_Idempotent(t *testing.T) {
 	w := newWatcher(1, StatusUnknown)
-	w.close()
-	w.close() // should not panic
+	w.remove = w.close
+	w.stop(false)
+	w.stop(false) // should not panic
 }
 
 func TestWatcher_Notify_FullBuffer(t *testing.T) {

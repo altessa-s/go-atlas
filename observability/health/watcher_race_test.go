@@ -19,6 +19,7 @@ func TestWatcher_NotifyCloseRace(t *testing.T) {
 
 	for range 200 {
 		w := newWatcher(1, StatusServing)
+		w.remove = w.close
 
 		var wg sync.WaitGroup
 		for range 4 {
@@ -28,7 +29,7 @@ func TestWatcher_NotifyCloseRace(t *testing.T) {
 				}
 			})
 		}
-		wg.Go(w.close)
+		wg.Go(func() { w.stop(false) })
 		wg.Wait()
 
 		require.False(t, w.notify(StatusServing), "notify after close must not send")

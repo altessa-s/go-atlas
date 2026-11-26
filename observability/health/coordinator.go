@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"iter"
 	"slices"
+	"sync"
 
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
-
-	corectx "github.com/altessa-s/go-atlas-core/context"
 )
 
 // Subscriber represents an active subscription to health status updates.
@@ -155,9 +155,10 @@ type Metrics interface {
 //	    RunOnStart: true,
 //	})
 type Coordinator struct {
-	statuses statusReporter
-	watchers subscriptions
-	checks   checkScheduler
+	statuses  statusReporter
+	watchers  subscriptions
+	checks    checkScheduler
+	closeOnce sync.Once
 }
 
 // Compile-time interface assertions.
@@ -180,7 +181,7 @@ func New(opts ...Option) *Coordinator {
 	o := newOptions(opts...)
 	c := &Coordinator{
 		statuses: statusReporter{
-			registry:                  serviceRegistry{services: make(map[string]*serviceRegistration)},
+			registry:                  serviceRegistry{services: make(map[string]*serviceRegistration), cacheDisabled: o.statusCacheTTL <= 0},
 			statusCacheTTL:            o.statusCacheTTL,
 			checkTimeout:              o.checkTimeout,
 			maxConcurrentHealthChecks: o.maxConcurrentHealthChecks,
@@ -196,6 +197,7 @@ func New(opts ...Option) *Coordinator {
 		statuses:      &c.statuses,
 		watchers:      &c.watchers,
 	}
+	c.checks.guard = cycle.New(c.checks.run)
 	return c
 }
 
@@ -208,16 +210,11 @@ func New(opts ...Option) *Coordinator {
 // by [Coordinator.CheckStatus]) and push-based subscribers immediately see
 // the service as not serving.
 func (c *Coordinator) Close() {
-	if !c.checks.closed.CompareAndSwap(false, true) {
-		return // Already closed
-	}
-
-	// Make pull-API readers see NotServing immediately; pre-shutdown checkers
-	// may still return Serving while connections are torn down.
-	c.SetOverallStatus(StatusNotServing)
-
-	// Notify all watchers of shutdown.
-	c.BroadcastStatus(StatusNotServing)
+	c.closeOnce.Do(func() {
+		c.checks.closed.Store(true)
+		c.SetOverallStatus(StatusNotServing)
+		c.watchers.close()
+	})
 }
 
 // SetOverallStatus pins the result of [Coordinator.CheckHealth],
@@ -307,16 +304,13 @@ func (c *Coordinator) CheckServiceHealth(ctx context.Context, service string) Se
 	return c.statuses.serviceHealth(ctx, service)
 }
 
-// Health reports the overall status as an error: nil while [CheckHealth]
-// returns [StatusServing], otherwise an error wrapping [ErrNotServing] that
+// Health reports the cached overall status as an error: nil for
+// [StatusServing], otherwise an error wrapping [ErrNotServing] that
 // names the status. It lets a Coordinator stand in wherever a
 // Health(ctx) error dependency is expected — the gRPC health interceptor
 // (transport/grpc/interceptors/health) among them — without an adapter.
 func (c *Coordinator) Health(ctx context.Context) error {
-	ctx, cancel := corectx.ApplyTimeout(ctx, c.statuses.checkTimeout)
-	defer cancel()
-
-	if st := c.CheckHealth(ctx); st != StatusServing {
+	if st := c.statuses.getHealthStatus(ctx, ""); st != StatusServing {
 		return fmt.Errorf("%w: %s", ErrNotServing, st)
 	}
 	return nil
@@ -353,6 +347,7 @@ func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatu
 
 // Subscribe creates a [Subscription] for a service's health updates.
 // Status updates are delivered when [Coordinator.RunHealthCheckCycle] detects changes.
+// Canceling ctx closes the subscription.
 // Returns [ErrWatcherLimitExceeded] if the per-service limit is reached,
 // or [ErrCoordinatorShutdown] if the coordinator has been closed.
 //
@@ -369,7 +364,7 @@ func (c *Coordinator) Subscribe(ctx context.Context, service string) (Subscriber
 	}
 
 	initialStatus := c.statuses.getHealthStatus(ctx, service)
-	return c.watchers.subscribe(service, initialStatus)
+	return c.watchers.subscribe(ctx, service, initialStatus, &c.checks.closed, &c.statuses.override)
 }
 
 // NotifyStatusChange sends a status update to all watchers of a service.

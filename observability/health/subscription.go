@@ -5,6 +5,7 @@
 package health
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -17,8 +18,7 @@ type Subscription struct {
 	initialStatus ServingStatus
 	updates       <-chan ServingStatus
 
-	cancelOnce sync.Once
-	cancel     func()
+	watcher *watcher
 }
 
 // InitialStatus returns the [ServingStatus] captured at subscription time.
@@ -34,11 +34,9 @@ func (s *Subscription) Updates() <-chan ServingStatus {
 
 // Close terminates the subscription and releases resources.
 func (s *Subscription) Close() {
-	s.cancelOnce.Do(func() {
-		if s.cancel != nil {
-			s.cancel()
-		}
-	})
+	if s.watcher != nil {
+		s.watcher.stop(false)
+	}
 }
 
 type watcherShard struct {
@@ -49,12 +47,15 @@ type watcherShard struct {
 type watcher struct {
 	ch chan ServingStatus
 
+	stopOnce sync.Once
+	remove   func(terminal bool)
+
 	// A poll snapshots pushes before checking the service. Delivery and push
 	// sequence changes share mu so a newer push always wins.
 	pushes     atomic.Uint64
 	mu         sync.Mutex
 	lastStatus ServingStatus
-	closed     bool
+	stopped    bool
 }
 
 func newWatcher(buffer int, initialStatus ServingStatus) *watcher {
@@ -79,7 +80,7 @@ func (w *watcher) notifyPoll(status ServingStatus, pushes uint64) (previous Serv
 
 // send attempts delivery while holding mu.
 func (w *watcher) send(status ServingStatus) bool {
-	if w.closed {
+	if w.stopped {
 		return false
 	}
 	select {
@@ -91,14 +92,26 @@ func (w *watcher) send(status ServingStatus) bool {
 	}
 }
 
-func (w *watcher) close() {
+func (w *watcher) stop(terminal bool) {
+	w.stopOnce.Do(func() { w.remove(terminal) })
+}
+
+func (w *watcher) close(terminal bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if !w.closed {
-		w.closed = true
-		close(w.ch)
+	if terminal {
+		// Make room for the terminal update even when the buffer is full.
+		if len(w.ch) == cap(w.ch) {
+			select {
+			case <-w.ch:
+			default:
+			}
+		}
+		w.ch <- StatusNotServing
 	}
+	w.stopped = true
+	close(w.ch)
 }
 
 type subscriptions struct {
@@ -142,10 +155,15 @@ func (s *subscriptions) getShardIndex(service string) int {
 	return int(h % uint32(len(s.watcherShards))) // #nosec G115 -- numShards is small positive int
 }
 
-func (s *subscriptions) subscribe(service string, initialStatus ServingStatus) (Subscriber, error) {
+func (s *subscriptions) subscribe(
+	ctx context.Context, service string, initialStatus ServingStatus, closed *atomic.Bool, override *atomic.Int32,
+) (Subscriber, error) {
 	bufferSize := s.watcherChannelBuffer
 	if active := s.activeWatchers.Load(); active > s.adaptiveBufferThreshold {
-		bufferSize = min(bufferSize*s.adaptiveBufferMultiplier, s.maxAdaptiveBuffer)
+		bufferSize = s.maxAdaptiveBuffer
+		if s.watcherChannelBuffer <= s.maxAdaptiveBuffer/s.adaptiveBufferMultiplier {
+			bufferSize = s.watcherChannelBuffer * s.adaptiveBufferMultiplier
+		}
 	}
 
 	w := newWatcher(bufferSize, initialStatus)
@@ -153,40 +171,52 @@ func (s *subscriptions) subscribe(service string, initialStatus ServingStatus) (
 	shard := &s.watcherShards[shardIdx]
 
 	shard.mu.Lock()
+	if closed.Load() {
+		shard.mu.Unlock()
+		return nil, ErrCoordinatorShutdown
+	}
+	if len(shard.watchers[service]) >= s.maxWatchersPerService {
+		shard.mu.Unlock()
+		return nil, ErrWatcherLimitExceeded
+	}
 	if shard.watchers[service] == nil {
 		shard.watchers[service] = make(map[*watcher]struct{})
 	}
-	if s.maxWatchersPerService > 0 && len(shard.watchers[service]) >= s.maxWatchersPerService {
-		shard.mu.Unlock()
-		w.close()
-		return nil, ErrWatcherLimitExceeded
+	var stopCancellation func() bool
+	w.remove = func(terminal bool) {
+		shard.mu.Lock()
+		defer shard.mu.Unlock()
+		if stopCancellation != nil {
+			stopCancellation()
+		}
+		w.close(terminal)
+		delete(shard.watchers[service], w)
+		if len(shard.watchers[service]) == 0 {
+			delete(shard.watchers, service)
+		}
+		s.activeWatchers.Add(-1)
 	}
 	shard.watchers[service][w] = struct{}{}
-	shard.mu.Unlock()
-
 	s.activeWatchers.Add(1)
+
+	if closed.Load() {
+		shard.mu.Unlock()
+		w.stop(true)
+		return nil, ErrCoordinatorShutdown
+	}
+	if status := ServingStatus(override.Load()); status != StatusUnknown && initialStatus != StatusServiceUnknown {
+		initialStatus = status
+		w.lastStatus = status
+	}
+	stopCancellation = context.AfterFunc(ctx, func() { w.stop(false) })
+	shard.mu.Unlock()
 
 	s.logger.Debug("new subscription created",
 		slog.String("service", service),
 		slog.Int("buffer_size", bufferSize),
 		slog.String("initial_status", initialStatus.String()))
 
-	return &Subscription{
-		initialStatus: initialStatus,
-		updates:       w.ch,
-		cancel: func() {
-			shard := &s.watcherShards[shardIdx]
-			shard.mu.Lock()
-			delete(shard.watchers[service], w)
-			if len(shard.watchers[service]) == 0 {
-				delete(shard.watchers, service)
-			}
-			shard.mu.Unlock()
-
-			w.close()
-			s.activeWatchers.Add(-1)
-		},
-	}, nil
+	return &Subscription{initialStatus: initialStatus, updates: w.ch, watcher: w}, nil
 }
 
 func (s *subscriptions) notifyWatchers(service string, status ServingStatus) int {
@@ -224,22 +254,31 @@ func (s *subscriptions) logStatusChange(service string, status ServingStatus, co
 }
 
 func (s *subscriptions) broadcast(status ServingStatus) {
+	for _, w := range s.snapshot() {
+		w.notify(status)
+	}
+}
+
+func (s *subscriptions) close() {
+	for _, w := range s.snapshot() {
+		w.stop(true)
+	}
+}
+
+func (s *subscriptions) snapshot() []*watcher {
+	var list []*watcher
 	for i := range s.watcherShards {
 		shard := &s.watcherShards[i]
 
 		shard.mu.RLock()
-		var list []*watcher
 		for _, serviceWatchers := range shard.watchers {
 			for w := range serviceWatchers {
 				list = append(list, w)
 			}
 		}
 		shard.mu.RUnlock()
-
-		for _, w := range list {
-			w.notify(status)
-		}
 	}
+	return list
 }
 
 func (s *subscriptions) count() int {

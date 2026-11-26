@@ -37,8 +37,14 @@ through either coordinator registration method.
 - Scheduler integration via `WithScheduler` / `WithCheckSchedule`
 
 Each registration has its own identity. Removing a service during a check excludes it from overall health; replacing it makes that check report
-not serving until the replacement is checked on a later call. `ListStatuses` still reports the statuses actually checked. Registry changes invalidate
-the service and overall caches, and checks spanning a registry change do not populate the cache.
+not serving until the replacement is checked on a later call. `ListStatuses` omits removed services and reports `StatusNotServing` for replaced
+services. Registry changes invalidate the service and overall caches, and checks spanning a registry change do not populate the cache.
+
+`Health` and `CheckStatus` reuse results for the configured TTL. Set `WithStatusCacheTTL(0)` to disable caching. Each checker receives a context
+bounded by `WithCheckTimeout` and any earlier caller deadline.
+
+Canceling the subscription context or calling `Subscription.Close` releases that subscription. `Coordinator.Close` queues a final
+`StatusNotServing` for active subscriptions before closing their channels. It drops the oldest queued update when the buffer is full.
 
 Use `RegisterScopedService` to get an unregister function tied to that registration. Both this function and `UnregisterService` stop admitting
 new checks for the removed registration and wait for its in-flight checks to finish. Invoke them outside the checker's `CheckHealth` method,

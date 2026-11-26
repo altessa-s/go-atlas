@@ -11,4 +11,7 @@
 //	coordinator, err := factory.New(cfg.Health).
 //	    UseLogger(logger).
 //	    Build(ctx)
+//
+// Watcher limits and channel buffers must be positive. A zero status cache
+// TTL disables caching.
 package factory

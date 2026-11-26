@@ -10,12 +10,15 @@
 //
 // The central type is [Coordinator], which holds a registry of named services
 // (each implementing [Checker]) and a set of watcher subscriptions ([Subscriber]).
-// Status checks are cached for a configurable TTL ([WithStatusCacheTTL]) and
-// executed with a per-check timeout ([WithCheckTimeout]).
+// [Coordinator.Health] and [Coordinator.CheckStatus] cache results for a
+// configurable TTL ([WithStatusCacheTTL]). A zero TTL disables caching.
+// Checkers receive a context capped by [WithCheckTimeout].
 //
 // Watcher channels are sharded across [WithNumShards] shards to reduce lock
 // contention under high fan-out. Buffer sizes adapt automatically when the
-// active watcher count exceeds [WithAdaptiveBufferThreshold].
+// active watcher count exceeds [WithAdaptiveBufferThreshold]. Canceling
+// a subscription context releases it. Closing the coordinator delivers a
+// final [StatusNotServing] update before closing active subscriptions.
 //
 // # Consumer ports
 //

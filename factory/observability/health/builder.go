@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -45,6 +46,13 @@ func (b *CoordinatorBuilder) Build(ctx context.Context) (*health.Coordinator, er
 
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
+	}
+
+	if b.cfg.WatcherChannelBuffer < 1 {
+		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "watcherChannelBuffer must be at least 1")
+	}
+	if b.cfg.MaxWatchersPerService < 1 {
+		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "maxWatchersPerService must be at least 1")
 	}
 
 	opts := []health.Option{

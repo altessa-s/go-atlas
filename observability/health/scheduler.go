@@ -6,10 +6,12 @@ package health
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
@@ -21,8 +23,7 @@ type checkScheduler struct {
 	scheduler      schedtask.Registrar
 	checkSchedule  string
 	registrationMu sync.Mutex
-	managed        atomic.Bool
-	running        atomic.Bool
+	guard          *cycle.Guard
 	closed         atomic.Bool
 	metrics        *healthMetrics
 	logger         *slog.Logger
@@ -39,7 +40,7 @@ func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
 func (s *checkScheduler) register(ctx context.Context) error {
 	s.registrationMu.Lock()
 	defer s.registrationMu.Unlock()
-	if s.managed.Load() {
+	if s.guard.IsManaged() {
 		return nil
 	}
 	if nilcheck.IsNil(s.scheduler) || s.checkSchedule == "" {
@@ -51,7 +52,7 @@ func (s *checkScheduler) register(ctx context.Context) error {
 	taskCfg := schedtask.Config{
 		ID:             "health-check",
 		Description:    "Periodic health check cycle for all watched services",
-		Func:           s.run,
+		Func:           s.guard.Entry(),
 		Schedule:       s.checkSchedule,
 		Priority:       schedtask.PriorityNormal,
 		RunOnStart:     true,
@@ -63,7 +64,7 @@ func (s *checkScheduler) register(ctx context.Context) error {
 		return coreerrs.WrapOperation(err, "register health check task")
 	}
 
-	s.managed.Store(true)
+	s.guard.MarkManaged()
 	s.logger.Debug("registered health check task",
 		slog.String("schedule", s.checkSchedule))
 
@@ -74,27 +75,23 @@ func (s *checkScheduler) register(ctx context.Context) error {
 // health check as scheduler-managed. After calling this method, direct calls to
 // RunHealthCheckCycle will return ErrSchedulerManaged.
 func (c *Coordinator) RegisterHealthCheckSchedulerFunc() func(context.Context) error {
-	c.checks.managed.Store(true)
-	return c.checks.run
+	c.checks.registrationMu.Lock()
+	defer c.checks.registrationMu.Unlock()
+	return c.checks.guard.Managed()
 }
 
 // RunHealthCheckCycle performs a single health check cycle for all watched services.
 // This method is designed to be called manually for one-time health check.
 // If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
 func (c *Coordinator) RunHealthCheckCycle(ctx context.Context) error {
-	if c.checks.managed.Load() {
+	err := c.checks.guard.Run(ctx)
+	if errors.Is(err, cycle.ErrManaged) {
 		return ErrSchedulerManaged
 	}
-	return c.checks.run(ctx)
+	return err
 }
 
-// Overlapping scheduler and manual ticks skip the work already in progress.
 func (s *checkScheduler) run(ctx context.Context) error {
-	if !s.running.CompareAndSwap(false, true) {
-		return nil
-	}
-	defer s.running.Store(false)
-
 	if s.closed.Load() {
 		return nil
 	}
@@ -113,9 +110,7 @@ func (s *checkScheduler) run(ctx context.Context) error {
 		default:
 		}
 
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, s.statuses.checkTimeout)
-		currentStatus := s.statuses.getHealthStatus(checkCtx, service)
-		cancel()
+		currentStatus := s.statuses.getHealthStatus(ctx, service)
 		s.metrics.checksPerformed.Inc()
 
 		for _, target := range watchers {
