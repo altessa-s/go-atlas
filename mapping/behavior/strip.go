@@ -310,6 +310,8 @@ func (c *cloner) fieldFor(v reflect.Value, index []int) (reflect.Value, bool) {
 	for i, x := range index {
 		f := cur.Field(x)
 		if !f.CanSet() && f.CanAddr() {
+			// #nosec G103 -- audited: f is addressable within the clone this cloner owns; the pointer re-exposes that field so an
+			// unexported embedded pointer can be replaced by a copy and never escapes the clone.
 			f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
 		}
 		if i < len(index)-1 && f.Kind() == reflect.Pointer {
