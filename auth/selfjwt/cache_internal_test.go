@@ -60,10 +60,7 @@ func TestKeyCacheEnforcesMaxEntries(t *testing.T) {
 	// A churn of distinct kids must never grow the cache beyond the cap.
 	for i := range max * 4 {
 		put(c, "s", strconv.Itoa(i), jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
-		c.mu.RLock()
-		n := len(c.items)
-		c.mu.RUnlock()
-		require.LessOrEqual(t, n, max)
+		require.LessOrEqual(t, c.size(), max)
 	}
 }
 
@@ -95,6 +92,58 @@ func TestKeyCachePutIfGenerationFencedByInvalidation(t *testing.T) {
 			c.putIfGeneration("s", "k", vk, c.generation())
 			_, ok = c.get("s", "k")
 			require.True(t, ok)
+		})
+	}
+}
+
+// Attacker-driven negative entries must not evict the verified keys that
+// legitimate subjects rely on.
+func TestKeyCacheNegativesDoNotEvictPositives(t *testing.T) {
+	t.Parallel()
+	clk := &stepClock{t: time.Unix(0, 0).UTC()}
+	const max = 100
+	c := newKeyCache(time.Hour, time.Hour, max, clk)
+
+	const legit = 20
+	for i := range legit {
+		put(c, "legit", strconv.Itoa(i), jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
+	}
+	for i := range max * 3 {
+		c.putMissIfGeneration("random-"+strconv.Itoa(i), "k", ErrSubjectUnknown, c.generation())
+	}
+
+	for i := range legit {
+		_, ok := c.get("legit", strconv.Itoa(i))
+		require.True(t, ok, "legitimate key %d was evicted by negative entries", i)
+	}
+}
+
+func TestKeyCacheNegativeEntriesAreBounded(t *testing.T) {
+	t.Parallel()
+	clk := &stepClock{t: time.Unix(0, 0).UTC()}
+	c := newKeyCache(time.Hour, time.Hour, 100, clk)
+
+	for i := range 1000 {
+		c.putMissIfGeneration("s"+strconv.Itoa(i), "k", ErrKeyRotated, c.generation())
+	}
+	require.LessOrEqual(t, c.size(), 100)
+	require.ErrorIs(t, c.getMiss("s999", "k"), ErrKeyRotated, "the newest negative entry is kept")
+}
+
+func BenchmarkKeyCachePutAtCapacity(b *testing.B) {
+	clk := &stepClock{t: time.Unix(0, 0).UTC()}
+	for _, size := range []int{100, 10000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			c := newKeyCache(time.Hour, time.Hour, size, clk)
+			for i := range size {
+				put(c, "s", strconv.Itoa(i), jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
+			}
+			vk := jwt.VerificationKey{Algorithm: jwt.AlgEdDSA}
+			var i int
+			for b.Loop() {
+				i++
+				put(c, "fresh", strconv.Itoa(i), vk)
+			}
 		})
 	}
 }

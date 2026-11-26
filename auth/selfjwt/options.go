@@ -32,6 +32,9 @@ const (
 
 	// DefaultCacheMaxEntries caps the verification-key cache so a churn of
 	// short-lived subjects or rotated-away kids cannot grow it without bound.
+	// A tenth of it is the separate cap of cached key-provider misses, so
+	// unknown subjects cannot evict verified keys. A non-positive
+	// WithCacheMaxEntries selects this default.
 	DefaultCacheMaxEntries = 10000
 
 	// DefaultKeyLookupTimeout bounds a key-provider lookup on a cache miss. The
