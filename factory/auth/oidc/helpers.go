@@ -8,12 +8,14 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/auth/oidc"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
@@ -43,9 +45,11 @@ func validationOptionsFromConfig(cfg *authconfig.OIDCValidation, clockSkew time.
 		opts = append(opts, cel)
 	}
 
-	opts = slices.AppendIf(opts, cfg.IsClaimsConfigured(), buildClaimsValidationOptions(cfg.Claims)...)
-
-	return opts, nil
+	claimsOpts, err := buildClaimsValidationOptions(cfg.Claims)
+	if err != nil {
+		return nil, err
+	}
+	return append(opts, claimsOpts...), nil
 }
 
 // presetFromConfig creates a validation preset from configuration.
@@ -61,7 +65,11 @@ func presetFromConfig(preset *authconfig.OIDCPreset, clockSkew time.Duration) (*
 		oidc.WithValidationMaxTokenLifetime(preset.MaxTokenLifetime),
 		oidc.WithValidationIssuer(preset.Issuer),
 	)
-	opts = slices.AppendIf(opts, preset.IsClaimsConfigured(), buildClaimsValidationOptions(preset.Claims)...)
+	claimsOpts, err := buildClaimsValidationOptions(preset.Claims)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, claimsOpts...)
 	if cel := buildCELValidationRule(preset.Expression, preset.Name+"-validation"); cel != nil {
 		opts = append(opts, cel)
 	}
@@ -93,9 +101,12 @@ func buildCELValidationRule(expr *authconfig.OIDCExpression, defaultName string)
 }
 
 // buildClaimsValidationOptions creates validation options from claims configuration.
-func buildClaimsValidationOptions(claims *authconfig.OIDCClaims) []oidc.ValidationOption {
+func buildClaimsValidationOptions(claims *authconfig.OIDCClaims) ([]oidc.ValidationOption, error) {
 	if claims == nil {
-		return nil
+		return nil, nil
+	}
+	if err := validateAuthorizedParties(claims.AllowedAuthorizedParties, coreerrs.ErrInvalidArgument); err != nil {
+		return nil, err
 	}
 
 	opts := []oidc.ValidationOption{
@@ -116,5 +127,14 @@ func buildClaimsValidationOptions(claims *authconfig.OIDCClaims) []oidc.Validati
 	opts = slices.AppendIf(opts, len(claims.AllowedAuthorizedParties) > 0,
 		oidc.WithValidationAllowedAuthorizedParties(claims.AllowedAuthorizedParties...))
 
-	return opts
+	return opts, nil
+}
+
+func validateAuthorizedParties(parties []string, kind error) error {
+	for i, party := range parties {
+		if strings.TrimSpace(party) == "" {
+			return coreerrs.Wrapf(kind, "authorized party at index %d must not be blank", i)
+		}
+	}
+	return nil
 }

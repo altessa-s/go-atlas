@@ -306,7 +306,7 @@ func (c *OIDCClaims) Validate() error {
 		validation.Field(&c.Ignored, validation.Each(validation.Required)),
 		validation.Field(&c.Expected, validation.Each(validation.Required)),
 		validation.Field(&c.AllowedAuthorizedParties,
-			validation.When(c.RequireAuthorizedParty, validation.Required), validation.Each(validation.Required)),
+			validation.When(c.RequireAuthorizedParty, validation.Required), validation.Each(validation.By(nonBlankValue))),
 	)
 }
 

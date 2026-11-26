@@ -32,8 +32,10 @@ import (
 	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
@@ -311,7 +313,9 @@ func TestBuildCELValidationRule_EmptyExpression(t *testing.T) {
 
 func TestBuildClaimsValidationOptions_Nil(t *testing.T) {
 	t.Parallel()
-	require.Nil(t, buildClaimsValidationOptions(nil))
+	opts, err := buildClaimsValidationOptions(nil)
+	require.NoError(t, err)
+	require.Nil(t, opts)
 }
 
 func TestProviderBuilderMinimumLifetimeYAML(t *testing.T) {
@@ -432,5 +436,34 @@ func TestProviderBuilderSchedulesDefaultJWKSRefresh(t *testing.T) {
 		time.Sleep(2 * time.Hour)
 		synctest.Wait()
 		require.EqualValues(t, 3, fetches.Load())
+	})
+}
+
+func TestBlankAuthorizedPartiesRejected(t *testing.T) {
+	t.Parallel()
+	parties := []string{"web", " \t"}
+	claims := &authconfig.OIDCClaims{AllowedAuthorizedParties: parties}
+	policy := &authconfig.ServiceConfig{
+		Version:           authconfig.SupportedConfigVersion,
+		DefaultValidation: &authconfig.ValidationRulesConfig{AllowedAuthorizedParties: parties},
+	}
+	t.Run("claims config", func(t *testing.T) {
+		require.Error(t, claims.Validate())
+	})
+	t.Run("claims factory", func(t *testing.T) {
+		cfg := &authconfig.OIDC{Validation: &authconfig.OIDCValidation{Claims: claims}}
+		_, err := New(cfg).buildProviderOptions(t.Context())
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	})
+	t.Run("claims preset", func(t *testing.T) {
+		_, err := presetFromConfig(&authconfig.OIDCPreset{Claims: claims}, 0)
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	})
+	t.Run("service config", func(t *testing.T) {
+		require.ErrorIs(t, authconfig.ValidateServiceConfig(policy), rules.ErrInvalidConfig)
+	})
+	t.Run("service factory", func(t *testing.T) {
+		_, err := ServiceConfigOptions(policy)
+		require.ErrorIs(t, err, rules.ErrInvalidConfig)
 	})
 }

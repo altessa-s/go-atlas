@@ -125,6 +125,10 @@ func ServiceConfigOptions(c *authconfig.ServiceConfig) ([]oidc.Option, error) {
 // ValidationOptions converts a service policy's validation block for use with
 // oidc.NewValidationPreset or oidc.Provider.ValidateTokenWithOptions.
 func ValidationOptions(v *authconfig.ValidationRulesConfig) ([]oidc.ValidationOption, error) {
+	if err := validateAuthorizedParties(v.AllowedAuthorizedParties, rules.ErrInvalidConfig); err != nil {
+		return nil, err
+	}
+
 	var opts []oidc.ValidationOption
 
 	// All CEL rules (generated and custom) go into one oidc.WithValidationCelRules
