@@ -29,7 +29,8 @@ Shared NATS KeyValue lease utilities for the data packages. Provides revision-ba
 `Retry(ctx, fn, opts...)` retries transient network errors with exponential backoff.
 
 Lease acquisition rejects acknowledgments at or beyond the lease deadline and attempts to clean up uncertain writes using the owner and KV
-revision. If renewal ends with uncertain ownership, `Release` can still remove the key conditionally.
+revision. If renewal ends with uncertain ownership, either `Release` or cancellation of the caller's context can still remove the key conditionally.
+`OnLost` runs after renewal has stopped and can call `Release`.
 
 | Option | Default | Description |
 |--------|---------|-------------|

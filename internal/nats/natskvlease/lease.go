@@ -78,10 +78,11 @@ type LeaseCallbacks struct {
 	// OnAcquired is called when the lease is successfully acquired.
 	OnAcquired func()
 
-	// OnLost is called when the lease is lost (not voluntarily released).
+	// OnLost is called after renewal has stopped and may call Release.
 	OnLost func()
 
-	// OnRenewed is called when the lease is successfully renewed.
+	// OnRenewed runs inline after a successful renewal. It must not call
+	// Release, which waits for any in-flight renewal to finish.
 	OnRenewed func()
 
 	// OnReleased is called when the lease is voluntarily released.
@@ -110,10 +111,11 @@ type Lease struct {
 	// reads and writes race-free without locking the hot Renew path.
 	value atomic.Pointer[[]byte]
 
-	// cancelMu guards the camping cancellation and renewal completion.
-	cancelMu sync.Mutex
-	cancel   context.CancelFunc
-	campDone <-chan struct{}
+	// cancelMu guards renewal and caller-context cleanup.
+	cancelMu    sync.Mutex
+	cancel      context.CancelFunc
+	campDone    <-chan struct{}
+	stopCleanup func() bool
 
 	// releaseGuard (a one-slot semaphore, so waiting honors a context)
 	// serializes explicit and context-scoped Release calls.
@@ -334,6 +336,7 @@ func (l *Lease) Release(ctx context.Context) error {
 	defer func() { <-l.releaseGuard }()
 
 	if l.state.Load() == leaseIdle {
+		l.stopContextRelease()
 		return nil
 	}
 
@@ -344,6 +347,7 @@ func (l *Lease) Release(ctx context.Context) error {
 		return err
 	}
 	l.setState(leaseIdle)
+	l.stopContextRelease()
 	if l.opts.callbacks.OnReleased != nil {
 		l.opts.callbacks.OnReleased()
 	}
@@ -443,31 +447,47 @@ func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (b
 	l.cancelMu.Lock()
 	l.cancel = cancel
 	l.campDone = done
+	l.stopCleanup = context.AfterFunc(ctx, func() {
+		defer panics.Handle(ctx)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
+		defer cancel()
+		if err := l.Release(releaseCtx); err != nil {
+			l.logger.ErrorContext(releaseCtx, "failed to release lease", slog.Any("error", err))
+		}
+	})
 	l.cancelMu.Unlock()
 
 	go func() {
-		// Repo rule: every spawned goroutine ships with panics.Handle,
-		// otherwise a panic in the renew loop (a callback that throws,
-		// a NATS-driver bug, etc.) takes the whole process down.
 		defer panics.Handle(campCtx)
-		func() {
+		defer cancel()
+		lost := func() bool {
 			defer close(done)
-			l.campingLoop(campCtx, acquiredAt)
+			return l.campingLoop(campCtx, acquiredAt)
 		}()
-		if ctx.Err() != nil {
-			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
-			defer cancel()
-			if err := l.Release(releaseCtx); err != nil {
-				l.logger.ErrorContext(releaseCtx, "failed to release lease", slog.Any("error", err))
-			}
+		if lost && !l.ReleasePending() {
+			l.stopContextRelease()
+		}
+		// Publish renewal completion before notifying OnLost, so the
+		// callback can release without waiting for itself.
+		if lost && l.opts.callbacks.OnLost != nil {
+			l.opts.callbacks.OnLost()
 		}
 	}()
 
 	return true, nil
 }
 
-// StopCamping stops the renewal loop. It does not release the lease; the key is
-// left for its TTL to reap. [Lease.Release] calls it.
+func (l *Lease) stopContextRelease() {
+	l.cancelMu.Lock()
+	defer l.cancelMu.Unlock()
+	if l.stopCleanup != nil {
+		l.stopCleanup()
+		l.stopCleanup = nil
+	}
+}
+
+// StopCamping stops the renewal loop and leaves the lease eligible for cleanup
+// by Release or by cancellation of the context passed to RunCamping.
 func (l *Lease) StopCamping() {
 	l.cancelMu.Lock()
 	cancel := l.cancel
@@ -594,7 +614,7 @@ func (l *Lease) renewWithRetry(ctx context.Context, validUntil time.Time, every 
 // A failed renewal is retried for as long as the lease may still be valid —
 // last successful write plus TTL, less a safety margin. The lease is reported
 // lost when that window closes, or at once when the failure is definitive.
-func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
+func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) (lost bool) {
 	every := l.renewEvery()
 	writtenAt := acquiredAt
 
@@ -608,7 +628,7 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 		select {
 		case <-timer.C:
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			renewedAt, err := l.renewWithRetry(ctx, writtenAt.Add(l.ttl), every)
 			if err == nil {
@@ -623,19 +643,15 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 			// may still own the key, so leave cleanup pending.
 			if !errors.Is(err, ErrLeaseNotHeld) {
 				if ctx.Err() != nil {
-					return
+					return false
 				}
 				l.setState(leaseReleasePending)
 			}
 			l.logger.WarnContext(ctx, "lease lost during renewal", slog.Any("error", err))
-			if l.opts.callbacks.OnLost != nil {
-				l.opts.callbacks.OnLost()
-			}
-
-			return
+			return true
 
 		case <-ctx.Done():
-			return
+			return false
 		}
 	}
 }

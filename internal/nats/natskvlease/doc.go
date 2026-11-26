@@ -13,7 +13,8 @@
 //   - Lease-based resource management with camping loops that retry a failed
 //     renewal for as long as the lease may still be valid
 //
-// Lease cleanup checks KV ownership and revision after ambiguous writes.
+// Lease cleanup checks KV ownership and revision after ambiguous writes,
+// including when the caller's context ends after uncertain renewal loss.
 //
 // [WithLeaseObserver] reports operation results and held-state transitions.
 //
