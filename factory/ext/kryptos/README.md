@@ -64,7 +64,9 @@ strings directly. A `$__secret{namespace:key}` placeholder looks up the key `nam
 
 go-kryptos starts no background loop. With `UseScheduler` and a non-empty `updateSchedule`, the builder registers the manager's
 `RunUpdateCycle` as the `secrets-cache-sync` task (`runOnStart` honored). The memory provider is never reconciled, so it registers no task.
-A rejected registration closes the manager and its provider.
+A rejected registration closes the manager and its provider. Closing a successful manager releases its scoped health checker and unregisters its
+update task. A scheduler passed to `UseScheduler` must implement both `Register` and `Unregister`. Close the existing manager before building a
+replacement that uses the same scheduler and task ID.
 
 ## Cache
 

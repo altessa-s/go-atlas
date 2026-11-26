@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -115,7 +116,8 @@ func New(cfg *natsconfig.Config) *ConnectionBuilder {
 // When [natsconfig.Config.ConnectionURI] is set, it is used directly as the
 // connection URL. Otherwise, the URL is built by joining the configured Hosts.
 // If a [health.Registrar] was provided via [ConnectionBuilder.UseHealthCoordinator],
-// a health checker is registered under the service name "nats".
+// a health checker is registered under the service name "nats". The NATS
+// closed callback unregisters it after Close or Drain.
 func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -147,10 +149,20 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	}
 
 	if !nilcheck.IsNil(b.healthCoordinator) {
-		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
+		unregister := sync.OnceFunc(health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
 			conn:   conn,
 			logger: b.Logger(),
+		}))
+		previous := conn.ClosedHandler()
+		conn.SetClosedHandler(func(closed *nats.Conn) {
+			unregister()
+			if previous != nil {
+				previous(closed)
+			}
 		})
+		if conn.IsClosed() {
+			unregister()
+		}
 	}
 
 	return conn, nil

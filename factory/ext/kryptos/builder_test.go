@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/altessa-s/go-kryptos/manager"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/observability/health"
 
 	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 	kryptos "github.com/altessa-s/go-kryptos"
@@ -135,8 +137,9 @@ func (p *observedProvider) Close(ctx context.Context) error {
 
 // recordingRegistrar records registered tasks, failing them with err.
 type recordingRegistrar struct {
-	err   error
-	tasks []task.Config
+	err     error
+	tasks   []task.Config
+	removed []string
 }
 
 func (r *recordingRegistrar) Register(_ context.Context, cfg task.Config) error {
@@ -203,3 +206,27 @@ const (
 	timeout = 5 * time.Second
 	tick    = 10 * time.Millisecond
 )
+
+func (r *recordingRegistrar) Unregister(_ context.Context, id string) error {
+	r.removed = append(r.removed, id)
+	return nil
+}
+
+func TestManagerCloseRemovesHealthCheckAndUpdateTask(t *testing.T) {
+	t.Parallel()
+	cfg := secretsconfig.Default()
+	cfg.Provider = secretsconfig.ProviderVault
+	coord := health.New()
+	defer coord.Close()
+	scheduler := &recordingRegistrar{}
+	b := New[string](&cfg).UseScheduler(scheduler).UseHealthCoordinator(coord)
+	mgr, err := newManager(t.Context(), b, newObservedProvider(t))
+	require.NoError(t, err)
+	require.Contains(t, slices.Collect(coord.ListServices()), HealthServiceName)
+	require.Len(t, scheduler.tasks, 1)
+
+	require.NoError(t, mgr.Close(t.Context()))
+	require.NoError(t, mgr.Close(t.Context()))
+	require.Empty(t, slices.Collect(coord.ListServices()))
+	require.Equal(t, []string{UpdateTaskID}, scheduler.removed)
+}

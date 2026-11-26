@@ -91,12 +91,7 @@ func RegisterOwnedService(reporter Reporter, name string, checker Checker) (noti
 	if coordinator, ok := reporter.(*Coordinator); ok {
 		return coordinator.RegisterScopedService(name, checker)
 	}
-	detachable := NewDetachableChecker(checker)
-	reporter.RegisterService(name, detachable)
-	var unregisterLegacy func()
-	if dynamic, ok := reporter.(DynamicReporter); ok {
-		unregisterLegacy = func() { dynamic.UnregisterService(name) }
-	}
+	detachable, unregister := registerDetached(reporter, name, checker)
 	return func(status ServingStatus) {
 		detachable.mu.Lock()
 		active := detachable.checker != nil
@@ -105,5 +100,27 @@ func RegisterOwnedService(reporter Reporter, name string, checker Checker) (noti
 		if active && bindingsCurrent(bindings) {
 			reporter.NotifyStatusChange(name, status)
 		}
-	}, func() { detachable.detach(unregisterLegacy) }
+	}, unregister
+}
+
+// RegisterOwnedChecker registers a checker for the lifetime of its owner.
+// Registrars that provide scoped registration remove the checker on cleanup.
+// Other registrars can support name-based removal through [DynamicReporter].
+func RegisterOwnedChecker(registrar Registrar, name string, checker Checker) func() {
+	if scoped, ok := registrar.(ScopedReporter); ok {
+		_, unregister := scoped.RegisterScopedService(name, checker)
+		return unregister
+	}
+	_, unregister := registerDetached(registrar, name, checker)
+	return unregister
+}
+
+func registerDetached(registrar Registrar, name string, checker Checker) (*DetachableChecker, func()) {
+	detachable := NewDetachableChecker(checker)
+	registrar.RegisterService(name, detachable)
+	var unregisterLegacy func()
+	if dynamic, ok := registrar.(DynamicReporter); ok {
+		unregisterLegacy = func() { dynamic.UnregisterService(name) }
+	}
+	return detachable, func() { detachable.detach(unregisterLegacy) }
 }

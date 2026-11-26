@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -58,7 +59,7 @@ func New(cfg *meilisearchconfig.Config) *ClientBuilder {
 	}
 }
 
-// Build creates a [meilisearch.Client] from configuration. The client
+// Build creates a [ManagedClient] from configuration. The client
 // performs an initial health check during construction and Build returns
 // an error if the server is unavailable. ctx bounds the initial probe
 // so a slow / hung server cannot block startup beyond the caller's
@@ -67,7 +68,7 @@ func New(cfg *meilisearchconfig.Config) *ClientBuilder {
 // under the service name configured by
 // [ClientBuilder.UseHealthServiceName] (defaulting to "meilisearch"),
 // unless disabled with [ClientBuilder.WithoutHealth].
-func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) {
+func (b *ClientBuilder) Build(ctx context.Context) (*ManagedClient, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -103,15 +104,30 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 		return nil, b.WrapError(err, "create meilisearch client")
 	}
 
+	var unregister func()
 	if !nilcheck.IsNil(b.healthCoordinator) && !b.noHealth {
-		b.healthCoordinator.RegisterService(
+		unregister = health.RegisterOwnedChecker(b.healthCoordinator,
 			cmp.Or(b.healthServiceName, defaultHealthServiceName),
 			&meilisearchHealthChecker{client: client, logger: b.Logger()},
 		)
 	}
 
-	return client, nil
+	return &ManagedClient{Client: client, close: sync.OnceValue(func() error {
+		if unregister != nil {
+			unregister()
+		}
+		return client.Close()
+	})}, nil
 }
+
+// ManagedClient owns a Meilisearch client and its health registration.
+type ManagedClient struct {
+	*meilisearch.Client
+	close func() error
+}
+
+// Close unregisters the health checker and releases idle HTTP connections.
+func (c *ManagedClient) Close() error { return c.close() }
 
 // buildHTTPClient resolves the YAML TlsClient block into an *http.Client
 // suitable for the Meilisearch SDK. Delegates the TLS-config construction

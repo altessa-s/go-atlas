@@ -7,8 +7,6 @@ package factory
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-horai/task"
-
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -30,13 +28,13 @@ func (b *ManagerBuilder[T]) UseDefaultLogger() *ManagerBuilder[T] {
 }
 
 // UseScheduler sets the task scheduler for background processes.
-func (b *ManagerBuilder[T]) UseScheduler(v task.Registrar) *ManagerBuilder[T] {
+func (b *ManagerBuilder[T]) UseScheduler(v UpdateScheduler) *ManagerBuilder[T] {
 	b.scheduler = v
 	return b
 }
 
 // UseHealthCoordinator sets the health coordinator for auto-registration with the health system.
-func (b *ManagerBuilder[T]) UseHealthCoordinator(v health.Registrar) *ManagerBuilder[T] {
+func (b *ManagerBuilder[T]) UseHealthCoordinator(v health.ScopedReporter) *ManagerBuilder[T] {
 	b.healthCoordinator = v
 	return b
 }
