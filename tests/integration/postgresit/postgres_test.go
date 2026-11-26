@@ -302,14 +302,14 @@ func testTimeouts(t *testing.T, db *sql.DB) {
 		_, err := postgres.Queryer(ctx, db).ExecContext(ctx, "SELECT pg_sleep(2)")
 		return err
 	})
-	kind, _ := postgres.Classify(err)
+	kind, _ := postgres.ClassifyContext(limited, err)
 	require.Equal(t, postgres.StatementTimeout, kind)
 	require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&after))
 	require.Equal(t, before, after)
 	expired, cancel := context.WithCancel(ctx)
 	cancel()
 	_, err = db.ExecContext(expired, "SELECT 1")
-	kind, _ = postgres.Classify(err)
+	kind, _ = postgres.ClassifyContext(expired, err)
 	require.Equal(t, postgres.Canceled, kind)
 }
 

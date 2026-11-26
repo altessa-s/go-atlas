@@ -201,7 +201,7 @@ func serialization(t testing.TB, pg *uowFixture) {
 		}
 		_, err := pg.q.ExecContext(ctx, `UPDATE `+pg.table+` SET v = v + 10 WHERE id = 'counter'`)
 		if n == 1 {
-			kind, _ := postgres.Classify(err)
+			kind, _ := postgres.ClassifyContext(ctx, err)
 			require.True(t, kind.RetryableTransaction(), "the first attempt must hit a serialization failure, got %v", err)
 		}
 		return err
@@ -291,7 +291,7 @@ func deferredConstraint(t testing.TB, f *uowFixture) {
 		return f.r.AfterCommit(ctx, func(context.Context) { t.Error("rolled-back hook ran") })
 	})
 	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
-	kind, _ := postgres.Classify(err)
+	kind, _ := postgres.ClassifyContext(t.Context(), err)
 	require.Equal(t, postgres.Unique, kind)
 	require.Zero(t, count(t, t.Context(), f.db, f.table))
 }

@@ -55,15 +55,24 @@ func (r healthRegistry) RegisterService(name string, check health.Checker) { r[n
 // messages. No SQL evaluation is needed to check the pool configuration.
 func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
 	t.Helper()
-	return poolEndpointTLS(t, queryError, nil)
+	return poolEndpointWithIdentity(t, queryError, nil, "1", "app")
 }
 
 func poolEndpointTLS(t testing.TB, queryError func() *pgproto3.ErrorResponse, server *tls.Config) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
+	t.Helper()
+	return poolEndpointWithIdentity(t, queryError, server, "1", "app")
+}
+
+func poolEndpointWithIdentity(t testing.TB, queryError func() *pgproto3.ErrorResponse, server *tls.Config, sysID, dbName string) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	startup := make(chan map[string]string, 8)
 	statements := make(chan string, 32)
+	identityFields := []pgproto3.FieldDescription{
+		{Name: []byte("system_identifier"), DataTypeOID: 25, DataTypeSize: -1, TypeModifier: -1},
+		{Name: []byte("current_database"), DataTypeOID: 25, DataTypeSize: -1, TypeModifier: -1},
+	}
 	var handlers sync.WaitGroup
 	handlers.Go(func() {
 		for {
@@ -106,6 +115,7 @@ func poolEndpointTLS(t testing.TB, queryError func() *pgproto3.ErrorResponse, se
 					t.Error(err)
 					return
 				}
+				status := byte('I')
 				for {
 					m, err := backend.Receive()
 					if err != nil {
@@ -117,9 +127,29 @@ func poolEndpointTLS(t testing.TB, queryError func() *pgproto3.ErrorResponse, se
 					switch cmd := m.(type) {
 					case *pgproto3.Terminate:
 						return
+					case *pgproto3.Parse:
+						backend.Send(&pgproto3.ParseComplete{})
+					case *pgproto3.Bind:
+						backend.Send(&pgproto3.BindComplete{})
+					case *pgproto3.Describe:
+						if cmd.ObjectType == 'S' {
+							backend.Send(&pgproto3.ParameterDescription{})
+						}
+						backend.Send(&pgproto3.RowDescription{Fields: identityFields})
+					case *pgproto3.Execute:
+						backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte(sysID), []byte(dbName)}})
+						backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+					case *pgproto3.Close:
+						backend.Send(&pgproto3.CloseComplete{})
+					case *pgproto3.Sync:
+						backend.Send(&pgproto3.ReadyForQuery{TxStatus: status})
+						if err := backend.Flush(); err != nil {
+							t.Error(err)
+							return
+						}
 					case *pgproto3.Query:
 						statements <- cmd.String
-						status := byte('I')
+						status = 'I'
 						if strings.HasPrefix(cmd.String, "BEGIN") {
 							status = 'T'
 						}
@@ -318,4 +348,35 @@ func TestBuildBoundsFailedPoolCleanup(t *testing.T) {
 		t.Fatal("Build is still waiting for the blocked pool observer")
 	}
 	require.Zero(t, a.GaugeValue("test_postgres_open_connections", map[string]string{"pool": "worker"}))
+}
+
+func TestBuildRejectsMismatchedDatabaseIdentity(t *testing.T) {
+	t.Parallel()
+	primary, _, _ := poolEndpointWithIdentity(t, nil, nil, "100", "orders")
+	otherDB, _, _ := poolEndpointWithIdentity(t, nil, nil, "100", "reporting")
+	otherCluster, _, _ := poolEndpointWithIdentity(t, nil, nil, "200", "orders")
+
+	for _, tc := range []struct {
+		name string
+		dsn  redacted.RedactedString
+	}{
+		{"different database", otherDB},
+		{"different cluster", otherCluster},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := postgresconfig.Default()
+			cfg.DSN = primary
+			cfg.Pools = map[string]postgresconfig.Pool{"reporting": {DSN: tc.dsn, MaxOpenConnections: 2}}
+			checks := healthRegistry{}
+			migrated := false
+			_, err := New(&cfg).
+				UseHealthCoordinator(checks).
+				UseMigrator(func(context.Context, *sql.DB) error { migrated = true; return nil }).
+				Build(t.Context())
+			require.ErrorIs(t, err, postgres.ErrDatabaseMismatch)
+			require.False(t, migrated)
+			require.Empty(t, checks)
+		})
+	}
 }

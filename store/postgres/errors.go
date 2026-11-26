@@ -6,6 +6,7 @@ package postgres
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"errors"
 	"io"
@@ -21,6 +22,9 @@ import (
 
 // ErrPooledTimeoutDefaults indicates that an autocommit statement could run without a server-side timeout.
 var ErrPooledTimeoutDefaults = errors.New("database role needs nonzero timeout defaults for pooled connections")
+
+// ErrDatabaseMismatch indicates that pools or a transaction and pool belong to different databases.
+var ErrDatabaseMismatch = ErrDifferentDatabase
 
 var errInvalidDSN = errors.New("invalid PostgreSQL DSN")
 
@@ -69,6 +73,8 @@ const (
 	ConnectionLost ErrorKind = "connection_lost"
 	// StatementTimeout identifies a server statement_timeout diagnostic.
 	StatementTimeout ErrorKind = "statement_timeout"
+	// Timeout identifies a client context deadline expiry.
+	Timeout ErrorKind = "timeout"
 	// Canceled identifies request cancellation, deadline expiry or a server cancel request.
 	Canceled ErrorKind = "canceled"
 )
@@ -78,11 +84,59 @@ func (k ErrorKind) RetryableTransaction() bool { return k == Serialization || k 
 
 // Classify returns the error kind and, for integrity violations, the constraint name.
 // PostgreSQL uses SQLSTATE 57014 for both a statement timeout and user cancellation.
-// The timeout distinction requires English server messages (lc_messages=C).
+// The timeout distinction without a caller context requires English server messages (lc_messages=C);
+// prefer [ClassifyContext] when the operation context is available.
 func Classify(err error) (ErrorKind, string) {
+	if err == nil {
+		return Unknown, ""
+	}
 	if coreerrs.IsContextCanceledOrDeadlineExceeded(err) {
 		return Canceled, ""
 	}
+	return classifyCommon(err, func(e *pgconn.PgError) ErrorKind {
+		if strings.Contains(e.Message, "statement timeout") {
+			return StatementTimeout
+		}
+		if strings.Contains(e.Message, "user request") {
+			return Canceled
+		}
+		return Unknown
+	})
+}
+
+// ClassifyContext classifies err using ctx to disambiguate SQLSTATE 57014
+// independently of PostgreSQL's server message locale: a context deadline
+// yields [Timeout], cancellation yields [Canceled], and an active context
+// without a user-cancel message yields [StatementTimeout].
+func ClassifyContext(ctx context.Context, err error) (ErrorKind, string) {
+	if err == nil {
+		return Unknown, ""
+	}
+	if coreerrs.IsContextDeadlineExceeded(err) {
+		return Timeout, ""
+	}
+	if coreerrs.IsContextCanceled(err) {
+		return Canceled, ""
+	}
+	var ctxErr error
+	if ctx != nil {
+		ctxErr = ctx.Err()
+	}
+	return classifyCommon(err, func(e *pgconn.PgError) ErrorKind {
+		switch {
+		case errors.Is(ctxErr, context.DeadlineExceeded):
+			return Timeout
+		case errors.Is(ctxErr, context.Canceled):
+			return Canceled
+		case strings.Contains(e.Message, "user request"):
+			return Canceled
+		default:
+			return StatementTimeout
+		}
+	})
+}
+
+func classifyCommon(err error, classify57014 func(*pgconn.PgError) ErrorKind) (ErrorKind, string) {
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ConnectionBeforeSend, ""
 	}
@@ -103,13 +157,7 @@ func Classify(err error) (ErrorKind, string) {
 	case "40P01":
 		return Deadlock, ""
 	case "57014":
-		if strings.Contains(e.Message, "statement timeout") {
-			return StatementTimeout, ""
-		}
-		if strings.Contains(e.Message, "user request") {
-			return Canceled, ""
-		}
-		return Unknown, ""
+		return classify57014(e), ""
 	case "57P01", "57P02", "57P03":
 		return ConnectionLost, ""
 	}

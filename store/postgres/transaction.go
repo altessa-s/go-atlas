@@ -311,7 +311,7 @@ func withTransaction(
 	err = tx.Commit()
 	current.life.done.Store(true)
 	if err != nil {
-		kind, _ := Classify(err)
+		kind, _ := ClassifyContext(ctx, err)
 		safe := diagnostic("commit transaction", err)
 		state := sqldialect.SQLState(err)
 		if errors.Is(err, pgx.ErrTxCommitRollback) || (state != "" && state != "40003" && kind != ConnectionLost) || sqldialect.SafeToRetry(err) {
