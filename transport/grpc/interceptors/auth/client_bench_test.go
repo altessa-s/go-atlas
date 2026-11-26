@@ -6,10 +6,9 @@ package auth
 
 import "testing"
 
-func BenchmarkClientInterceptor_AttachToken(b *testing.B) {
-	ci := ClientInterceptor(StaticTokenProvider("tok"))
-	inner := ci.(*clientInterceptor)
+func BenchmarkPerRPCCredentials_GetRequestMetadata(b *testing.B) {
+	creds := NewPerRPCCredentials(StaticTokenProvider("tok"))
 	for b.Loop() {
-		inner.attachToken(b.Context()) //nolint:errcheck
+		creds.GetRequestMetadata(b.Context()) //nolint:errcheck
 	}
 }
