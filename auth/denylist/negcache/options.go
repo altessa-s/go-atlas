@@ -26,4 +26,9 @@ type options struct {
 	// every unpopulated lookup; negative values are ignored. Set via the
 	// generated WithSharedRebuildCheckInterval.
 	sharedRebuildCheckInterval time.Duration `optgen:"default=DefaultSharedRebuildCheckInterval" optval:"positive=allow_zero"`
+
+	// clock is the time source of the shared-rebuild throttle; the cache
+	// measures elapsed time on it. A nil clock is ignored. Set via the
+	// generated WithClock.
+	clock func() time.Time `optgen:"default=time.Now,notnil"`
 }

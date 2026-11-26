@@ -53,8 +53,13 @@ type Cache struct {
 	metrics       *Metrics
 	checkInterval time.Duration
 	populated     atomic.Bool
-	// nextCheck is the UnixNano time before which no shared-rebuild check
-	// runs; claimed with a CAS so concurrent lookups check once.
+	// clock supplies the time of the shared-rebuild throttle; epoch is its
+	// reading at construction, so the throttle works on elapsed time.
+	clock func() time.Time
+	epoch time.Time
+	// nextCheck is the elapsed time (since epoch, in nanoseconds) before which
+	// no shared-rebuild check runs; claimed with a CAS so concurrent lookups
+	// check once.
 	nextCheck atomic.Int64
 }
 
@@ -63,7 +68,8 @@ type Cache struct {
 // required; pass [WithMetrics] to record lookup telemetry.
 func New(filter probfilter.Filter, authoritative Authoritative, opts ...Option) *Cache {
 	o := newOptions(opts...)
-	c := &Cache{filter: filter, auth: authoritative, metrics: o.metrics, checkInterval: o.sharedRebuildCheckInterval}
+	c := &Cache{filter: filter, auth: authoritative, metrics: o.metrics, checkInterval: o.sharedRebuildCheckInterval,
+		clock: o.clock, epoch: o.clock()}
 	c.rebuildable, _ = filter.(probfilter.RebuildableFilter)
 	if c.rebuildable != nil {
 		c.reporter, _ = filter.(probfilter.RebuildCommitReporter)
@@ -181,9 +187,11 @@ func (c *Cache) sharedRebuildCommitted(ctx context.Context) bool {
 	if c.reporter == nil {
 		return false
 	}
-	now := time.Now().UnixNano()
+	now := int64(c.clock().Sub(c.epoch))
 	next := c.nextCheck.Load()
-	if now < next || !c.nextCheck.CompareAndSwap(next, now+int64(c.checkInterval)) {
+	// A reading more than one interval before the last claim means the clock
+	// stepped backward: the check is due, not parked until the clock catches up.
+	if now < next && next-now <= int64(c.checkInterval) || !c.nextCheck.CompareAndSwap(next, now+int64(c.checkInterval)) {
 		return false
 	}
 	committed, err := c.reporter.RebuildCommitted(ctx)

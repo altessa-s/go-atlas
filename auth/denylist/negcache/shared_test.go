@@ -147,3 +147,40 @@ func TestIsRevoked_SharedRebuildCheckZeroIntervalChecksEveryLookup(t *testing.T)
 	require.False(t, lookup(t, c, "fresh"))
 	require.Equal(t, int64(5), auth.calls.Load(), "the very next lookup sees the committed shared rebuild")
 }
+
+// The throttle measures elapsed time on the injected clock: a clock stepped
+// backward must not suppress the check until it catches up with the old
+// reading, so a rebuild committed by a peer is found again after one interval.
+func TestIsRevoked_SharedRebuildCheckSurvivesBackwardClockStep(t *testing.T) {
+	t.Parallel()
+	var now atomic.Int64
+	now.Store(time.Unix(1_750_000_000, 0).UnixNano())
+	clock := func() time.Time { return time.Unix(0, now.Load()) }
+	step := func(d time.Duration) { now.Add(int64(d)) }
+
+	auth := newFakeAuth()
+	filter := newSharedFilter()
+	const interval = time.Minute
+	c := negcache.New(filter, auth, negcache.WithSharedRebuildCheckInterval(interval), negcache.WithClock(clock))
+
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(1), filter.checks.Load())
+
+	step(interval / 2)
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(1), filter.checks.Load(), "inside the interval: throttled")
+
+	step(-24 * time.Hour)
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(2), filter.checks.Load(), "a backward step must not park the check for a day")
+
+	step(interval / 2)
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(2), filter.checks.Load())
+
+	step(interval)
+	filter.committed.Store(true)
+	require.False(t, lookup(t, c, "fresh"))
+	require.Equal(t, int64(3), filter.checks.Load(), "one interval after the last check: due again")
+	require.Equal(t, int64(4), auth.calls.Load(), "the last lookup was answered by the filter, not the store")
+}
