@@ -29,7 +29,7 @@ func TestDefault(t *testing.T) {
 	require.Equal(t, sagaconfig.StorageTypeMemory, c.Storage.Type)
 	require.NotNil(t, c.Storage.Memory)
 	require.Equal(t, 3, c.MaxStepAttempts)
-	require.Equal(t, "saga-recovery", c.RecoveryTaskID)
+	require.Empty(t, c.RecoveryTaskID)
 	require.NoError(t, c.Validate())
 }
 
@@ -48,7 +48,6 @@ func TestConfig_Validate(t *testing.T) {
 		{"negative concurrency", func(c *sagaconfig.Config) { c.StepConcurrency = -1 }, "StepConcurrency"},
 		{"empty schedule", func(c *sagaconfig.Config) { c.RecoverySchedule = "" }, "RecoverySchedule"},
 		{"zero batch", func(c *sagaconfig.Config) { c.RecoveryBatchSize = 0 }, "RecoveryBatchSize"},
-		{"empty task id", func(c *sagaconfig.Config) { c.RecoveryTaskID = "" }, "RecoveryTaskID"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

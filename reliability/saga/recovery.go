@@ -110,15 +110,56 @@ func (o *Orchestrator[T]) recoverInstance(ctx context.Context, candidate *Instan
 	}
 	var data T
 	if len(inst.Data) > 0 {
-		if decodeErr := o.serializer.Deserialize(inst.Data, &data); decodeErr != nil {
-			return decodeErr
+		if o.serializer.Deserialize(inst.Data, &data) != nil {
+			return o.quarantine(ctx, inst, "undecodable payload")
 		}
+	}
+	if verr := o.validate(inst); verr != nil {
+		return o.quarantine(ctx, inst, verr.Error())
 	}
 	_, err = o.execute(ctx, inst, &data, true)
 	switch {
 	case err == nil, errors.Is(err, ErrAlreadyTerminal), errors.Is(err, ErrVersionConflict), errors.Is(err, ErrInstanceBusy):
 		return nil
 	default:
+		if _, ok := errors.AsType[*leaseAcquireError](err); ok {
+			o.deferScan(ctx, inst.ID)
+		}
 		return err
 	}
+}
+
+// quarantine moves an instance the orchestrator can never run (undecodable
+// payload, cursor outside the definition) to Failed so it leaves the recovery
+// scan, then fires the dead-letter hook. The write is version-checked against
+// the version recovery read: a concurrent healthy writer wins and the instance
+// is left alone. class is a bounded description; it never carries payload text.
+func (o *Orchestrator[T]) quarantine(ctx context.Context, inst *Instance, class string) error {
+	inst.Status = StatusFailed
+	inst.LastError = "saga: quarantined: " + class
+	inst.LeaseOwner = ""
+	inst.LeaseUntil = time.Time{}
+	inst.UpdatedAt = time.Now().UTC()
+	if err := o.store.Update(ctx, inst); err != nil {
+		if errors.Is(err, ErrVersionConflict) {
+			return nil
+		}
+		return err
+	}
+	o.metrics.failed.Inc()
+	o.logger.WarnContext(ctx, "saga: instance quarantined", slog.String("id", inst.ID), slog.String("class", class))
+	o.fireDeadLetter(inst)
+	return nil
+}
+
+// deferScan pushes the lease of an instance whose first lease write failed one
+// grace period forward, so a persistently failing instance leaves the head of
+// the scan instead of starving the instances behind it. It is best effort.
+func (o *Orchestrator[T]) deferScan(ctx context.Context, id string) {
+	cur, err := o.store.Get(ctx, id)
+	if err != nil || cur.Status.IsTerminal() {
+		return
+	}
+	cur.LeaseUntil = time.Now().UTC().Add(o.leaseGrace)
+	_ = o.store.Update(ctx, cur)
 }

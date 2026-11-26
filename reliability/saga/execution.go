@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -46,18 +47,39 @@ func withStep(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, executionKey{}, e)
 }
 
-// execute acquires ownership before inspecting deadlines or invoking actions.
-// The lease is deliberately not renewed: one invocation is bounded, and a
-// subsequent Resume gets a new fence. Grace covers cancellation and clock skew;
-// callbacks must stop on cancellation or enforce fencing at their backend.
-func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, recovering bool) (result *Instance, err error) {
+var (
+	errInvalidStage       = errors.New("saga: invalid persisted stage")
+	errInvalidPendingStep = errors.New("saga: invalid pending step")
+)
+
+// leaseAcquireError marks a failure of the first lease write of an execution,
+// before any step ran.
+type leaseAcquireError struct{ err error }
+
+func (e *leaseAcquireError) Error() string { return e.err.Error() }
+func (e *leaseAcquireError) Unwrap() error { return e.err }
+
+// validate checks that the persisted cursor addresses stages and steps of the
+// bound definition.
+func (o *Orchestrator[T]) validate(inst *Instance) error {
 	if inst.Stage < 0 || inst.Stage > len(o.def.stages) || (len(inst.PendingSteps) > 0 && inst.Stage == len(o.def.stages)) {
-		return inst, fmt.Errorf("saga: invalid persisted stage %d", inst.Stage)
+		return fmt.Errorf("%w %d", errInvalidStage, inst.Stage)
 	}
 	for _, i := range inst.PendingSteps {
 		if i < 0 || i >= len(o.def.stages[inst.Stage].steps) {
-			return inst, fmt.Errorf("saga: invalid pending step %d", i)
+			return fmt.Errorf("%w %d", errInvalidPendingStep, i)
 		}
+	}
+	return nil
+}
+
+// execute acquires ownership of a persisted instance before inspecting
+// deadlines or invoking actions: a held lease is busy, otherwise the lease is
+// taken with a version-checked write. A persisted lease owner never authorizes
+// skipping this; only [Orchestrator.Start] owns the lease it just created.
+func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, recovering bool) (*Instance, error) {
+	if err := o.validate(inst); err != nil {
+		return inst, err
 	}
 	now := time.Now().UTC()
 	if inst.LeaseUntil.After(now) {
@@ -65,12 +87,26 @@ func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, 
 	}
 	runCtx, cancel := corecontext.WithMaxTimeout(ctx, o.executionTimeout)
 	defer cancel()
-	deadline, _ := runCtx.Deadline()
-	inst.LeaseOwner = rand.Text()
-	inst.LeaseUntil = deadline.Add(o.leaseGrace)
-	if updateErr := o.store.Update(runCtx, inst); updateErr != nil {
-		return inst, updateErr
+	inst.LeaseOwner, inst.LeaseUntil = o.newLease(runCtx)
+	if err := o.store.Update(runCtx, inst); err != nil {
+		return inst, &leaseAcquireError{err: err}
 	}
+	return o.executeOwned(ctx, runCtx, inst, data, recovering, now)
+}
+
+// newLease returns a fresh lease owner and its expiry for an execution bounded
+// by runCtx. The lease is deliberately not renewed: one invocation is bounded,
+// and a subsequent Resume gets a new fence. Grace covers cancellation and clock
+// skew; callbacks must stop on cancellation or enforce fencing at their backend.
+func (o *Orchestrator[T]) newLease(runCtx context.Context) (owner string, until time.Time) {
+	deadline, _ := runCtx.Deadline()
+	return rand.Text(), deadline.Add(o.leaseGrace)
+}
+
+// executeOwned runs an instance whose lease (inst.LeaseOwner) this caller holds
+// durably and releases it afterwards. ctx is the caller's context, runCtx the
+// execution-bounded one.
+func (o *Orchestrator[T]) executeOwned(ctx, runCtx context.Context, inst *Instance, data *T, recovering bool, now time.Time) (result *Instance, err error) {
 	owner := inst.LeaseOwner
 	defer func() {
 		// Reload rather than committing in-memory changes from a failed checkpoint.
@@ -90,6 +126,13 @@ func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, 
 				inst.LeaseUntil = current.LeaseUntil
 				inst.Version = current.Version
 			}
+		}
+		if releaseErr != nil && inst.Status.IsTerminal() {
+			// The terminal checkpoint is durable and the lease only lingers until
+			// it expires, so the outcome stands.
+			o.logger.WarnContext(ctx, "saga: lease release failed after a terminal checkpoint",
+				slog.String("id", inst.ID), slog.Any("error", releaseErr))
+			releaseErr = nil
 		}
 		err = errors.Join(err, releaseErr)
 	}()

@@ -30,7 +30,6 @@ const (
 	defaultSagaStepConcurrency         = 0 // use the core IO-bound default
 	defaultSagaRecoverySchedule        = "@every 1m"
 	defaultSagaRecoveryBatchSize       = 100
-	defaultSagaRecoveryTaskID          = "saga-recovery"
 )
 
 // StorageType selects the backend that persists saga instances.
@@ -281,8 +280,9 @@ type Config struct {
 	RecoverySchedule string `yaml:"recoverySchedule" default:"@every 1m"`
 	// RecoveryBatchSize is the maximum instances processed per recovery cycle.
 	RecoveryBatchSize int `yaml:"recoveryBatchSize" default:"100"`
-	// RecoveryTaskID is the scheduler task ID for the recovery cycle.
-	RecoveryTaskID string `yaml:"recoveryTaskID" default:"saga-recovery"`
+	// RecoveryTaskID is the scheduler task ID for the recovery cycle. Empty
+	// derives "saga-recovery-<definition>" so definitions never share a task.
+	RecoveryTaskID string `yaml:"recoveryTaskID"`
 }
 
 // Default returns a Saga configuration with default values (in-memory store).
@@ -302,7 +302,6 @@ func Default() Config {
 		StepConcurrency:         defaultSagaStepConcurrency,
 		RecoverySchedule:        defaultSagaRecoverySchedule,
 		RecoveryBatchSize:       defaultSagaRecoveryBatchSize,
-		RecoveryTaskID:          defaultSagaRecoveryTaskID,
 	}
 }
 
@@ -334,6 +333,5 @@ func (s *Config) Validate() error {
 		validation.Field(&s.StepConcurrency, validation.Min(0)),
 		validation.Field(&s.RecoverySchedule, validation.Required),
 		validation.Field(&s.RecoveryBatchSize, validation.Required, validation.Min(1)),
-		validation.Field(&s.RecoveryTaskID, validation.Required),
 	)
 }

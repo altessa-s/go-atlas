@@ -39,8 +39,10 @@ const (
 	// DefaultRecoveryBatchSize is the maximum number of recoverable instances
 	// processed per recovery cycle.
 	DefaultRecoveryBatchSize = 100
-	// DefaultRecoveryTaskID is the scheduler task ID for the recovery cycle.
-	DefaultRecoveryTaskID = "saga-recovery"
+	// RecoveryTaskIDPrefix prefixes the default scheduler task ID of the
+	// recovery cycle; the definition name follows it, so orchestrators of
+	// different definitions never share a task.
+	RecoveryTaskIDPrefix = "saga-recovery-"
 	// DefaultExecutionTimeout bounds one Start or Resume ownership period.
 	DefaultExecutionTimeout = 5 * time.Minute
 	// DefaultLeaseGrace allows canceled operations to finish before lease takeover.
@@ -78,7 +80,7 @@ type options struct {
 
 	recoverySchedule  string `optgen:"default=DefaultRecoverySchedule"`
 	recoveryBatchSize int    `optgen:"default=DefaultRecoveryBatchSize"`
-	recoveryTaskID    string `optgen:"default=DefaultRecoveryTaskID"`
+	recoveryTaskID    string // "" → RecoveryTaskIDPrefix + definition name
 
 	scheduler     schedtask.Registrar `optgen:"notnil"`
 	leaderElector LeaderElector       `optgen:"notnil"`

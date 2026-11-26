@@ -55,6 +55,11 @@ var (
 	// added to the builder.
 	ErrEmptyDefinition = errors.New("saga: definition has no steps")
 
+	// ErrDuplicateStepName is reported by Definition.Build when two steps of one
+	// stage share a name. The step name is part of the idempotency key
+	// ([Execution.StepKey]), so same-named steps of a stage would collide.
+	ErrDuplicateStepName = errors.New("saga: duplicate step name in stage")
+
 	// ErrInvalidStorageKey means the store cannot represent this instance ID. Retrying the same ID cannot succeed.
 	ErrInvalidStorageKey = errors.New("saga: invalid storage key")
 

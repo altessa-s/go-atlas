@@ -134,6 +134,17 @@ func (b *Builder[T]) Build(opts ...BuildOption) (*Definition[T], error) {
 		return nil, ErrEmptyDefinition
 	}
 
+	for i := range b.stages {
+		seen := make(map[string]struct{}, len(b.stages[i].steps))
+		for j := range b.stages[i].steps {
+			name := b.stages[i].steps[j].name
+			if _, dup := seen[name]; dup {
+				return nil, coreerrs.Wrapf(ErrDuplicateStepName, "stage %q step %q", b.stages[i].name, name)
+			}
+			seen[name] = struct{}{}
+		}
+	}
+
 	pivotIdx := len(b.stages)
 	for i := range b.stages {
 		if b.stages[i].hasPivot() {

@@ -129,6 +129,7 @@
 #  # Default value: 100
 #  recoveryBatchSize: 100
 #
-#  # <string> Scheduler task ID for the background recovery cycle.
-#  # Default value: saga-recovery
-#  recoveryTaskID: "saga-recovery"
+#  # <string> Scheduler task ID for the background recovery cycle. Empty derives
+#  # saga-recovery-<definition>, so definitions never share a task.
+#  # Default value: ""
+#  recoveryTaskID: ""

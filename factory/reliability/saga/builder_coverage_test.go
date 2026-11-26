@@ -71,7 +71,7 @@ func TestBuild_InjectedDependenciesAreWired(t *testing.T) {
 
 	tasks := reg.Tasks()
 	require.Len(t, tasks, 1)
-	require.Equal(t, cfg.RecoveryTaskID, tasks[0].ID)
+	require.Equal(t, saga.RecoveryTaskIDPrefix+"pivot", tasks[0].ID)
 	require.Equal(t, cfg.RecoverySchedule, tasks[0].Schedule)
 }
 

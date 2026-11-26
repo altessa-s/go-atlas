@@ -119,7 +119,7 @@ func New[T any](store Storage, def *Definition[T], opts ...Option) *Orchestrator
 		leaderElector:           cfg.leaderElector,
 		recoverySchedule:        cfg.recoverySchedule,
 		recoveryBatchSize:       cfg.recoveryBatchSize,
-		recoveryTaskID:          cfg.recoveryTaskID,
+		recoveryTaskID:          cmp.Or(cfg.recoveryTaskID, RecoveryTaskIDPrefix+def.name),
 		onDeadLetter:            cfg.onDeadLetter,
 		shouldRetry:             cfg.shouldRetry,
 	}
@@ -188,7 +188,12 @@ func (o *Orchestrator[T]) Start(ctx context.Context, id string, data T) (*Instan
 		inst.Deadline = now.Add(o.sagaTimeout)
 	}
 
-	if err := o.store.Create(ctx, inst); err != nil {
+	// The creator takes the lease in the same write that creates the instance, so
+	// a stored instance is never left unowned and invisible to recovery.
+	runCtx, cancel := corecontext.WithMaxTimeout(ctx, o.executionTimeout)
+	defer cancel()
+	inst.LeaseOwner, inst.LeaseUntil = o.newLease(runCtx)
+	if err := o.store.Create(runCtx, inst); err != nil {
 		if errors.Is(err, ErrInstanceExists) {
 			return o.Resume(ctx, id)
 		}
@@ -196,7 +201,7 @@ func (o *Orchestrator[T]) Start(ctx context.Context, id string, data T) (*Instan
 	}
 
 	o.metrics.started.Inc()
-	return o.execute(ctx, inst, &data, false)
+	return o.executeOwned(ctx, runCtx, inst, &data, false, now)
 }
 
 // Resume continues a persisted instance from its checkpoint. It is used for
@@ -287,12 +292,12 @@ func (o *Orchestrator[T]) runForward(ctx context.Context, inst *Instance, data *
 		}
 		ctx = withStage(ctx, inst.Stage)
 		stop := o.metrics.stageDuration.Start()
-		attempts, succeeded, err := o.runStage(ctx, st, data, false)
+		attempts, pending, err := o.runStage(ctx, st, data, false)
 		stop()
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		inst.PendingSteps = succeeded
+		inst.PendingSteps = pending
 		if e := o.encodeInto(inst, data); e != nil {
 			return e
 		}
@@ -325,9 +330,6 @@ func (o *Orchestrator[T]) runForward(ctx context.Context, inst *Instance, data *
 		inst.PendingSteps = nil
 		inst.Stage++
 		inst.UpdatedAt = time.Now().UTC()
-		if err := o.encodeInto(inst, data); err != nil {
-			return err
-		}
 		if err := o.store.Update(ctx, inst); err != nil {
 			return err
 		}
@@ -417,7 +419,11 @@ func (o *Orchestrator[T]) compensationFailed(ctx context.Context, inst *Instance
 // runStage runs a stage either forward (compensating=false) or in reverse
 // (compensating=true). A single-step stage runs inline; a parallel group fans
 // out via core/runtime/concurrency. It returns the per-step attempt counts
-// (aligned with st.steps) so recordStage can persist the real number of tries.
+// (aligned with st.steps) so recordStage can persist the real number of tries,
+// and the indexes of the steps that may have taken effect: those that
+// succeeded and those that started but ended with a context error (canceled
+// sibling, step timeout), whose outcome is unknown. A step that never started,
+// or failed with a definitive error, is not listed.
 func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, compensating bool) ([]int, []int, error) {
 	run := o.runStep
 	if compensating {
@@ -428,8 +434,8 @@ func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, co
 	if len(st.steps) == 1 {
 		n, err := run(ctx, st.steps[0], data)
 		attempts[0] = n
-		if err == nil {
-			return attempts, []int{0}, nil
+		if err == nil || outcomeUnknown(n, err) {
+			return attempts, []int{0}, err
 		}
 		return attempts, nil, err
 	}
@@ -445,20 +451,27 @@ func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, co
 	for i := range idx {
 		idx[i] = i
 	}
-	succeeded := make([]bool, len(st.steps))
+	maybeApplied := make([]bool, len(st.steps))
 	err := concurrency.Process(ctx, idx, func(ctx context.Context, i int) error {
 		n, e := run(ctx, st.steps[i], data)
 		attempts[i] = n
-		succeeded[i] = e == nil
+		maybeApplied[i] = e == nil || outcomeUnknown(n, e)
 		return e
 	}, copts...)
-	var completed []int
-	for i, ok := range succeeded {
+	var pending []int
+	for i, ok := range maybeApplied {
 		if ok {
-			completed = append(completed, i)
+			pending = append(pending, i)
 		}
 	}
-	return attempts, completed, err
+	return attempts, pending, err
+}
+
+// outcomeUnknown reports whether a step that made attempts invocations ended
+// with a context error: its action started and may have taken effect remotely
+// before it was canceled or timed out.
+func outcomeUnknown(attempts int, err error) bool {
+	return attempts > 0 && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 }
 
 // runStep executes a forward step action with a per-step timeout, panic

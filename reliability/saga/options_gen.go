@@ -147,6 +147,8 @@ func WithRecoverySchedule[T interface{ string | *string }](v T) Option {
 }
 
 // WithRecoveryTaskID sets the recoveryTaskID option.
+//
+// "" → RecoveryTaskIDPrefix + definition name
 func WithRecoveryTaskID[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		var value string
@@ -290,7 +292,6 @@ func defaultOptions() *options {
 		maxStepAttempts:         DefaultMaxStepAttempts,
 		recoveryBatchSize:       DefaultRecoveryBatchSize,
 		recoverySchedule:        DefaultRecoverySchedule,
-		recoveryTaskID:          DefaultRecoveryTaskID,
 		recoveryTimeout:         DefaultRecoveryTimeout,
 		serializer:              &serializer.JSON{},
 		stepRetryBaseDelay:      DefaultStepRetryBaseDelay,

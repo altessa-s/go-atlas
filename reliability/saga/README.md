@@ -43,7 +43,7 @@ Storage implementations can return `ErrInvalidStorageKey` when they cannot repre
 | `WithScheduler`               | none           | Registers the recovery cycle with a `schedtask.Registrar`.               |
 | `WithRecoverySchedule`        | `@every 1m`    | Cron expression for the scheduled recovery cycle.                                 |
 | `WithRecoveryBatchSize`       | 100            | Max instances processed per recovery cycle.                                       |
-| `WithRecoveryTaskID`          | `saga-recovery` | Scheduler task ID of the recovery cycle.                                         |
+| `WithRecoveryTaskID`          | `saga-recovery-<definition>` | Scheduler task ID of the recovery cycle.                           |
 | `WithRecoveryTimeout`         | 5m             | Bounds an entire recovery pass.                                                   |
 | `WithLeaderElector`           | none           | Gates the recovery cycle to the elected leader (e.g. a `*leadelect.Leader`).      |
 | `WithMeter`                   | no-op          | Prometheus metrics collector.                                                     |
