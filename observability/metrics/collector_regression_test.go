@@ -122,13 +122,10 @@ func TestPrometheus_DroppedObservationsCounted(t *testing.T) {
 
 // OB-T2: pre-registered conflicting gauge surfaces an error on the checked path
 // and logs once at Error on the recording path while returning a no-op handle.
-//
-// Serial: swaps slog.Default() so the regression test compiles before WithLogger exists.
 func TestCollector_PreRegisteredConflictingGauge(t *testing.T) {
+	t.Parallel()
+
 	handler := &capturingHandler{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	reg := prometheus.NewRegistry()
 	rawGauge := prometheus.NewGauge(prometheus.GaugeOpts{
@@ -139,7 +136,7 @@ func TestCollector_PreRegisteredConflictingGauge(t *testing.T) {
 	rawGauge.Set(7)
 
 	adapter := prometheusadapter.New(prometheusadapter.WithRegistry(reg))
-	c := metrics.New(metrics.WithServiceName("svc"), metrics.WithAdapter(adapter))
+	c := metrics.New(metrics.WithServiceName("svc"), metrics.WithAdapter(adapter), metrics.WithLogger(slog.New(handler)))
 
 	opts := metrics.MetricOpts{Name: "conflict", Help: "conflicting counter"}
 
