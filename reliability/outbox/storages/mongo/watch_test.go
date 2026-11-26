@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-atlas/reliability/outbox/internal/watchutil"
 )
 
 // The pipeline is the contract with the server: matching anything but inserts
@@ -109,7 +111,7 @@ func TestSleep(t *testing.T) {
 func TestWatchConstants(t *testing.T) {
 	t.Parallel()
 
-	require.Less(t, watchRetryBaseDelay, watchRetryMaxDelay,
+	require.Less(t, watchutil.ReconnectBaseDelay, watchutil.ReconnectMaxDelay,
 		"the backoff must have room to grow")
 	require.Positive(t, watchMaxAwaitTime,
 		"a non-positive await time would make the server return immediately, busy-looping getMore")

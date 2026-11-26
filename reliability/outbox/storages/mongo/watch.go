@@ -51,18 +51,10 @@ const (
 	changeStreamNotSupported = 40573
 )
 
-// Watch reconnect and shutdown timings. They are deliberately not options: the
+// Watch probe and shutdown timings. They are fixed because the
 // window they govern is bounded by the dispatch schedule either way, since the
 // poll cycle keeps draining the outbox while the stream is down.
 const (
-	// watchRetryBaseDelay is the pause before the first reconnect attempt.
-	watchRetryBaseDelay = watchutil.ReconnectBaseDelay
-
-	// watchRetryMaxDelay caps the pause between reconnect attempts. It is well
-	// under a typical dispatch interval, so a flapping stream costs latency
-	// rather than throughput.
-	watchRetryMaxDelay = watchutil.ReconnectMaxDelay
-
 	// watchProbeTimeout bounds one attempt of the capability probe that
 	// precedes the first stream, so a hung handshake is retried rather than
 	// waited on forever.
@@ -78,10 +70,6 @@ const (
 	// closing on a dead context would leak the server-side cursor until it
 	// times out on its own.
 	watchCloseTimeout = 5 * time.Second
-
-	// watchLogEvery spaces the warnings of a run of consecutive failures: the
-	// first one is logged, then every watchLogEvery-th.
-	watchLogEvery = watchutil.LogEvery
 )
 
 // watchPipeline restricts the change stream to the one transition the poll
@@ -259,9 +247,10 @@ func probeUntilAnswered(
 
 // logProbe wraps the capability probe so that a deployment that never answers
 // — bad credentials, a wrong address — is visible: the failures of a run are
-// warned about at the [watchLogEvery] rate, and an answer that follows failures
-// is reported once. A probe cut short by the watcher's own shutdown is not a
-// failure and is not logged.
+// logged on the first failure and then every [watchutil.LogEvery] failures,
+// about once every five minutes at the maximum reconnect delay, plus the time
+// spent probing. The first answer after failures is reported once. Shutdown
+// cancellation is ignored.
 func logProbe(logger *slog.Logger, probe func(context.Context) (bool, error)) func(context.Context) (bool, error) {
 	failures := 0
 	return func(ctx context.Context) (bool, error) {
