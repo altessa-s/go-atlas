@@ -7,11 +7,13 @@ package factory
 import (
 	"log/slog"
 	"net/http"
+	"regexp"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
+	"github.com/altessa-s/go-atlas/internal/transportconfig"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 
@@ -120,9 +122,19 @@ func (b *ServerBuilder) WithCorsMiddleware() *ServerBuilder {
 	}
 
 	c := cfg.Cors
+	patterns := make([]*regexp.Regexp, 0, len(c.AllowedOriginPatterns))
+	for _, source := range c.AllowedOriginPatterns {
+		pattern, err := transportconfig.CompileOriginPattern(source, c.AllowCredentials)
+		if err != nil {
+			b.errs = append(b.errs, b.WrapError(err, "CORS middleware"))
+			return b
+		}
+		patterns = append(patterns, pattern)
+	}
 	configOpts := []corsmw.Option{
 		corsmw.WithLogger(b.Logger()),
 		corsmw.WithAllowedOrigins(c.AllowedOrigins...),
+		corsmw.WithAllowedOriginPatterns(patterns...),
 		corsmw.WithMaxAge(c.MaxAge),
 		corsmw.WithOptionsSuccessStatus(c.OptionsSuccessStatus),
 	}

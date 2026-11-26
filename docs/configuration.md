@@ -434,8 +434,11 @@ For a gRPC server without authentication, set `grpc.interceptors.cache.publicMet
 Register a response policy for each method with `UseCacheMethodPolicies` in the gRPC server factory. Default cache metadata keys cover API version,
 feature flags, and the read mask. Caller identity comes from verified context. [gRPC cache](../transport/grpc/interceptors/cache/README.md)
 
-When `http.middlewares.cors.allowCredentials` is enabled, list exact URLs in `allowedOrigins`. Code that uses `WithAllowedOriginPatterns` must
-anchor each alternative and place each host wildcard immediately after a literal dot or `://`. [CORS middleware](../transport/http/server/middlewares/cors/README.md)
+For `http.middlewares.cors`, use `allowedOrigins` for literal origins and `allowedOriginPatterns` for regular expressions. With `allowCredentials`,
+every regex alternative must be anchored at both ends. Each host wildcard, including a character class or variable-width repeat, must start
+after a literal dot or `://`. The host must end in a literal registrable domain and public suffix, separated from any variable host part by a
+literal dot. A port can use decimal digit classes and repeats. The same rules apply to `WithAllowedOriginPatterns` in Go.
+[CORS middleware](../transport/http/server/middlewares/cors/README.md)
 
 ## Configuration templates
 

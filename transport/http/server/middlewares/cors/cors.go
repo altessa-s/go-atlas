@@ -5,15 +5,12 @@
 package cors
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
-	"regexp/syntax"
-	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/internal/transportconfig"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
 
@@ -36,7 +33,7 @@ const (
 const middlewareName = "cors"
 
 // ErrCredentialedOriginWildcard is raised when a credentialed origin has an unsafe wildcard.
-var ErrCredentialedOriginWildcard = errors.New("cors: insecure configuration: credentialed origin has an unsafe wildcard")
+var ErrCredentialedOriginWildcard = transportconfig.ErrCredentialedOriginWildcard
 
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
@@ -79,26 +76,13 @@ func (m *middleware) Dependencies() []string {
 func New(opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
-	if opts.allowAllOrigins && opts.allowCredentials {
-		panic("cors: insecure configuration: AllowAllOrigins and AllowCredentials cannot both be enabled " +
-			"— this allows any website to make credentialed requests on behalf of your users")
-	}
-
 	if opts.allowCredentials {
-		for _, origin := range opts.allowedOrigins {
-			if strings.ContainsRune(origin, '*') {
-				panic(fmt.Errorf("%w in exact origin %q", ErrCredentialedOriginWildcard, origin))
-			}
+		if opts.allowAllOrigins {
+			panic(fmt.Errorf("%w: AllowAllOrigins cannot be combined with AllowCredentials", ErrCredentialedOriginWildcard))
 		}
-		if p := firstBroadOriginPattern(opts.allowedOriginPatterns); p != nil {
-			panic("cors: insecure configuration: AllowCredentials with an origin pattern that matches arbitrary origins (`" +
-				p.String() + "`) — this allows any website to make credentialed requests on behalf of your users; " +
-				"anchor the pattern to your own domains")
-		}
-		for _, p := range opts.allowedOriginPatterns {
-			if p != nil && !hostWildcardsBounded(p) {
-				panic(fmt.Errorf("%w in pattern %q: place host wildcards after a literal dot or ://",
-					ErrCredentialedOriginWildcard, p.String()))
+		for _, pattern := range opts.allowedOriginPatterns {
+			if err := transportconfig.ValidateCredentialedOriginPattern(pattern); err != nil {
+				panic(err)
 			}
 		}
 	}
@@ -208,85 +192,6 @@ func (m *middleware) precompute() {
 	// Pre-convert max age
 	if m.opts.maxAge > 0 {
 		m.maxAgeStr = strconv.Itoa(m.opts.maxAge)
-	}
-}
-
-// broadOriginCanaries are origins that no domain-anchored pattern should match.
-// A pattern matching any of them is effectively allow-all (e.g. `.*`, `^https?://`)
-// and is unsafe to combine with credentials.
-var broadOriginCanaries = []string{
-	"https://cors-wildcard-canary.invalid",
-	"http://cors-wildcard-canary.invalid",
-	"null",
-}
-
-// firstBroadOriginPattern returns the first pattern that matches a canary foreign
-// origin or is not anchored at both start and end, or nil when every pattern is
-// suitably narrow. A pattern without a leading `^` matches suffix-confused domains
-// (`example\.com$` matches https://evilexample.com), and one without a trailing `$`
-// matches any origin that merely starts with an allowed one (`^https://.*\.example\.com`
-// also matches https://x.example.com.evil.io), neither of which a fixed canary can
-// detect. Returning the regexp (not its string) avoids conflating "not found" with an
-// empty-string pattern, which itself matches everything.
-func firstBroadOriginPattern(patterns []*regexp.Regexp) *regexp.Regexp {
-	for _, pattern := range patterns {
-		if pattern == nil {
-			continue
-		}
-		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) || !fullyAnchored(pattern) {
-			return pattern
-		}
-	}
-	return nil
-}
-
-// fullyAnchored reports whether every top-level alternative of pattern must
-// begin at the start of the input and end at the end of the input.
-func fullyAnchored(pattern *regexp.Regexp) bool {
-	re, err := syntax.Parse(pattern.String(), syntax.Perl)
-	if err != nil {
-		return false
-	}
-	return startsAtText(re) && endsAtText(re)
-}
-
-func startsAtText(re *syntax.Regexp) bool {
-	switch re.Op {
-	case syntax.OpBeginText, syntax.OpBeginLine:
-		return true
-	case syntax.OpConcat:
-		return len(re.Sub) > 0 && startsAtText(re.Sub[0])
-	case syntax.OpCapture:
-		return len(re.Sub) > 0 && startsAtText(re.Sub[0])
-	case syntax.OpAlternate:
-		for _, sub := range re.Sub {
-			if !startsAtText(sub) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
-}
-
-func endsAtText(re *syntax.Regexp) bool {
-	switch re.Op {
-	case syntax.OpEndText, syntax.OpEndLine:
-		return true
-	case syntax.OpConcat:
-		return len(re.Sub) > 0 && endsAtText(re.Sub[len(re.Sub)-1])
-	case syntax.OpCapture:
-		return endsAtText(re.Sub[0])
-	case syntax.OpAlternate:
-		for _, sub := range re.Sub {
-			if !endsAtText(sub) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
 	}
 }
 

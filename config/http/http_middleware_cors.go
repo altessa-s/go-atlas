@@ -5,15 +5,14 @@
 package httpconfig
 
 import (
-	"errors"
-	"strings"
+	"github.com/altessa-s/go-atlas/internal/transportconfig"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// ErrCredentialedWildcardOrigin indicates that credentialed CORS requires exact origins.
-var ErrCredentialedWildcardOrigin = errors.New("credentialed CORS requires exact origins without wildcards")
+// ErrCredentialedWildcardOrigin indicates that an origin pattern is unsafe with credentials.
+var ErrCredentialedWildcardOrigin = transportconfig.ErrCredentialedOriginWildcard
 
 // CORS configuration defaults.
 const (
@@ -30,8 +29,12 @@ type CORSMiddleware struct {
 	BaseMiddleware `yaml:",inline"`
 
 	// AllowedOrigins is a list of origins that are allowed to access the resource.
-	// Credentialed CORS requires exact origins without wildcards.
+	// Each entry is compared literally.
 	AllowedOrigins []string `yaml:"allowedOrigins"`
+
+	// AllowedOriginPatterns is a list of regular expressions for allowed origins.
+	// Credentialed patterns must be anchored and confine host wildcards to subdomains of literal registrable domains.
+	AllowedOriginPatterns []string `yaml:"allowedOriginPatterns"`
 
 	// AllowedMethods is a list of HTTP methods allowed when accessing the resource.
 	// Defaults to standard methods if not specified.
@@ -64,14 +67,13 @@ type CORSMiddleware struct {
 func (c *CORSMiddleware) Validate() error {
 	return c.ValidateBase(func() error {
 		return validationconfig.ValidateStruct(c,
-			validation.Field(&c.AllowedOrigins, validation.Each(validation.Required, validation.When(c.AllowCredentials,
+			validation.Field(&c.AllowedOrigins, validation.Each(validation.Required)),
+			validation.Field(&c.AllowedOriginPatterns, validation.Each(
 				validation.By(func(value any) error {
-					origin, _ := value.(string)
-					if strings.ContainsRune(origin, '*') {
-						return ErrCredentialedWildcardOrigin
-					}
-					return nil
-				})))),
+					pattern, _ := value.(string)
+					_, err := transportconfig.CompileOriginPattern(pattern, c.AllowCredentials)
+					return err
+				}))),
 			validation.Field(&c.MaxAge, validation.Min(0)),
 			validation.Field(&c.OptionsSuccessStatus, validation.Min(httpStatusMin), validation.Max(httpStatusMax)),
 		)

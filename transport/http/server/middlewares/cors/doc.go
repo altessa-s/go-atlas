@@ -44,9 +44,11 @@
 //
 // # Credentialed origins
 //
-// [New] rejects allow-all origins and wildcard entries in exact origins when
-// credentials are enabled. Regular expressions must be anchored on every
-// alternative, and host wildcards must follow a literal dot or ://.
+// [New] rejects allow-all origins when credentials are enabled. Exact origins
+// are compared literally. Every alternative in a credentialed origin pattern
+// must be anchored. Host wildcards, including classes and variable-width
+// repeats, must follow a literal dot or :// and leave a literal registrable
+// domain and public suffix at the end of the host.
 //
 // References:
 //   - https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS

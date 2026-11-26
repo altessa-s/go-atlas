@@ -19,7 +19,7 @@ options; runtime packages never import them.
 | `MiddlewareFilter`          | Defines common path filtering settings used by HTTP middlewares.                                                  |
 | `BaseMiddleware`            | Provides common configuration structure for HTTP middlewares.                                                     |
 | `BodyLimitMiddleware`       | Defines the configuration for HTTP body size limiting middleware.                                                 |
-| `CORSMiddleware`            | Configures CORS. Credentialed requests require exact origins.                                                    |
+| `CORSMiddleware`            | Configures CORS with literal origins or validated origin patterns.                                               |
 | `GeoACLMiddleware`          | Defines the configuration for the HTTP geographic access control middleware.                                      |
 | `IdempotencyKeyLogMode`     | Controls how the client-supplied idempotency key is rendered in the middleware's debug-level log records.         |
 | `IdempotencyMiddleware`     | Defines the configuration for HTTP idempotency middleware.                                                        |
