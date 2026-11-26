@@ -5,6 +5,7 @@
 // Package storagetest is the conformance kit for [storages.Storage]
 // backends. [Run] runs parallel contracts on fresh stores, covering
 // transport-sized replay records and protection against completed-record takeover.
+// [KeeperUsesLockLease] checks expiry and fencing on a lease-based backend.
 //
 // # Usage
 //

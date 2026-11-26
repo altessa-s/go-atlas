@@ -19,6 +19,9 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 
 See the [config index](../README.md) for the other schema packages.
 
+For NATS storage, `maxLockDuration` caps the lock lease and `ttl` controls completed-result retention. JetStream requires per-key TTL support
+(NATS 2.11+).
+
 For memory storage, `storage.memory.cleanupTaskID` overrides the default `idempotency-memory-cleanup`. Give each memory store sharing a
 scheduler a distinct ID.
 

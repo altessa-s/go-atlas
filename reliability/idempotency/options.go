@@ -26,8 +26,8 @@ import (
 type KeyNamespaceFunc func(context.Context) string
 
 // DefaultMaxLockDuration is the default threshold for treating an
-// in-progress lock as orphaned. AttemptLock callers that observe a
-// stale InProgress entry older than this attempt a CAS-steal.
+// in-progress lock as orphaned. Age-aware stores check it on collision.
+// Lease-based stores use it to cap the acquiring call's lock TTL.
 const DefaultMaxLockDuration = 5 * time.Minute
 
 // options contains Keeper configuration.
@@ -36,8 +36,8 @@ type options struct {
 	serializer serializer.Serializer `optgen:"notnil,default=&serializer.JSON{}"`
 	meter      metrics.Meter         `optgen:"notnil"`
 	// maxLockDuration is the threshold for orphan-lock detection.
-	// On AttemptLock collision, if the existing InProgress entry is
-	// older than this, Keeper attempts a CAS-steal. The field is
+	// Age-aware stores check it on collision, and lease-based stores
+	// use it to cap lock TTL on acquisition. The field is
 	// intentionally left without an [optgen] default: when [Keeper.New]
 	// observes a zero value (i.e. the caller did not invoke
 	// [WithMaxLockDuration]) it logs a warning and normalizes the
@@ -71,5 +71,5 @@ type OwnerFunc func(ctx context.Context) string
 // owner labels: nil lets the caller see the record, an error is returned to
 // the caller wrapped in ErrOwnerMismatch — return the service's NotFound
 // error to hide the record, and gRPC transports answer with its status.
-// Taking over an orphaned lock still requires the same owner label.
+// Replacing a live orphaned lock still requires the same owner label.
 type ReplayAuthorizer func(ctx context.Context, owner string) error

@@ -38,8 +38,8 @@ func WithLogger(v *slog.Logger) Option {
 // WithMaxLockDuration sets the maxLockDuration option.
 //
 // maxLockDuration is the threshold for orphan-lock detection.
-// On AttemptLock collision, if the existing InProgress entry is
-// older than this, Keeper attempts a CAS-steal. The field is
+// Age-aware stores check it on collision, and lease-based stores
+// use it to cap lock TTL on acquisition. The field is
 // intentionally left without an [optgen] default: when [Keeper.New]
 // observes a zero value (i.e. the caller did not invoke
 // [WithMaxLockDuration]) it logs a warning and normalizes the

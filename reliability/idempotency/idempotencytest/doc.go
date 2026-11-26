@@ -4,6 +4,7 @@
 
 // Package idempotencytest provides MockIdempotencyStorage, a concurrency-safe in-memory idempotency storage
 // for tests of idempotency consumers (HTTP and gRPC middleware, broker deduplication).
+// It timestamps locks for age-aware takeover and omits TTL expiry.
 //
 // Example:
 //

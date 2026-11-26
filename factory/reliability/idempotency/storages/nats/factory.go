@@ -30,7 +30,8 @@ var (
 
 // Builder returns the storage function of the nats type, ready for
 // idempotencyfactory.KeeperBuilder.UseStorage. The storage keeps keys in the
-// configured JetStream KV bucket, expiring them after the configured TTL.
+// configured JetStream KV bucket. The Keeper caps lock leases with
+// MaxLockDuration, and the configured TTL governs completed records.
 func Builder(js jetstream.JetStream) idempotencyfactory.StorageFunc {
 	return func(cfg *idempotencyconfig.Config) (storages.Storage, error) {
 		if js == nil {

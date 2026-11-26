@@ -26,7 +26,8 @@
 #    cleanupTaskID: "idempotency-memory-cleanup"
 #
 #  # <object> NATS-specific configuration for storage.
-#  # Contains settings for NATS KeyValue bucket and replication.
+#  # Requires JetStream with per-key TTL support (NATS 2.11+).
+#  # The bucket TTL retains completed results and caps in-progress leases.
 #  # Required when type is set to 'nats'.
 #  nats:
 #    # <string> Name of the NATS KeyValue bucket.

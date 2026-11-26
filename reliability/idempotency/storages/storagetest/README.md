@@ -35,4 +35,6 @@ func TestStorageContract(t *testing.T) {
 
 `KeeperUsesStorageClock` checks that a fresh lock survives an apparently old
 wire timestamp and that takeover refuses a mismatched expected value. Run it
-with stores that consult a backend clock.
+with stores that consult a backend clock. `KeeperUsesLockLease` exercises
+acquisition-time lease settings, expired-holder fencing, and completed-record
+retention on a lease-based store.

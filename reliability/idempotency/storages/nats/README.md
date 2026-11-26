@@ -32,12 +32,19 @@ untouched when it already exists with another one; align the configuration, recr
 
 ## Orphan takeover
 
-Orphan takeover uses the Keeper clock and requires synchronized clocks across instances sharing the bucket. A positive per-call lock TTL
-applies to both acquisition and takeover. Storage wrappers must forward `storages.KeeperClockStorage` to preserve takeover.
+JetStream expires each in-progress lock lease. The Keeper uses the acquiring call's `MaxLockDuration` (default five minutes) or a shorter positive
+`LockTTL`. JetStream per-key TTL has one-second resolution. The storage rounds up and the bucket's `MaxAge` remains the upper bound. A direct call
+to `Storage.AttemptLock` uses `MaxAge`, and `Storage.AttemptLockWithTTL` accepts an explicit lease duration.
 
-`New` rejects mirrored buckets with `ErrMirroredBucket`. The per-key TTL takeover publishes directly to the bucket's stream.
+After expiry, acquisition uses KV Create and returns a new revision. `Steal` only reports the current value. `Complete` and `Release` require the
+holder's revision. Completion starts the full bucket `MaxAge` for the replay record. Storage wrappers must forward
+`storages.LockLeaseStorage` to apply the Keeper's lease cap.
+
+`New` requires a file-backed bucket with per-key TTL enabled and one revision per key. An existing bucket with matching `MaxAge` and per-key TTL
+disabled returns `ErrBucketPerKeyTTLRequired`. Enable `allow_msg_ttl` on its stream or select a new bucket. `New` rejects mirrored buckets with
+`ErrMirroredBucket` and multiple revisions per key with `ErrBucketHistoryMismatch`.
 
 ## Upgrade
 
-Stop old writers and recreate the idempotency KV entries before starting the new version. Entries now carry a lock or completed-record
-marker alongside the payload.
+Stop old writers before switching to lease-based writers. Existing records retain the TTL assigned when they were written. To make existing
+orphans eligible sooner, remove their keys after confirming their holders are inactive. Completed entries can remain in the bucket.

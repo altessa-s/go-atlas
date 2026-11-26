@@ -4,7 +4,8 @@
 import "github.com/altessa-s/go-atlas/reliability/idempotency/idempotencytest"
 ```
 
-Test kit for [`reliability/idempotency`](../): it MockIdempotencyStorage, a concurrency-safe in-memory idempotency storage for tests of idempotency consumers (HTTP and gRPC middleware, broker deduplication).
+`MockIdempotencyStorage` is a concurrency-safe in-memory store for tests of [idempotency](../) consumers. It tracks lock age for takeover.
+Use a real backend to exercise TTL expiry.
 
 ## Key types
 

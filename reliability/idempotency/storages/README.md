@@ -12,10 +12,12 @@ top-level `idempotency.Keeper` to supply the underlying storage backend.
 | Type / Interface | Description                                                    |
 |------------------|----------------------------------------------------------------|
 | `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Release, Delete |
+| `LockLeaseStorage` | Reports that the backend expires lock leases |
 
 `Steal(ctx, key, expected, replacement, maxLockAge, ttl)` checks the expected value and the acquired lock's age before replacing it.
 A refused takeover returns the observed live value when available. A successful takeover returns a fresh token and uses the supplied lock TTL,
-or the backend default for a nonpositive value. NATS KV implements `KeeperClockStorage` so the Keeper handles the age check.
+or the backend default for a nonpositive value. For a lease-based store, the Keeper applies the acquiring call's maximum lock duration when
+setting the TTL and retries acquire an expired lock through `AttemptLockWithTTL`. `Steal` returns any current value without writing.
 
 ## Subpackages
 

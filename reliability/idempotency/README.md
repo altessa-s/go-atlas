@@ -87,7 +87,8 @@ whatever access attributes the service needs later (a legal entity and an employ
   may read the record. Its error is returned wrapped in `ErrOwnerMismatch`: return the service's NotFound error to hide an invisible record —
   `errors.Is` still matches it, the gRPC interceptor answers with its status and the HTTP middleware with its `HTTPStatus()`.
 
-Only the record's own owner may take over its orphaned lock. Records written without an owner are not checked unless an authorizer is set.
+Only the record's own owner may replace a live orphaned lock on age-aware stores. Expiry ends the record's owner and fingerprint bindings.
+Records written without an owner are checked only when an authorizer is set.
 
 The [`principalowner`](./principalowner) adapter provides `PrincipalOwner`, an `OwnerFunc` labeling each key with the verified principal's tenant and
 subject. It replaces the former `reliability/idempotency.PrincipalOwner`; update imports to `reliability/idempotency/principalowner`. The
@@ -177,8 +178,11 @@ Either form silences the warning. Factory users set `idempotency.maxLockDuration
 
 Redis, MongoDB, SQL, and memory stamp locks with their own clocks. On collision, the store checks whether the live lock's age strictly exceeds
 `MaxLockDuration` and whether its bytes match before replacing it and returning a fresh token. The Keeper skips takeover for its own fresh locks.
-The replacement uses the contender's `LockTTL` when supplied. NATS KV delegates the age check to the Keeper and requires synchronized clocks
-across processes sharing the bucket. Wrappers must forward `storages.KeeperClockStorage` to preserve NATS takeover.
+The replacement uses the contender's `LockTTL` when supplied.
+
+For NATS KV, JetStream expires the lease. The acquiring call's `MaxLockDuration` and any shorter positive `LockTTL` determine the lease, rounded up
+to whole seconds and capped by the bucket TTL. A retry acquires a new revision after expiry. Completion starts the full bucket TTL for replay.
+Storage wrappers must forward `storages.LockLeaseStorage` for the Keeper to apply the acquisition-time cap.
 
 | Behavior                          | Setting                                       |
 |-----------------------------------|-----------------------------------------------|
@@ -196,7 +200,7 @@ After takeover, the previous holder's token fails with `storages.ErrLockStolen` 
 | `WithLogger`            | discard                  | Structured logger                                          |
 | `WithSerializer`        | JSON                     | Serialization format                                       |
 | `WithMeter`             | none                     | Metrics collector                                          |
-| `WithMaxLockDuration`   | `DefaultMaxLockDuration` (5m) | Threshold for orphan-lock CAS-steal on AttemptLock collision |
+| `WithMaxLockDuration`   | `DefaultMaxLockDuration` (5m) | Orphan-lock age threshold or NATS lease cap |
 | `WithKeyNamespace`      | empty namespace          | Per-context key namespace (tenant / subject)               |
 | `WithOwner`             | none                     | Caller identity recorded with each key (see Owners)        |
 | `WithReplayAuthorizer`  | none (refuse)            | Lets chosen callers see records of other owners            |

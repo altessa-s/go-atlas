@@ -10,9 +10,9 @@
 #  ttl: "24h"
 #
 #  # <duration> Threshold for treating an in-progress lock as orphaned.
-#  # On AttemptLock collision, an existing InProgress entry older than
-#  # this is reclaimed via CAS-steal so retries don't get stuck behind a
-#  # crashed holder. When unset, the Keeper logs a one-time warning at
+#  # Age-aware stores use it when checking a lock on collision.
+#  # NATS uses it to cap the lease when the lock is acquired.
+#  # When unset, the Keeper logs a one-time warning at
 #  # construction and falls back to 5m. Set explicitly to silence the
 #  # warning and document an evaluated value for this service.
 #  # Default value: not set (the idempotency Keeper falls back to 5m, idempotency.DefaultMaxLockDuration)

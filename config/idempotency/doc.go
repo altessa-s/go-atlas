@@ -12,7 +12,8 @@
 // Key types: [Config], [StorageConfig], [MongoStorageConfig], [SQLStorageConfig].
 // SQL storage selects postgres or mysql (including MariaDB); its sqldb block
 // configures the table, optional startup schema creation and expired-row sweep
-// interval (default one minute, zero disables).
+// interval (default one minute, zero disables). For NATS, maxLockDuration
+// caps the lock lease and ttl controls how long completed results replay.
 //
 // # Purging
 //

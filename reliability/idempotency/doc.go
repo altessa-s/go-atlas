@@ -9,8 +9,8 @@
 // also drains expired rows manually and returns an int64 count.
 //
 // Redis, MongoDB, SQL, and memory use their own clocks for orphan takeover.
-// NATS KV delegates the age check to the Keeper and requires synchronized
-// Keeper clocks.
+// JetStream expires NATS KV lock leases based on the acquiring call's
+// MaxLockDuration and LockTTL. Completed records use the bucket TTL.
 //
 // // # Ownership
 //

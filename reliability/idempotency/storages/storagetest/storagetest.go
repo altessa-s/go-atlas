@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
@@ -103,6 +104,63 @@ func KeeperUsesStorageClock(t *testing.T, store storages.Storage) {
 	require.Equal(t, wire, current)
 	require.Nil(t, token)
 	require.NoError(t, store.Complete(ctx, key, []byte("completed by holder"), old))
+}
+
+// KeeperUsesLockLease verifies that the acquiring call sets the lease,
+// expired holders are fenced, and completion uses the store's replay TTL.
+// Pass a fresh lease-based store with a default TTL longer than one minute.
+func KeeperUsesLockLease(t *testing.T, store storages.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	const (
+		leaseTTL     = time.Second
+		settleWindow = 5 * time.Second
+		pollInterval = 25 * time.Millisecond
+	)
+	holder := idempotency.New(store, idempotency.WithMaxLockDuration(leaseTTL))
+	contender := idempotency.New(store, idempotency.WithMaxLockDuration(time.Hour))
+
+	acquired, orphan, err := holder.AttemptLock(ctx, "orphan")
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	opts := idempotency.AttemptLockOpts{MaxLockDuration: leaseTTL, LockTTL: time.Hour}
+	acquired, overridden, err := contender.AttemptLockWithOpts(ctx, "override", opts)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	acquired, held, err := contender.AttemptLockWithOpts(ctx, "replay", opts)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	require.NoError(t, contender.Complete(ctx, "replay", "cached", held))
+
+	opts.MaxLockDuration = time.Hour
+	opts.LockTTL = leaseTTL
+	acquired, short, err := contender.AttemptLockWithOpts(ctx, "short", opts)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	for _, tc := range []struct {
+		key string
+		old *idempotency.State
+	}{{"orphan", orphan}, {"override", overridden}, {"short", short}} {
+		var replacement *idempotency.State
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			ok, state, attemptErr := contender.AttemptLock(ctx, tc.key)
+			require.NoError(c, attemptErr)
+			require.True(c, ok)
+			replacement = state
+		}, settleWindow, pollInterval)
+		require.ErrorIs(t, holder.Complete(ctx, tc.key, "late", tc.old), idempotency.ErrLockStolen)
+		require.ErrorIs(t, holder.Release(ctx, tc.key, tc.old), idempotency.ErrLockStolen)
+		require.NoError(t, contender.Complete(ctx, tc.key, "done", replacement))
+	}
+
+	acquired, replay, err := contender.AttemptLock(ctx, "replay")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, idempotency.StatusSuccess, replay.Status)
+	require.Equal(t, "cached", replay.Data)
 }
 
 // StealRefusesCompletedRecord verifies that matching completed bytes do not
