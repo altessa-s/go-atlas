@@ -32,27 +32,28 @@ func TestDeduplicateBypassesSessions(t *testing.T) {
 	t.Cleanup(func() { sess.EndSession(context.WithoutCancel(t.Context())) })
 	sessCtx := mongo.NewSessionContext(t.Context(), sess)
 
-	const key = "db:coll:filter"
+	key := readFlightKey{database: "db", collection: "coll", filter: "filter"}
+	inside := &readDocuments{}
 	release := make(chan struct{})
 	entered := make(chan struct{})
 	go func() {
-		_, _ = m.repo.deduplicate(t.Context(), key, func(context.Context) (any, error) {
+		_, _ = m.repo.deduplicate(t.Context(), key, false, func(context.Context) (*readDocuments, error) {
 			close(entered)
 			<-release
-			return "outside", nil
+			return &readDocuments{}, nil
 		})
 	}()
 	<-entered
 	defer close(release)
 
-	done := make(chan any, 1)
+	done := make(chan *readDocuments, 1)
 	go func() {
-		v, _ := m.repo.deduplicate(sessCtx, key, func(context.Context) (any, error) { return "inside", nil })
+		v, _ := m.repo.deduplicate(sessCtx, key, false, func(context.Context) (*readDocuments, error) { return inside, nil })
 		done <- v
 	}()
 	select {
 	case v := <-done:
-		require.Equal(t, "inside", v, "the session-bound read ran on its own")
+		require.Same(t, inside, v, "the session-bound read ran on its own")
 	case <-time.After(5 * time.Second):
 		t.Fatal("the session-bound read joined the other caller's flight")
 	}

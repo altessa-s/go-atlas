@@ -6,6 +6,12 @@
 // transaction handling, and structured logging. Use it for database operations
 // requiring encryption or simplified transaction management.
 //
+// # Repository reads
+//
+// [GetEntity] and [GetEntities] can share a read started before the caller's
+// own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write
+// to issue an independent query with the collection's read preference and concern.
+//
 // # Cursor pagination
 //
 // ListCursor issues its continuation token in one of three modes, chosen by

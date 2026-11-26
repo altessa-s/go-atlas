@@ -43,11 +43,6 @@ const (
 	secondElementIndex = 1
 )
 
-// Deduplication key suffixes for different query types (internal implementation details)
-const (
-	deduplicationKeySuffixList = "_list"
-)
-
 // Query and aggregation operators the package's filters and pipelines reuse.
 const (
 	opAnd     = "$and"
@@ -106,6 +101,9 @@ const (
 type FilterEncoding struct {
 	Registry    *bson.Registry
 	BSONOptions *options.BSONOptions
+
+	// FreshRead bypasses deduplication for GetEntity and GetEntities.
+	FreshRead bool
 }
 
 func prepareFilter(ctx context.Context, coll *mongo.Collection, filter any, settings ...FilterEncoding) (bson.Raw, error) {

@@ -100,16 +100,13 @@ BSON-bound cursors. `ListCursorSeq` captures the prepared filter when iteration 
 
 ## Read deduplication and tenant isolation
 
-`GetEntity` and `GetEntities` collapse concurrent identical reads through a `singleflight` group keyed by `db:collection:hash(filter)`. Two callers
-issuing the **same** filter at the same time run one query and share its result. That is correct only when the result is a pure function of the filter.
-If caller identity affects what a query returns but lives **outside** the filter — e.g. per-tenant CSFLE data keys, a read scope applied by a session,
-or a read preference bound to the caller — then collapsing identical filters across tenants can hand one tenant another's result.
+`GetEntity` and `GetEntities` share an in-flight query when the database, collection handle, model type, operation, prepared BSON filter and caller
+identity match. Each caller decodes and converts its own copy with the collection's BSON settings. Session-bound reads run independently to preserve
+the session's snapshot.
 
-A read whose context carries a session (inside `WithTransaction` or any `mongo.NewSessionContext`) is never deduplicated: it must see its transaction's
-snapshot, and a read outside the transaction must never see its uncommitted writes.
-
-Deduplicated callers wait independently: canceling one waiter does not cancel shared work or other waiters. The shared query keeps the first caller's
-context values and is bounded by `DefaultQueryTimeout`.
+Deduplicated callers wait independently. The shared query keeps the first caller's context values and is bounded by `DefaultQueryTimeout`. A
+deduplicated read may join a query that started before the caller's own acknowledged write. Use `GetEntity(mongo.WithFreshRead(ctx), ...)` or pass
+`mongo.FilterEncoding{FreshRead: true}` to either helper after a write. The collection's read preference and read concern still apply.
 
 **Contract:** in such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
 are then only collapsed when they share an identity:
@@ -117,11 +114,11 @@ are then only collapsed when they share an identity:
 ```go
 m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
     p, _ := principal.FromContext(ctx)
-    return p.Tenant // "" disables prefixing (the default)
+    return p.Tenant // "" leaves the identity segment empty
 }))
 ```
 
-Returning `""` (or leaving the option unset) keeps the key identical to the un-prefixed form, so single-tenant callers are unaffected.
+Returning `""` or leaving the option unset uses an empty identity segment.
 
 `GetEntities` returns a slice and therefore retains the result set. For large or unbounded reads, `GetEntitiesSeq` decodes and converts one document at
 a time and yields the first query, decode, or conversion error through `iter.Seq2`; it does not deduplicate concurrent iterations:

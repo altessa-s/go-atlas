@@ -6,10 +6,13 @@ package mongo
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type dedupTenantKey struct{}
@@ -27,36 +30,49 @@ func TestDeduplicationKey_IsolatesByIdentity(t *testing.T) {
 	t.Parallel()
 
 	m := &repository{dedupIdentity: dedupTenant}
+	coll := dedupTestCollection(t)
+	model := reflect.TypeFor[bson.M]()
 	filter := mustPrepareFilter(t, bson.M{"_id": "shared"})
 
 	ctxA := context.WithValue(t.Context(), dedupTenantKey{}, "A")
 	ctxB := context.WithValue(t.Context(), dedupTenantKey{}, "B")
 
-	keyA := m.deduplicationKey(ctxA, "db:coll", filter)
-	keyB := m.deduplicationKey(ctxB, "db:coll", filter)
+	keyA := m.deduplicationKey(ctxA, coll, model, "find", filter)
+	keyB := m.deduplicationKey(ctxB, coll, model, "find", filter)
 
 	require.NotEqual(t, keyA, keyB, "same filter, different identity must not share a singleflight slot")
-	require.Equal(t, keyA, m.deduplicationKey(ctxA, "db:coll", filter), "same identity + filter must be stable")
+	require.Equal(t, keyA, m.deduplicationKey(ctxA, coll, model, "find", filter), "same identity + filter must be stable")
 }
 
-// TestDeduplicationKey_BackwardCompatible checks that a nil identity func, or one
-// returning "", leaves the key identical to the un-prefixed form — so existing
-// single-tenant callers are unaffected.
-func TestDeduplicationKey_BackwardCompatible(t *testing.T) {
+// TestDeduplicationKey_EmptyIdentity checks that a nil identity func, or one
+// returning "", leaves the identity segment empty.
+func TestDeduplicationKey_EmptyIdentity(t *testing.T) {
 	t.Parallel()
 
+	coll := dedupTestCollection(t)
+	model := reflect.TypeFor[bson.M]()
 	filter := mustPrepareFilter(t, bson.M{"_id": "x"})
-	want := generateDeduplicationKey("db:coll", filter)
+	want := (&repository{}).deduplicationKey(t.Context(), coll, model, "find", filter)
 
 	t.Run("nil identity", func(t *testing.T) {
 		t.Parallel()
 		m := &repository{}
-		require.Equal(t, want, m.deduplicationKey(t.Context(), "db:coll", filter))
+		require.Equal(t, want, m.deduplicationKey(t.Context(), coll, model, "find", filter))
+		require.Empty(t, want.identity)
 	})
 
 	t.Run("empty identity", func(t *testing.T) {
 		t.Parallel()
 		m := &repository{dedupIdentity: func(context.Context) string { return "" }}
-		require.Equal(t, want, m.deduplicationKey(t.Context(), "db:coll", filter))
+		require.Equal(t, want, m.deduplicationKey(t.Context(), coll, model, "find", filter))
+		require.Empty(t, want.identity)
 	})
+}
+
+func dedupTestCollection(t *testing.T) *mongo.Collection {
+	t.Helper()
+	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
+	return client.Database("db").Collection("coll")
 }
