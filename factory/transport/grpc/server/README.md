@@ -112,7 +112,9 @@ safe when the client IP source is trustworthy (`realIP` with `trustedPeers` or `
 To opt a unary Update RPC into mask-aware Buf validation and handle mask errors in the RPC, create an
 `update.Spec` with `update.WithAllowedPaths` and pass `fieldmask.WithUpdateSpec(method, spec)` to
 `UseFieldMaskOptions` before adding the interceptors. The handler reads the shared selection with
-`updatemask.SelectionFromContext`. See [update-mask normalization](../../../../transport/grpc/interceptors/updatemask/README.md).
+`updatemask.SelectionFromContext` and reports resolution errors before resource body validation.
+On a resolution error, Buf validates only fields outside the resource and the spec's resource
+identity fields. See [update-mask normalization](../../../../transport/grpc/interceptors/updatemask/README.md).
 
 ### Terminal
 

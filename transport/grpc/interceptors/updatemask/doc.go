@@ -6,7 +6,9 @@
 //
 // For a registered unary RPC, [SelectionFromContext] exposes the original mask
 // and its resolution. The handler owns write planning with the registered
-// spec. The factory chain checks the body first when resolution fails.
+// spec and reports resolution errors before resource body validation. On a
+// resolution error, Buf checks only request fields outside the resource and the
+// spec's resource identity fields.
 // The deferred plan applies to unregistered methods and streams.
 //
 // By default, updates use update.Prepare to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.

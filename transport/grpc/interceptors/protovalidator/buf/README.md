@@ -59,5 +59,6 @@ For a unary Update RPC registered with `fieldmask.WithUpdateSpec`, `BuildValidat
 validates the selected resource fields, routing identity, submitted write-only values,
 and the request fields outside the resource. Empty required fields of the resource
 report `required` with the full proto field path and collection subscripts. If the mask
-cannot be resolved, the validator checks the whole body and gives required fields in
-present resource messages the same priority.
+cannot be resolved, Buf validates only fields outside the resource and the spec's resource
+identity fields. This lets the handler report the indexed mask resolution error before
+resource body validation.

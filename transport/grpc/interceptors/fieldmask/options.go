@@ -172,8 +172,10 @@ func WithMetadataReadMaskHeader(name string) Option {
 // "/example.v1.SettingsService/UpdateSettings". Construct it with
 // [update.NewSpec] and [update.WithAllowedPaths]. The factory's unary chain
 // resolves and shares this spec with the handler through updatemask.SelectionFromContext.
-// The handler owns write planning and reports resolution errors after body
-// validation. Nil specs and empty method names are ignored.
+// The handler owns write planning and reports resolution errors before resource
+// body validation. When resolution fails, the downstream Buf validator checks
+// only request fields outside the resource and the spec's resource identity fields.
+// Nil specs and empty method names are ignored.
 func WithUpdateSpec(fullMethod string, spec *update.Spec) Option {
 	return func(o *options) {
 		if fullMethod == "" || spec == nil {
