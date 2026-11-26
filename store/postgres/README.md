@@ -123,9 +123,9 @@ available to `errors.Is` and `errors.As`. A storage built on this package gives 
 `Diagnostic(op, err)` before returning them. `Classify` and `ClassifyContext` identify integrity violations (with the constraint name), retryable
 transaction failures, connection failures, timeouts, statement timeouts and cancellations. Use `kind.RetryableTransaction()` to identify failures
 eligible for whole-transaction replay. An ambiguous connection failure can represent a committed write. PostgreSQL reports both server-side timeout and
-cancellation as SQLSTATE 57014. Prefer `ClassifyContext(ctx, err)` so deadline (`Timeout`), cancellation (`Canceled`) and server `statement_timeout`
-(`StatementTimeout`) are distinguished regardless of `lc_messages`; `Classify(err)` without a context requires English server messages and returns
-`Unknown` for unrecognized 57014 text.
+cancellation as SQLSTATE 57014. `ClassifyContext(ctx, err)` classifies this code as `Timeout` for a deadline, `Canceled` for cancellation, and
+`StatementTimeout` for an active or nil context, regardless of the server message. `Classify(err)` uses English server messages for 57014 and
+returns `Unknown` for unrecognized text.
 
 ## Migrations
 

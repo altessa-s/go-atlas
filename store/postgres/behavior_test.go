@@ -554,7 +554,7 @@ func TestClassifyContext(t *testing.T) {
 		{name: "no ctx error with translated 57014", ctx: activeCtx, err: translated, want: StatementTimeout},
 		{name: "no ctx error with safe 57014", ctx: activeCtx, err: safe57014, want: StatementTimeout},
 		{name: "no ctx error with english statement timeout", ctx: activeCtx, err: englishStmtTimeout, want: StatementTimeout},
-		{name: "no ctx error with english user request", ctx: activeCtx, err: englishUserCancel, want: Canceled},
+		{name: "no ctx error with english user request", ctx: activeCtx, err: englishUserCancel, want: StatementTimeout},
 		{name: "nil ctx with translated 57014", ctx: nil, err: translated, want: StatementTimeout},
 		{name: "nil error with deadline ctx", ctx: deadlineCtx, err: nil, want: Unknown},
 	} {

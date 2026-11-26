@@ -75,7 +75,8 @@ const (
 	StatementTimeout ErrorKind = "statement_timeout"
 	// Timeout identifies a client context deadline expiry.
 	Timeout ErrorKind = "timeout"
-	// Canceled identifies request cancellation, deadline expiry or a server cancel request.
+	// Canceled identifies request cancellation. Classify also uses it for
+	// deadline expiry and recognized server cancel messages.
 	Canceled ErrorKind = "canceled"
 )
 
@@ -106,8 +107,8 @@ func Classify(err error) (ErrorKind, string) {
 
 // ClassifyContext classifies err using ctx to disambiguate SQLSTATE 57014
 // independently of PostgreSQL's server message locale: a context deadline
-// yields [Timeout], cancellation yields [Canceled], and an active context
-// without a user-cancel message yields [StatementTimeout].
+// yields [Timeout], cancellation yields [Canceled], and an active or nil
+// context yields [StatementTimeout].
 func ClassifyContext(ctx context.Context, err error) (ErrorKind, string) {
 	if err == nil {
 		return Unknown, ""
@@ -122,13 +123,11 @@ func ClassifyContext(ctx context.Context, err error) (ErrorKind, string) {
 	if ctx != nil {
 		ctxErr = ctx.Err()
 	}
-	return classifyCommon(err, func(e *pgconn.PgError) ErrorKind {
+	return classifyCommon(err, func(*pgconn.PgError) ErrorKind {
 		switch {
 		case errors.Is(ctxErr, context.DeadlineExceeded):
 			return Timeout
 		case errors.Is(ctxErr, context.Canceled):
-			return Canceled
-		case strings.Contains(e.Message, "user request"):
 			return Canceled
 		default:
 			return StatementTimeout
