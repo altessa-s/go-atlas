@@ -8,6 +8,9 @@
 // broker connection stops new sends in the current cycle and preserves the
 // event's retry budget. The adapter implements the broker.Outboxer interface.
 //
+// Compaction uses the outbox save time to pick the latest event for a topic
+// within a batch. The producer timestamp stays in message metadata.
+//
 // For the generic, transport-agnostic implementation, see reliability/outbox. Pass its options to [New] through [WithOutboxOptions].
 //
 // Example:

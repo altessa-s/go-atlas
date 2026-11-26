@@ -45,6 +45,9 @@ The message creation timestamp stays in `message_created_time` metadata. The out
 
 ## Ordering
 
+Within a claimed batch, compaction keeps the latest saved event per topic. For relayed messages, the producer timestamp in
+`message_created_time` remains available in metadata and does not affect compaction order.
+
 To order several subjects for one aggregate, put the same `msg.MetaKeyOrderKey` in their message metadata. The adapter moves it into
 `Event.OrderKey` and removes it from the envelope. Enable `sqldb.WithKeyOrder()` on dispatchers using the SQL store.
 
