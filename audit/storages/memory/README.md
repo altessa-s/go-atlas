@@ -23,6 +23,7 @@ capacity is reached, storing new events evicts the oldest stored events.
 
 ## Behavior
 
+- A zero-value `Storage` is ready for use and lazily applies `DefaultMaxEvents` capacity.
 - `Store` and `StoreBatch` reject `nil` events with `coreerrs.ErrInvalidArgument` before mutating or evicting stored events; an empty batch succeeds.
 - Evicted slots and `Reset()` clear their `*audit.Event` references so evicted events can be garbage-collected immediately.
 - `Len()` reports the current number of retained events and `Cap()` reports the configured capacity.

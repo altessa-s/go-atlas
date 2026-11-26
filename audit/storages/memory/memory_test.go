@@ -234,6 +234,51 @@ func TestStorage_Close(t *testing.T) {
 	require.NoError(t, s.Close(t.Context()))
 }
 
+func TestStorage_ZeroValue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Store", func(t *testing.T) {
+		t.Parallel()
+
+		var s memory.Storage
+		require.NoError(t, s.Store(t.Context(), &audit.Event{
+			ID:        "z1",
+			Timestamp: time.UnixMilli(1),
+		}))
+		require.Equal(t, memory.DefaultMaxEvents, s.Cap())
+		require.Equal(t, 1, s.Len())
+		require.Equal(t, []string{"z1"}, eventIDs(s.Events()))
+	})
+
+	t.Run("StoreBatch", func(t *testing.T) {
+		t.Parallel()
+
+		var s memory.Storage
+		ctx := t.Context()
+		require.NoError(t, s.StoreBatch(ctx, []*audit.Event{
+			{ID: "b1", Timestamp: time.UnixMilli(1)},
+			{ID: "b2", Timestamp: time.UnixMilli(2)},
+		}))
+		require.Equal(t, memory.DefaultMaxEvents, s.Cap())
+		require.Equal(t, 2, s.Len())
+		require.Equal(t, []string{"b1", "b2"}, eventIDs(s.Events()))
+
+		const overflow = 3
+		large := make([]*audit.Event, memory.DefaultMaxEvents+overflow)
+		for i := range large {
+			large[i] = &audit.Event{
+				ID:        fmt.Sprintf("ev-%d", i),
+				Timestamp: time.UnixMilli(int64(i)),
+			}
+		}
+		require.NoError(t, s.StoreBatch(ctx, large))
+		require.Equal(t, memory.DefaultMaxEvents, s.Len())
+		got := s.Events()
+		require.Equal(t, "ev-3", got[0].ID)
+		require.Equal(t, fmt.Sprintf("ev-%d", memory.DefaultMaxEvents+overflow-1), got[len(got)-1].ID)
+	})
+}
+
 func TestStorage_DefaultBoundedCapacity(t *testing.T) {
 	t.Parallel()
 
@@ -334,6 +379,7 @@ func TestStorage_ReleasesEvictedAndResetEvents(t *testing.T) {
 	s.Reset()
 	runtime.GC()
 	require.Nil(t, resetRef.Value(), "reset must clear backing references")
+	runtime.KeepAlive(s)
 }
 
 func eventIDs(events []*audit.Event) []string {

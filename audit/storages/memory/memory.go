@@ -24,6 +24,7 @@ const (
 
 // Storage is a bounded in-memory audit event store backed by a ring buffer.
 // When capacity is reached, storing new events evicts the oldest stored events.
+// The zero value is ready for use with [DefaultMaxEvents] capacity.
 type Storage struct {
 	mu        sync.RWMutex
 	buf       []*audit.Event
@@ -38,6 +39,13 @@ func New(opts ...Option) *Storage {
 	return &Storage{
 		maxEvents: o.maxEvents,
 	}
+}
+
+func (s *Storage) capacity() int {
+	if s.maxEvents <= 0 {
+		return DefaultMaxEvents
+	}
+	return s.maxEvents
 }
 
 // Store appends a single event to the ring buffer, evicting the oldest event when full.
@@ -62,13 +70,14 @@ func (s *Storage) StoreBatch(_ context.Context, events []*audit.Event) error {
 		return nil
 	}
 	s.mu.Lock()
-	if len(events) >= s.maxEvents {
-		if len(s.buf) < s.maxEvents {
-			s.buf = make([]*audit.Event, s.maxEvents)
+	capLimit := s.capacity()
+	if len(events) >= capLimit {
+		if len(s.buf) < capLimit {
+			s.buf = make([]*audit.Event, capLimit)
 		}
-		copy(s.buf, events[len(events)-s.maxEvents:])
+		copy(s.buf, events[len(events)-capLimit:])
 		s.head = 0
-		s.count = s.maxEvents
+		s.count = capLimit
 	} else {
 		for _, e := range events {
 			s.pushLocked(e)
@@ -88,8 +97,9 @@ func (s *Storage) pushLocked(event *audit.Event) {
 		s.count++
 		return
 	}
-	if len(s.buf) < s.maxEvents {
-		newCap := min(max(len(s.buf)*ringGrowthFactor, initialRingAlloc), s.maxEvents)
+	capLimit := s.capacity()
+	if len(s.buf) < capLimit {
+		newCap := min(max(len(s.buf)*ringGrowthFactor, initialRingAlloc), capLimit)
 		next := make([]*audit.Event, newCap)
 		s.copyIntoLocked(next)
 		next[s.count] = event
@@ -100,7 +110,7 @@ func (s *Storage) pushLocked(event *audit.Event) {
 	}
 	s.buf[s.head] = event
 	s.head++
-	if s.head == s.maxEvents {
+	if s.head == capLimit {
 		s.head = 0
 	}
 }
@@ -211,7 +221,7 @@ func (s *Storage) Len() int {
 
 // Cap returns the maximum number of events retained by the ring buffer.
 func (s *Storage) Cap() int {
-	return s.maxEvents
+	return s.capacity()
 }
 
 // Reset clears all stored events and releases their backing references.
