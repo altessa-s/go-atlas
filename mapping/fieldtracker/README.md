@@ -23,7 +23,9 @@ such as `items[0]` or `labels[key]` also excludes its nested fields. Unicode fie
 The root struct is at depth 0. The limit controls descent into nested structs
 and collections, including nested collection elements. Repeated pointer,
 map, and slice pairs on the current path end traversal of that branch even
-when the depth limit is disabled.
+when the depth limit is disabled. A value beyond the limit is not traversed: it is compared as a whole (with its `Equal(T) bool`
+method when it has one, otherwise `reflect.DeepEqual`) and, when different, reported at the enclosing path. Opaque values such as
+`time.Time` are compared the same way, so values that are `Equal` in another location are unchanged.
 
 ## Paths
 

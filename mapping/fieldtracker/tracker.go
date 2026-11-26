@@ -373,26 +373,27 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, state
 	case reflect.Struct:
 		info := ft.getTypeInfo(before.Type())
 		if info.trackable {
-			if !ft.depthExceeded(depth) {
-				ft.compareStructsFast(before, after, prefix, state, depth)
+			if ft.depthExceeded(depth) {
+				return valuesEqual(before, after)
 			}
+			ft.compareStructsFast(before, after, prefix, state, depth)
 			return true
 		}
 		// An unexported embedded struct may expose public children, but
 		// if it has none its private state is not part of the diff.
-		if !before.CanInterface() {
-			return true
-		}
-		return reflect.DeepEqual(before.Interface(), after.Interface())
+		return valuesEqual(before, after)
 
 	case reflect.Slice, reflect.Map:
 		return ft.compareReferencedCollection(before, after, prefix, state, depth)
 
 	case reflect.Array:
-		return ft.depthExceeded(depth) || ft.compareSliceFast(before, after, prefix, state, depth)
+		if ft.depthExceeded(depth) {
+			return valuesEqual(before, after)
+		}
+		return ft.compareSliceFast(before, after, prefix, state, depth)
 
 	default:
-		return reflect.DeepEqual(before.Interface(), after.Interface())
+		return valuesEqual(before, after)
 	}
 }
 
@@ -410,7 +411,7 @@ func (ft *Tracker) comparePointer(before, after reflect.Value, prefix string, st
 	// Additional indirection within the slot also consumes depth.
 	if before.Kind() == reflect.Pointer || before.Kind() == reflect.Interface {
 		if ft.depthExceeded(depth) {
-			return true
+			return valuesEqual(before, after)
 		}
 		depth++
 	}
@@ -418,8 +419,13 @@ func (ft *Tracker) comparePointer(before, after reflect.Value, prefix string, st
 }
 
 func (ft *Tracker) compareReferencedCollection(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
-	if ft.depthExceeded(depth) || (before.Len() == 0 && after.Len() == 0) {
+	if before.Len() == 0 && after.Len() == 0 {
 		return true
+	}
+	// Beyond the depth limit the collection is not traversed: it is one value, equal or changed as a whole, so the enclosing path
+	// is reported instead of silently dropping a difference.
+	if ft.depthExceeded(depth) {
+		return valuesEqual(before, after)
 	}
 	ref := referenceOf(before, after)
 	if (ref.before == ref.after && ref.beforeLen == ref.afterLen) || !state.enter(ref) {
@@ -488,6 +494,21 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 		}
 	}
 	return true
+}
+
+// valuesEqual compares two values as opaque wholes: with their Equal(T) bool method when the type has one (time.Time, decimals, whose
+// equal values need not be deeply equal), otherwise with reflect.DeepEqual. Values reached through unexported fields are not part of
+// the diff and compare equal.
+func valuesEqual(before, after reflect.Value) bool {
+	if !before.CanInterface() || !after.CanInterface() {
+		return true
+	}
+	if m := before.MethodByName("Equal"); m.IsValid() {
+		if mt := m.Type(); mt.NumIn() == 1 && mt.In(0) == after.Type() && mt.NumOut() == 1 && mt.Out(0).Kind() == reflect.Bool {
+			return m.Call([]reflect.Value{after})[0].Bool()
+		}
+	}
+	return reflect.DeepEqual(before.Interface(), after.Interface())
 }
 
 // isIgnored reports whether path is in the configured ignore set.

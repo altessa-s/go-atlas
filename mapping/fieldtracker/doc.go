@@ -8,7 +8,8 @@
 // derived from struct tags (default "json") or PascalCase-to-snake_case
 // conversion. Nested structs, embedded structs, slices, and maps are traversed
 // recursively up to a configurable depth (default [DefaultMaxDepth]). A repeated
-// reference pair ends traversal of its current branch. Literal dots, brackets,
+// reference pair ends traversal of its current branch. A value beyond the limit is compared as a whole, by its Equal method when it has
+// one, and reported at the enclosing path when different. Literal dots, brackets,
 // and backslashes in struct tag names are escaped in field paths.
 //
 // For one-shot comparisons use the package-level [GetChangedFields]. For
