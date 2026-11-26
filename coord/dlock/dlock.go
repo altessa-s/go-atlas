@@ -7,7 +7,9 @@ package dlock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
@@ -23,7 +25,7 @@ import (
 // when the lock's lease was lost while the function ran.
 var ErrLockLost = errors.New("dlock: lock lost")
 
-// ErrPanicked reports that the function passed to [DLock.Synchronize] panicked.
+// ErrPanicked is wrapped with the panic class when [DLock.Synchronize]'s function panics.
 var ErrPanicked = errors.New("dlock: synchronized function panicked")
 
 // DLock provides distributed locking with configurable providers.
@@ -136,10 +138,16 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 		}()
 	}
 
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
-		err = ErrPanicked
-		l.logger.ErrorContext(ctx, "panic in synchronize")
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, class any) {
+		err = fmt.Errorf("%w (%s)", ErrPanicked, class)
 	})
+	defer func() {
+		if value := recover(); value != nil {
+			// Core panic handlers receive only the value's kind. The value
+			// itself may contain sensitive data.
+			panic(reflect.TypeOf(value).Kind().String())
+		}
+	}()
 
 	err = fn(fnCtx)
 	l.metrics.synchronizations.Inc()
