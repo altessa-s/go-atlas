@@ -17,7 +17,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
-	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
@@ -53,6 +52,7 @@ type streamSubscriber struct {
 	draining         chan struct{}
 	mu               sync.Mutex
 	consumeContext   jetstream.ConsumeContext // Manages the lifecycle of the NATS Consume operation.
+	activeConsumer   string                   // Server-side name of the consumer being consumed.
 	handlerCtxCancel context.CancelFunc
 }
 
@@ -117,6 +117,16 @@ func (ss *streamSubscriber) ConsumerName() string {
 	return ss.consumerName
 }
 
+// ActiveConsumerName returns the server-side name of the consumer the
+// subscriber currently consumes, or "" when it is not subscribed. Unlike
+// [streamSubscriber.ConsumerName] it also names an ephemeral consumer, whose
+// name the server assigns.
+func (ss *streamSubscriber) ActiveConsumerName() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.activeConsumer
+}
+
 // Unsubscribe drains buffered messages, waits for their handlers for up to
 // the provider's drain timeout ([WithDrainTimeout]), then cancels the handler
 // context and waits until the consumer has fully stopped and all handlers,
@@ -143,7 +153,7 @@ func (ss *streamSubscriber) beginTransition() bool {
 		}
 	}
 	previous, cancel := ss.consumeContext, ss.handlerCtxCancel
-	ss.consumeContext, ss.handlerCtxCancel = nil, nil
+	ss.consumeContext, ss.handlerCtxCancel, ss.activeConsumer = nil, nil, ""
 	if previous != nil {
 		done := make(chan struct{})
 		ss.draining = done
@@ -200,7 +210,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	}
 
 	if ss.provider != nil {
-		if err := ss.provider.checkSubjectAllowed(handler.Topic()); err != nil {
+		if err := ss.provider.checkSubscriptionAllowed(handler.Topic()); err != nil {
 			return err
 		}
 	}
@@ -229,33 +239,9 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		return coreerrs.Wrapf(err, "failed to get stream '%s'", streamName)
 	}
 
-	var consumer jetstream.Consumer
-
-	// Create or update the consumer on the stream with the provided configuration.
-	// The consumerConfig is from the StreamSubscriber factory.
-	if ss.consumerConfig != nil { //nolint:gocritic
-		consumer, err = stream.CreateOrUpdateConsumer(ctx, *ss.consumerConfig)
-		if err != nil {
-			return coreerrs.Wrapf(err, "failed to create/update consumer for stream '%s'", streamName)
-		}
-	} else if ss.consumerName != "" {
-		consumer, err = stream.Consumer(ctx, ss.consumerName)
-		if err != nil {
-			return coreerrs.Wrapf(err, "failed to get consumer '%s' on stream '%s'", ss.consumerName, streamName)
-		}
-	} else {
-		// FilterSubject scopes the consumer to the handler's subject: without
-		// it the consumer reads the whole stream, so a subscription to
-		// orders.*.created would also receive every other orders.> message.
-		consumer, err = stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-			FilterSubject:     handler.Topic(),
-			DeliverPolicy:     jetstream.DeliverNewPolicy, // only messages published after Subscribe
-			InactiveThreshold: EphemeralInactiveThreshold,
-			Description:       fmt.Sprintf("Ephemeral consumer for service '%s'", appinfo.Name),
-		})
-		if err != nil {
-			return coreerrs.Wrapf(err, "failed to create/update ephemeral consumer for stream '%s'", streamName)
-		}
+	consumer, err := ss.resolveConsumer(ctx, stream, streamName, handler.Topic())
+	if err != nil {
+		return err
 	}
 
 	// Start consuming messages. This is an asynchronous operation that invokes the callback for each message.
@@ -297,6 +283,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	}
 
 	ss.consumeContext, ss.handlerCtxCancel = consumeContext, handlerCtxCancel
+	ss.activeConsumer = consumer.CachedInfo().Name
 
 	return nil
 }

@@ -19,23 +19,31 @@ type mockHeartbeater struct {
 	count atomic.Int32
 }
 
+// mustNew creates a Manager and fails the test when New returns an error.
+func mustNew(tb testing.TB, opts ...inprogress.Option) *inprogress.Manager {
+	tb.Helper()
+	mgr, err := inprogress.New(opts...)
+	require.NoError(tb, err)
+	return mgr
+}
+
 func (m *mockHeartbeater) InProgress() error {
 	m.count.Add(1)
 	return nil
 }
 
 func TestNew_Default(t *testing.T) {
-	mgr := inprogress.New()
+	mgr := mustNew(t)
 	require.NotNil(t, mgr, "New() returned nil")
 }
 
 func TestNew_WithLogger(t *testing.T) {
-	mgr := inprogress.New(inprogress.WithLogger(nil))
+	mgr := mustNew(t, inprogress.WithLogger(nil))
 	require.NotNil(t, mgr, "New(WithLogger) returned nil")
 }
 
 func TestManager_RegisterAndStop(t *testing.T) {
-	mgr := inprogress.New()
+	mgr := mustNew(t)
 	h := &mockHeartbeater{}
 
 	stop := mgr.Register(h, 50*time.Millisecond)
@@ -55,7 +63,7 @@ func TestManager_RegisterAndStop(t *testing.T) {
 }
 
 func TestManager_RegisterTickSchedulerFunc(t *testing.T) {
-	mgr := inprogress.New()
+	mgr := mustNew(t)
 
 	fn := mgr.RegisterTickSchedulerFunc()
 	require.NotNil(t, fn, "RegisterTickSchedulerFunc() returned nil")
@@ -67,7 +75,7 @@ func TestManager_RegisterTickSchedulerFunc(t *testing.T) {
 
 func TestManager_MultipleHeartbeaters(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		mgr := inprogress.New()
+		mgr := mustNew(t)
 		h1 := &mockHeartbeater{}
 		h2 := &mockHeartbeater{}
 

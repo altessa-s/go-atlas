@@ -42,6 +42,9 @@ type Manager struct {
 
 	subscriptions   []*ManagedSubscription
 	subscriptionsMu sync.RWMutex
+	// subscribeMu makes the ownership check and registration of a managed
+	// subscription atomic.
+	subscribeMu sync.Mutex
 
 	closed atomic.Bool
 
@@ -105,6 +108,7 @@ func New(provider *natsprovider.NATS, opts ...Option) (*Manager, error) {
 
 	// Register recovery tasks with scheduler if provided
 	if err := m.registerTasks(cfg); err != nil {
+		m.supervisor.Close()
 		return nil, coreerrs.WrapOperation(err, "register recovery tasks")
 	}
 
@@ -272,14 +276,25 @@ func (m *Manager) Subscribe(
 	}
 	sub.setSubscriber(subscriber)
 
-	// Register for recovery.
-	if err := m.registry.RegisterSubscription(stream, consumerName, handler, factory); err != nil {
+	// Register for recovery under the server-side consumer name, which the
+	// health check looks up; an ephemeral consumer is named by the server.
+	// Two subscriptions sharing a consumer would overwrite and delete each
+	// other's entry, so the second owner is refused, atomically.
+	m.subscribeMu.Lock()
+	if m.registry.HasConsumer(stream, sub.key) {
+		m.subscribeMu.Unlock()
+		subscriber.Unsubscribe()
+		return nil, coreerrs.Wrapf(ErrConsumerAlreadyManaged, "consumer %q on stream %q", sub.key, stream)
+	}
+	if err := m.registry.RegisterSubscription(stream, sub.key, handler, factory); err != nil {
+		m.subscribeMu.Unlock()
 		subscriber.Unsubscribe()
 		return nil, err
 	}
+	m.subscribeMu.Unlock()
 
 	// Register resubscribe handler for recovery.
-	m.registry.RegisterResubscribeHandler(stream, consumerName, func(recoveryCtx context.Context) error {
+	m.registry.RegisterResubscribeHandler(stream, sub.key, func(recoveryCtx context.Context) error {
 		return sub.resubscribe(ctx, recoveryCtx)
 	})
 

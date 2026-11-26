@@ -58,7 +58,7 @@ Each factory accepts `*NATS` directly (`func(*NATS) broker.Subscriber`), enforce
 
 | Option                | Description                                                                   |
 |-----------------------|-------------------------------------------------------------------------------|
-| `WithAllowedSubjects` | Restrict publish and subscribe to listed subject patterns (NATS wildcards)    |
+| `WithAllowedSubjects` | Restrict publish and subscribe to listed subject patterns (NATS wildcards); a subscription must be a subset of a pattern (`orders.*` does not admit `orders.>`), and consumer filters are checked before the consumer is created, updated or consumed |
 | `WithMeter`           | Set the `metrics.Meter` for the `broker` subscriber metrics (default: no-op)     |
 | `WithDrainTimeout`    | Grace period `Unsubscribe` gives handlers of buffered messages before canceling their context (default: `DefaultDrainTimeout`, 30s) |
 

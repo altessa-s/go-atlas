@@ -6,6 +6,8 @@ package inprogress
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
@@ -13,15 +15,26 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
+// defaultTickTaskIDPrefix prefixes the scheduler task ID derived for a manager
+// that has no explicit one.
+const defaultTickTaskIDPrefix = "broker-inprogress-heartbeat"
+
+// managerSeq numbers the managers of the process that derive a task ID.
+var managerSeq atomic.Uint64
+
 // registerTickTask registers the tick cycle task with the scheduler if configured.
 func (m *Manager) registerTickTask(opts *options) error {
 	if nilcheck.IsNil(m.scheduler) || opts.tickSchedule == "" {
 		return nil
 	}
 
+	if opts.tickTaskID == "" {
+		opts.tickTaskID = fmt.Sprintf(defaultTickTaskIDPrefix+"-%d", managerSeq.Add(1))
+	}
+
 	ctx := context.Background()
 	taskCfg := schedtask.Config{
-		ID:          "broker-inprogress-heartbeat",
+		ID:          opts.tickTaskID,
 		Description: "Execute heartbeat tick cycle for in-progress messages",
 		// TryRun rather than SchedulerFunc: the scheduler-managed flag flips
 		// only after Register succeeds, so a failed registration leaves

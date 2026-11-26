@@ -101,6 +101,34 @@ func WithTickSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithTickTaskID sets the tickTaskID option.
+//
+// tickTaskID is the scheduler task ID of the heartbeat tick cycle. The
+// scheduler keys tasks by ID, so two managers sharing an ID leave only
+// the last one heartbeating. Empty derives a unique ID per manager
+// instance, "broker-inprogress-heartbeat-<n>"; set it for an ID that is
+// stable across restarts.
+func WithTickTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.tickTaskID = transformedValue
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

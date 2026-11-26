@@ -27,6 +27,11 @@ import (
 // in the allowlist configured via [WithAllowedSubjects].
 var ErrSubjectNotAllowed = errors.New("subject not allowed by allowlist")
 
+// ErrInvalidAllowedSubject is returned by [New] and [NewWithContext] when a
+// pattern passed to [WithAllowedSubjects] is malformed, for example a ">"
+// that is not the last token.
+var ErrInvalidAllowedSubject = errors.New("invalid allowed subject pattern")
+
 // NATS implements [broker.Provider] using NATS JetStream.
 // It manages a JetStream context derived from the supplied [nats.Conn] and tracks
 // active subscribers for bulk unsubscription via [NATS.UnsubscribeAll].
@@ -55,9 +60,12 @@ func New(conn *nats.Conn, opts ...Option) (*NATS, error) {
 // It verifies JetStream is enabled on the server by querying account info with a 5-second timeout.
 // Returns an error if JetStream is not available or the connection lacks JetStream support.
 func NewWithContext(ctx context.Context, conn *nats.Conn, opts ...Option) (*NATS, error) {
-	warnIfNoAuth(conn)
-
 	n := &NATS{natsConn: conn, options: *newOptions(opts...)}
+	if err := validateAllowedSubjects(n.allowedSubjects); err != nil {
+		return nil, err
+	}
+
+	warnIfNoAuth(conn)
 
 	var err error
 	// Attempt to create a new JetStream context.

@@ -37,7 +37,7 @@ func (h *blockedHeartbeater) InProgress() error {
 func TestManager_SlowHeartbeatDoesNotDelayOthers(t *testing.T) {
 	t.Parallel()
 
-	mgr := inprogress.New(inprogress.WithHeartbeatTimeout(100 * time.Millisecond))
+	mgr := mustNew(t, inprogress.WithHeartbeatTimeout(100*time.Millisecond))
 
 	slow := &blockedHeartbeater{release: make(chan struct{})}
 	t.Cleanup(func() { close(slow.release) })

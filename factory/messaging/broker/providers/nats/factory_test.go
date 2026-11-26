@@ -7,6 +7,8 @@ package factory_test
 import (
 	"context"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -211,7 +213,10 @@ func TestNewRecoveryManager(t *testing.T) {
 		require.NotNil(t, mgr)
 		t.Cleanup(mgr.Close)
 
-		require.ElementsMatch(t, []string{"broker-recovery-health-check", "broker-recovery-stale-cleanup"}, reg.ids())
+		ids := reg.ids()
+		require.Len(t, ids, 2)
+		require.True(t, slices.ContainsFunc(ids, func(id string) bool { return strings.HasPrefix(id, "broker-recovery-health-check-") }), "%v", ids)
+		require.True(t, slices.ContainsFunc(ids, func(id string) bool { return strings.HasPrefix(id, "broker-recovery-stale-cleanup-") }), "%v", ids)
 	})
 }
 

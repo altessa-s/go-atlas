@@ -60,3 +60,70 @@ func (n *NATS) checkSubjectAllowed(subject string) error {
 	}
 	return coreerrs.Wrapf(ErrSubjectNotAllowed, "%q", subject)
 }
+
+// subscriptionCovered reports whether every subject that the requested
+// subscription pattern can match is also matched by pattern (requested is a
+// subset of pattern). Unlike [subjectMatchesPattern], wildcards in requested
+// are not literal tokens: a requested "*" is covered only by "*" or ">", and
+// a requested ">" only by a ">" at the same or an earlier position.
+func subscriptionCovered(pattern, requested string) bool {
+	reqTokens := strings.Split(requested, ".")
+	patTokens := strings.Split(pattern, ".")
+
+	for i, pt := range patTokens {
+		if pt == ">" {
+			return i < len(reqTokens)
+		}
+		if i >= len(reqTokens) {
+			return false
+		}
+		rt := reqTokens[i]
+		switch {
+		case rt == ">":
+			return false
+		case rt == "*":
+			if pt != "*" {
+				return false
+			}
+		case pt != "*" && pt != rt:
+			return false
+		}
+	}
+	return len(reqTokens) == len(patTokens)
+}
+
+// checkSubscriptionAllowed returns an error if an allowlist is configured and
+// the subscription subject, which may contain wildcards, is not fully covered
+// by one of the allowed patterns.
+func (n *NATS) checkSubscriptionAllowed(subject string) error {
+	if len(n.allowedSubjects) == 0 {
+		return nil
+	}
+	for _, pattern := range n.allowedSubjects {
+		if subscriptionCovered(pattern, subject) {
+			return nil
+		}
+	}
+	return coreerrs.Wrapf(ErrSubjectNotAllowed, "%q", subject)
+}
+
+// validateAllowedSubjects rejects allowlist patterns the matchers would
+// interpret more broadly than written: an empty pattern or token, whitespace,
+// a wildcard that is not a whole token, and a ">" that is not the last token
+// (which the matchers would treat as covering the whole subtree).
+func validateAllowedSubjects(patterns []string) error {
+	for _, pattern := range patterns {
+		tokens := strings.Split(pattern, ".")
+		for i, tok := range tokens {
+			switch {
+			case tok == "" || strings.ContainsAny(tok, " \t\r\n"):
+				return coreerrs.Wrapf(ErrInvalidAllowedSubject, "%q: empty token or whitespace", pattern)
+			case tok == ">" && i != len(tokens)-1:
+				return coreerrs.Wrapf(ErrInvalidAllowedSubject, "%q: \">\" must be the last token", pattern)
+			case tok != ">" && tok != "*" && strings.ContainsAny(tok, "*>"):
+				return coreerrs.Wrapf(ErrInvalidAllowedSubject, "%q: wildcard must be a whole token", pattern)
+			}
+		}
+	}
+	return nil
+}

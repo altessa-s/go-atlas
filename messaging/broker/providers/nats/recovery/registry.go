@@ -176,6 +176,29 @@ func (r *Registry) UnregisterSubscription(stream, consumer string) {
 	}
 }
 
+// RekeySubscription moves the subscription and resubscribe handler registered
+// under oldConsumer to newConsumer, for a subscription whose server-side
+// consumer name changed (an ephemeral consumer replaced during recovery). It
+// is a no-op when oldConsumer is not registered.
+func (r *Registry) RekeySubscription(stream, oldConsumer, newConsumer string) {
+	if oldConsumer == newConsumer {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if entry, ok := r.subscriptions[stream][oldConsumer]; ok {
+		delete(r.subscriptions[stream], oldConsumer)
+		entry.consumer = newConsumer
+		r.subscriptions[stream][newConsumer] = entry
+	}
+	if handler, ok := r.handlers[stream][oldConsumer]; ok {
+		delete(r.handlers[stream], oldConsumer)
+		r.handlers[stream][newConsumer] = handler
+	}
+}
+
 // HasConsumer returns true if the consumer is registered for the stream.
 func (r *Registry) HasConsumer(stream, consumer string) bool {
 	r.mu.RLock()

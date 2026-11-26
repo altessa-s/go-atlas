@@ -121,3 +121,31 @@ func TestMessageMetadataRepeatedTracestate(t *testing.T) {
 	headers := map[string][]string{"tracestate": {"one=a", "two=b"}, "custom": {"x", "y"}}
 	require.Equal(t, map[string]string{"tracestate": "one=a,two=b", "custom": "x;y"}, messageMetadata(headers).Map())
 }
+
+func TestSubscriptionCovered(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		pattern, requested string
+		want               bool
+	}{
+		{"orders.*", "orders.>", false},
+		{"*", ">", false},
+		{">", ">", true},
+		{"orders.>", "orders.>", true},
+		{"orders.>", "orders.*", true},
+		{"orders.>", "orders.a.b", true},
+		{"orders.>", "orders", false},
+		{"orders.*", "orders.*", true},
+		{"orders.*", "orders.a", true},
+		{"orders.*", "orders.a.b", false},
+		{"a.b.c", "a.>", false},
+		{"a.b.c", "a.*.c", false},
+		{"a.*.c", "a.b.c", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.requested+" in "+tt.pattern, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, subscriptionCovered(tt.pattern, tt.requested))
+		})
+	}
+}

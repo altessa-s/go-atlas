@@ -66,6 +66,11 @@ func (n *NATS) PublishBatch(ctx context.Context, pmsgs ...msg.Message) error {
 	// Fire all messages asynchronously using JetStream pipelining.
 	futures := make([]jetstream.PubAckFuture, 0, len(pmsgs))
 	for i := range pmsgs {
+		// A canceled context must not submit another message: the caller
+		// would retry a batch that was already stored.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		natsMsg, pubOpts := buildNatsMsg(pmsgs[i])
 
 		paf, err := n.jetStream.PublishMsgAsync(natsMsg, pubOpts...)

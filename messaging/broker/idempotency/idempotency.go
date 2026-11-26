@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/retry"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
@@ -156,10 +157,14 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 		w.logger.ErrorContext(ctx, "idempotency: key extraction failed",
 			slog.String("consumer", w.consumer),
 			slog.String("topic", w.handler.Topic()),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
 		w.metrics.inc(outcomeKeyError)
-		_ = m.Term("idempotency: " + err.Error())
+		reason := "key extraction failed"
+		if errors.Is(err, ErrKeyTooLong) {
+			reason = ErrKeyTooLong.Error()
+		}
+		_ = m.Term("idempotency: " + reason)
 		return
 	}
 
@@ -178,8 +183,7 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 	if err != nil {
 		w.logger.ErrorContext(ctx, "idempotency: failed to acquire lock",
 			slog.String("consumer", w.consumer),
-			slog.String("key", storageKey),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
 		w.metrics.inc(outcomeStorageError)
 		_ = m.NakWithBackOff(w.opts.errorBackOff)
@@ -238,24 +242,32 @@ func (a *idempotencyAcker) Ack() error {
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), defaultReleaseTimeout)
 		defer cancel()
 
-		err := a.keeper.Complete(releaseCtx, a.storageKey, nil, a.state)
-		if err != nil {
-			if errors.Is(err, idempotency.ErrLockStolen) {
-				a.metrics.inc(outcomeLockStolen)
-				a.logger.WarnContext(releaseCtx, "idempotency: lock was stolen during processing",
-					slog.String("consumer", a.consumer),
-					slog.String("key", a.storageKey),
-				)
-			} else {
-				a.metrics.inc(outcomeStorageError)
-				a.logger.ErrorContext(releaseCtx, "idempotency: complete failed",
-					slog.String("consumer", a.consumer),
-					slog.String("key", a.storageKey),
-					slog.String("error", err.Error()),
-				)
-			}
-		} else {
+		// Complete is retried within the release timeout: the effect is
+		// already applied, and a record left IN_PROGRESS would let a
+		// duplicate re-run the handler once MaxLockDuration passes.
+		err := retry.Do(releaseCtx, func(ctx context.Context) error {
+			return a.keeper.Complete(ctx, a.storageKey, nil, a.state)
+		},
+			retry.WithMaxAttempts(completeMaxRetries),
+			retry.WithNextDelay(retry.Exponential(completeRetryBase, retry.WithExponentialMaxDelay(completeRetryMax))),
+			retry.WithShouldRetry(func(err error) bool { return !errors.Is(err, idempotency.ErrLockStolen) }),
+		)
+		switch {
+		case err == nil:
 			a.metrics.inc(outcomeProcessed)
+		case errors.Is(err, idempotency.ErrLockStolen):
+			a.metrics.inc(outcomeLockStolen)
+			a.logger.WarnContext(releaseCtx, "idempotency: lock was stolen during processing",
+				slog.String("consumer", a.consumer),
+			)
+		default:
+			// The message is still acked: the effect is applied, and a Nak
+			// would only redeliver it to a busy lock.
+			a.metrics.inc(outcomeCompleteFailed)
+			a.logger.ErrorContext(releaseCtx, "idempotency: complete failed; the record stays in progress until the lock expires",
+				slog.String("consumer", a.consumer),
+				slog.String("error_kind", errorKind(err)),
+			)
 		}
 	})
 	return a.orig.Ack()
@@ -299,9 +311,26 @@ func (a *idempotencyAcker) release(trigger string) {
 	if err := a.keeper.Release(releaseCtx, a.storageKey, a.state); err != nil {
 		a.logger.ErrorContext(releaseCtx, "idempotency: release failed",
 			slog.String("consumer", a.consumer),
-			slog.String("key", a.storageKey),
 			slog.String("trigger", trigger),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
+	}
+}
+
+// errorKind classifies err for logs without its text: keeper and key-extractor
+// errors may echo the storage key or the message content, which carry the
+// original business key.
+func errorKind(err error) string {
+	switch {
+	case errors.Is(err, ErrKeyTooLong):
+		return "key_too_long"
+	case errors.Is(err, idempotency.ErrLockStolen):
+		return "lock_stolen"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "error"
 	}
 }

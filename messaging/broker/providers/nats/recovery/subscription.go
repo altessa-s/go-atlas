@@ -29,6 +29,10 @@ type ManagedSubscription struct {
 	mu         sync.RWMutex
 	subscriber broker.Subscriber
 	closed     bool
+	// key is the name the registry knows this subscription by: the
+	// server-side consumer name when the subscriber reports one (an
+	// ephemeral consumer is named by the server), else consumerName.
+	key string
 	// subCancel cancels the context of a subscriber established by
 	// resubscribe; nil for the initial subscriber, whose context is the
 	// caller's.
@@ -76,7 +80,7 @@ func (s *ManagedSubscription) Unsubscribe() {
 	s.cancelSubscription()
 
 	// Remove from registry so it won't be recovered.
-	s.manager.registry.UnregisterSubscription(s.stream, s.consumerName)
+	s.manager.registry.UnregisterSubscription(s.stream, s.key)
 }
 
 // Closed returns a channel that closes when the subscription has fully stopped.
@@ -108,22 +112,17 @@ func (s *ManagedSubscription) resubscribe(parent, recoveryCtx context.Context) e
 		return ErrManagerClosed
 	}
 
-	// Unsubscribe old subscriber if exists.
-	if s.subscriber != nil {
-		s.subscriber.Unsubscribe()
-	}
-	s.cancelSubscription()
-
-	// Create new subscriber via factory.
-	s.subscriber = s.factory(s.manager.provider)
+	// The replacement is established before the old subscriber stops, so a
+	// failed attempt leaves the previous state in place for the next retry.
+	next := s.factory(s.manager.provider)
 
 	subCtx, cancel := context.WithCancel(parent)
 	stop := context.AfterFunc(recoveryCtx, cancel)
-	err := s.subscriber.Subscribe(subCtx, s.handler)
+	err := next.Subscribe(subCtx, s.handler)
 	if !stop() {
 		// Recovery was canceled during establishment: subCtx is dead, so a
 		// subscriber that came up anyway would run with a canceled context.
-		s.subscriber.Unsubscribe()
+		next.Unsubscribe()
 		cancel()
 		return fmt.Errorf("resubscribe: %w", recoveryCtx.Err())
 	}
@@ -131,7 +130,22 @@ func (s *ManagedSubscription) resubscribe(parent, recoveryCtx context.Context) e
 		cancel()
 		return err
 	}
+
+	// Stop the previous subscriber first so its in-flight handlers drain with
+	// a live context, then cancel that context.
+	if s.subscriber != nil {
+		s.subscriber.Unsubscribe()
+	}
+	s.cancelSubscription()
+	s.subscriber = next
 	s.subCancel = cancel
+
+	// An ephemeral replacement has a new server-assigned name: retire the old
+	// registry key and register the new one.
+	if key := consumerKey(next, s.consumerName); key != s.key {
+		s.manager.registry.RekeySubscription(s.stream, s.key, key)
+		s.key = key
+	}
 	return nil
 }
 
@@ -144,10 +158,28 @@ func (s *ManagedSubscription) cancelSubscription() {
 	}
 }
 
-// setSubscriber updates the subscriber.
+// setSubscriber updates the subscriber and the registry key derived from it.
 // Used during initial subscription setup.
 func (s *ManagedSubscription) setSubscriber(sub broker.Subscriber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subscriber = sub
+	s.key = consumerKey(sub, s.consumerName)
+}
+
+// activeConsumerNamer is implemented by subscribers that know the server-side
+// name of the consumer they consume.
+type activeConsumerNamer interface {
+	ActiveConsumerName() string
+}
+
+// consumerKey returns the name the registry and health checks use for sub:
+// its server-side consumer name when it reports one, else fallback.
+func consumerKey(sub broker.Subscriber, fallback string) string {
+	if namer, ok := sub.(activeConsumerNamer); ok {
+		if name := namer.ActiveConsumerName(); name != "" {
+			return name
+		}
+	}
+	return fallback
 }

@@ -5,13 +5,20 @@
 package recovery
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"log/slog"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
+
+// managerSeq numbers the managers of the process that register scheduler tasks.
+var managerSeq atomic.Uint64
 
 // registerTasks registers recovery tasks with the scheduler if configured.
 func (m *Manager) registerTasks(opts *options) error {
@@ -21,10 +28,23 @@ func (m *Manager) registerTasks(opts *options) error {
 
 	ctx := context.Background()
 
+	// A manager without explicit IDs derives them from one instance number,
+	// so two managers never share a scheduler task.
+	instance := managerSeq.Add(1)
+	healthID := cmp.Or(opts.healthCheckTaskID, fmt.Sprintf("broker-recovery-health-check-%d", instance))
+	staleID := cmp.Or(opts.staleCleanupTaskID, fmt.Sprintf("broker-recovery-stale-cleanup-%d", instance))
+
+	// The scheduler keys tasks by ID, so equal IDs would let the second
+	// registration silently replace the first.
+	if opts.healthCheckSchedule != "" && opts.staleRecoveryCleanupSchedule != "" && healthID == staleID {
+		return coreerrs.Wrapf(ErrDuplicateTaskID, "health check and stale cleanup both use %q", healthID)
+	}
+
 	// Register health check task
+	registeredHealth := false
 	if opts.healthCheckSchedule != "" {
 		taskCfg := schedtask.Config{
-			ID:          "broker-recovery-health-check",
+			ID:          healthID,
 			Description: "Health check for recovery manager (fallback detection for missed advisory events)",
 			Func:        m.RegisterHealthCheckSchedulerFunc(),
 			Schedule:    opts.healthCheckSchedule,
@@ -33,23 +53,46 @@ func (m *Manager) registerTasks(opts *options) error {
 		if err := m.scheduler.Register(ctx, taskCfg); err != nil {
 			return coreerrs.WrapOperation(err, "register health check task")
 		}
+		registeredHealth = true
 	}
 
 	// Register stale recovery cleanup task
 	if opts.staleRecoveryCleanupSchedule != "" {
 		taskCfg := schedtask.Config{
-			ID:          "broker-recovery-stale-cleanup",
+			ID:          staleID,
 			Description: "Cleanup stale recovery marks (clears stuck recovery marks)",
 			Func:        m.RegisterStaleCleanupSchedulerFunc(),
 			Schedule:    opts.staleRecoveryCleanupSchedule,
 			Priority:    schedtask.PriorityNormal,
 		}
 		if err := m.scheduler.Register(ctx, taskCfg); err != nil {
+			m.abandonRegistration(ctx, healthID, registeredHealth)
 			return coreerrs.WrapOperation(err, "register stale cleanup task")
 		}
 	}
 
 	return nil
+}
+
+// taskUnregistrar is implemented by schedulers that can remove a task.
+type taskUnregistrar interface {
+	Unregister(ctx context.Context, id string) error
+}
+
+// abandonRegistration undoes the health check registration of a manager whose
+// construction failed. The task is unregistered when the scheduler supports it;
+// either way the manager is closed, which makes a task that stays registered
+// inert instead of running a discarded manager.
+func (m *Manager) abandonRegistration(ctx context.Context, healthID string, registered bool) {
+	m.closed.Store(true)
+	if !registered {
+		return
+	}
+	if u, ok := m.scheduler.(taskUnregistrar); ok {
+		if err := u.Unregister(ctx, healthID); err != nil {
+			m.logger.Warn("failed to unregister health check task", slog.String("task", healthID), slog.Any("error", err))
+		}
+	}
 }
 
 // RegisterHealthCheckSchedulerFunc returns a function for use by a scheduler and marks

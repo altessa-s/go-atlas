@@ -12,9 +12,12 @@
 //
 // Create a Manager and register its tick callback with a scheduler:
 //
-//	mgr := inprogress.New(
+//	mgr, err := inprogress.New(
 //	    inprogress.WithLogger(logger),
 //	)
+//	if err != nil {
+//	    return err
+//	}
 //	sched.Register(ctx, schedtask.Config{
 //	    ID:       "inprogress-heartbeat",
 //	    Schedule: "@every 1s",

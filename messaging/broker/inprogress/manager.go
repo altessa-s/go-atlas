@@ -50,19 +50,24 @@ type Manager struct {
 	heartbeatTimeout time.Duration
 }
 
-// New creates a new Manager with the given options.
+// New creates a new Manager with the given options. It returns an error when
+// a configured scheduler rejects the heartbeat task: without the task a
+// handler running past AckWait would be redelivered concurrently.
 //
 // Example:
 //
-//	mgr := inprogress.New(
+//	mgr, err := inprogress.New(
 //	    inprogress.WithLogger(logger),
 //	)
+//	if err != nil {
+//	    return err
+//	}
 //	sched.Register(ctx, schedtask.Config{
 //	    ID:       "inprogress-heartbeat",
 //	    Schedule: "@every 1s",
 //	    Func:     mgr.RegisterTickSchedulerFunc(),
 //	})
-func New(opts ...Option) *Manager {
+func New(opts ...Option) (*Manager, error) {
 	cfg := newOptions(opts...)
 
 	mgr := &Manager{
@@ -75,13 +80,11 @@ func New(opts ...Option) *Manager {
 	}
 	mgr.tickTask = cycle.New(mgr.runTickCycleInternal)
 
-	// Register tick cycle task with scheduler if provided
 	if err := mgr.registerTickTask(cfg); err != nil {
-		// Log error but don't fail creation - task registration is optional
-		cfg.logger.Warn("failed to register tick cycle task", slog.Any("error", err))
+		return nil, err
 	}
 
-	return mgr
+	return mgr, nil
 }
 
 // Register adds a heartbeater to the manager with the given interval.

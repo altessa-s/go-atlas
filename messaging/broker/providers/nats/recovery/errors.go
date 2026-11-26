@@ -44,6 +44,15 @@ var (
 	// [Manager.CreateStream] when the stream configuration has an empty name.
 	ErrInvalidStreamConfig = errors.New("invalid stream configuration")
 
+	// ErrConsumerAlreadyManaged is returned by [Manager.Subscribe] when
+	// another managed subscription already owns the consumer, which would make
+	// them erase each other's recovery state.
+	ErrConsumerAlreadyManaged = errors.New("consumer already managed by another subscription")
+
+	// ErrDuplicateTaskID is returned by [New] when the health check and the
+	// stale cleanup resolve to the same scheduler task ID.
+	ErrDuplicateTaskID = errors.New("duplicate scheduler task id")
+
 	// ErrInvalidConsumerConfig is returned by [Manager.Subscribe] and
 	// [Registry.RegisterSubscription] when the consumer name is empty.
 	ErrInvalidConsumerConfig = errors.New("invalid consumer configuration")

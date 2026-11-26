@@ -18,17 +18,19 @@ const (
 	outcomeKeyError
 	outcomeStorageError
 	outcomeLockStolen
+	outcomeCompleteFailed
 	numOutcomes
 )
 
 var outcomeNames = [...]string{
-	outcomeProcessed:    "processed",
-	outcomeDuplicate:    "duplicate",
-	outcomeBusy:         "busy",
-	outcomeNoKey:        "no_key",
-	outcomeKeyError:     "key_error",
-	outcomeStorageError: "storage_error",
-	outcomeLockStolen:   "lock_stolen",
+	outcomeProcessed:      "processed",
+	outcomeDuplicate:      "duplicate",
+	outcomeBusy:           "busy",
+	outcomeNoKey:          "no_key",
+	outcomeKeyError:       "key_error",
+	outcomeStorageError:   "storage_error",
+	outcomeLockStolen:     "lock_stolen",
+	outcomeCompleteFailed: "complete_failed",
 }
 
 type brokerMetrics struct {
