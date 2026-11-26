@@ -109,6 +109,11 @@ type Core struct {
 	// for a staging filter. See journaledInsertScript.
 	journalKey  string
 	journalAdds bool
+	// journalGenKey holds the ticket of the lease generation the journal
+	// belongs to. It and the journal expire shortly after the lease, so a
+	// crashed rebuild leaves nothing behind, and a live rebuild that finds the
+	// key gone fails closed instead of committing without its journal.
+	journalGenKey string
 	// leaseTTL is LeaseTTL; a field so tests can shorten it.
 	leaseTTL            time.Duration
 	stagingDeadlinesKey string
@@ -172,6 +177,7 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		leaseKey:            metaKey(filterKey, "rebuild-lease", ""),
 		committedKey:        metaKey(filterKey, "rebuild-committed", ""),
 		journalKey:          metaKey(filterKey, "rebuild-journal", ""),
+		journalGenKey:       metaKey(filterKey, "rebuild-journal-gen", ""),
 		leaseTTL:            LeaseTTL,
 		opExists:            "check existence in Redis " + cmds.Label + " filter",
 		opAdd:               "add to Redis " + cmds.Label + " filter",

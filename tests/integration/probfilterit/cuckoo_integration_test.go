@@ -263,18 +263,24 @@ func TestCuckoo_PeerInsertDuringRebuildIsStoredOnce(t *testing.T) {
 		c := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
 		ctx := t.Context()
 
+		// "early" is added under A's lease. C's BeginRebuild drops A's journal,
+		// so "early" survives only because the successor's snapshot (the
+		// source of truth) holds it, and then it is stored exactly once.
+		// "x" is added under C's lease and survives through C's journal.
 		stale := newGatedLoader(values("stale", 50), true)
 		staleDone := rebuildInBackground(t, a, stale)
+		require.NoError(t, b.Add(ctx, "early"))
 		require.NoError(t, fx.admin.Del(ctx, fx.metaKey("rebuild-lease")).Err())
 
-		successor := newGatedLoader(values("successor", 50), true)
+		successor := newGatedLoader(append(values("successor", 50), "early"), true)
 		successorDone := rebuildInBackground(t, c, successor)
 		require.NoError(t, b.Add(ctx, "x"))
 
 		require.NoError(t, awaitRebuild(t, successor, successorDone))
 		require.ErrorIs(t, awaitRebuild(t, stale, staleDone), probfilter.ErrRebuildSuperseded)
-		requirePresent(t, b, "x")
+		requirePresent(t, b, "x", "early")
 		requireDeletedOnce(t, b, "x")
+		requireDeletedOnce(t, b, "early")
 	})
 }
 
