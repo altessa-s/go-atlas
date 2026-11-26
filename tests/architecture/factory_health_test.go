@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -71,24 +70,70 @@ func TestFactoriesUseScopedHealthRegistration(t *testing.T) {
 		if !strings.HasPrefix(pkg, "factory/") || dependency != module+"observability/health" {
 			return
 		}
-		// The PostgreSQL connector needs a close hook before the builder can
-		// bind its health registration to the returned sql.DB.
-		if pkg == "factory/store/postgres" && filepath.Base(file) == "builder.go" {
-			return
-		}
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, file, nil, 0)
 		require.NoError(t, err)
-		for node := range ast.Preorder(f) {
+		ast.PreorderStack(f, nil, func(node ast.Node, ancestors []ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
 			if !ok {
-				continue
+				return true
 			}
-			if method, ok := call.Fun.(*ast.SelectorExpr); ok && method.Sel.Name == "RegisterService" {
-				t.Errorf("%s: use a scoped health registration and release it on close", fset.Position(method.Pos()))
+			method, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+			if !ok {
+				return true
 			}
-		}
+			switch method.Sel.Name {
+			case "RegisterService":
+				t.Errorf("%s: use a scoped health registration and release it on close", fset.Position(call.Pos()))
+			case "RegisterOwnedChecker", "RegisterOwnedService", "RegisterScopedService":
+				index := 1
+				if method.Sel.Name == "RegisterOwnedChecker" {
+					index = 0
+				}
+				for i := len(ancestors) - 1; i >= 0; i-- {
+					if _, parens := ancestors[i].(*ast.ParenExpr); parens {
+						continue
+					}
+					if discardsResult(call, index, ancestors[i]) {
+						t.Errorf("%s: retain the unregister callback and release it on close", fset.Position(call.Pos()))
+					}
+					break
+				}
+			}
+			return true
+		})
 	})
+}
+
+// discardsResult recognizes ignored calls and blank destinations in both
+// ordinary assignments and declarations.
+func discardsResult(call *ast.CallExpr, index int, parent ast.Node) bool {
+	var values []ast.Expr
+	var blank func(int) bool
+	switch n := parent.(type) {
+	case *ast.ExprStmt, *ast.GoStmt, *ast.DeferStmt:
+		return true
+	case *ast.AssignStmt:
+		values = n.Rhs
+		blank = func(i int) bool {
+			id, ok := ast.Unparen(n.Lhs[i]).(*ast.Ident)
+			return ok && id.Name == "_"
+		}
+	case *ast.ValueSpec:
+		values = n.Values
+		blank = func(i int) bool { return n.Names[i].Name == "_" }
+	default:
+		return false
+	}
+	if len(values) == 1 {
+		return blank(index)
+	}
+	for i, value := range values {
+		if ast.Unparen(value) == call {
+			return blank(i)
+		}
+	}
+	return false
 }
 
 func TestFactoryCloseRemovesHealthRegistration(t *testing.T) {

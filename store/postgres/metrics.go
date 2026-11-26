@@ -18,10 +18,14 @@ var _ io.Closer = (*poolConnector)(nil)
 // database/sql closes the connector after closing the pool.
 type poolConnector struct {
 	driver.Connector
-	stop func()
+	stop    func()
+	onClose func()
 }
 
 func (c *poolConnector) Close() error {
+	if c.onClose != nil {
+		c.onClose()
+	}
 	if c.stop != nil {
 		c.stop()
 	}

@@ -33,6 +33,8 @@ const (
 func (m PoolingMode) String() string { return string(m) }
 
 type options struct {
+	// OnClose runs when database/sql closes the pool connector after a successful Open.
+	onClose func()
 	// WithTLSConfig requires TLS on every endpoint. An empty ServerName follows the endpoint host.
 	tlsConfig *tls.Config
 	// WithAllowInsecureSkipVerify permits an explicitly unverified TLS configuration.

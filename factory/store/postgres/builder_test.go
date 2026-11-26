@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -379,4 +380,28 @@ func TestBuildRejectsMismatchedDatabaseIdentity(t *testing.T) {
 			require.Empty(t, checks)
 		})
 	}
+}
+
+func TestBuildRemovesClosedPoolHealthChecks(t *testing.T) {
+	t.Parallel()
+	cfg := postgresconfig.Default()
+	cfg.DSN, _, _ = poolEndpoint(t, nil)
+	cfg.Pools = map[string]postgresconfig.Pool{"jobs": {MaxOpenConnections: 2}}
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	build := func() postgres.Pools {
+		pools, err := New(&cfg).UseHealthCoordinator(coord).Build(t.Context())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, pools.Close()) })
+		return pools
+	}
+	old, replacement := build(), build()
+	services := func() []string { return slices.Sorted(coord.ListServices()) }
+	require.Equal(t, []string{"postgres.foreground", "postgres.jobs"}, services())
+	require.NoError(t, old.Close())
+	require.Equal(t, []string{"postgres.foreground", "postgres.jobs"}, services())
+	require.NoError(t, replacement["jobs"].Close())
+	require.Equal(t, []string{"postgres.foreground"}, services())
+	require.NoError(t, replacement.CloseContext(t.Context()))
+	require.Empty(t, services())
 }
