@@ -11,11 +11,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"uuid"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/internal/nats/natskey"
 	"github.com/altessa-s/go-atlas/internal/nats/natskvlease"
@@ -67,18 +67,14 @@ func (lt *lockTracker) DeleteIf(key string, lk *lock) {
 	lt.mu.Unlock()
 }
 
-// Drain removes every tracked lock and returns them.
-//
-// Taking the whole set in one swap keeps the shutdown release loop off the
-// mutex while it does network I/O, and leaves nothing behind for a second
-// caller to release twice.
-func (lt *lockTracker) Drain() map[string]*lock {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
-
-	locks := lt.locks
-	lt.locks = make(map[string]*lock)
-
+// Snapshot copies the tracked locks so shutdown can release them outside the mutex.
+func (lt *lockTracker) Snapshot() []*lock {
+	lt.mu.RLock()
+	defer lt.mu.RUnlock()
+	locks := make([]*lock, 0, len(lt.locks))
+	for _, lk := range lt.locks {
+		locks = append(locks, lk)
+	}
 	return locks
 }
 
@@ -99,9 +95,10 @@ type Locker struct {
 	// mu orders Lock's closed check and registration against Close, and
 	// inflight counts the acquisitions past that check, which Close waits
 	// for: an acquisition completing while Close runs is either registered
-	// before Close drains the locks or released by Lock itself.
+	// before Close collects the locks or released by Lock itself.
 	mu       sync.Mutex
 	inflight sync.WaitGroup
+	drained  chan struct{}
 }
 
 // errClosed reports an operation on a closed provider.
@@ -114,9 +111,8 @@ var (
 
 // config holds the internal configuration for a lock.
 type config struct {
-	Key   string
-	TTL   time.Duration
-	Value string
+	Key string
+	TTL time.Duration
 }
 
 // New creates a new NATS KV-based distributed lock.
@@ -196,23 +192,30 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	l.mu.Unlock()
 	defer l.inflight.Done()
 
-	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.New().String()}, l.kvOps, l.opts, l.observer)
-	// A lease released by ctx cancellation or lost to expiry never passes
-	// through trackedLock.Release, so untrack it when it ends.
+	lk := newLock(&config{Key: key, TTL: l.opts.ttl}, l.kvOps, l.opts, l.observer)
 	lk.onTerminal = func() { l.activeLocks.DeleteIf(key, lk) }
 	ok, err := lk.run(ctx, l.opts.acquireTimeout)
+	if errors.Is(err, natskvlease.ErrLeaseNotHeld) {
+		return nil, providers.ErrLockNotHeld
+	}
 	if err != nil {
 		if l.opts.logger != nil {
 			l.opts.logger.ErrorContext(ctx, "failed to acquire lock", slog.Any("error", err), slog.String("key", key))
 		}
 		return nil, err
-	} else if !ok {
+	}
+	if !ok {
 		return nil, providers.ErrLockNotHeld
 	}
 
 	l.mu.Lock()
-	if l.closed.Load() {
-		l.mu.Unlock()
+	closed := l.closed.Load()
+	l.activeLocks.Store(key, lk)
+	l.mu.Unlock()
+	if lk.terminal.Load() { // ended before it was tracked
+		l.activeLocks.DeleteIf(key, lk)
+	}
+	if closed {
 		releaseCtx, cancel := corectx.ApplyTimeout(context.WithoutCancel(ctx), DefaultOperationsTimeout)
 		defer cancel()
 		if err := lk.Release(releaseCtx); err != nil && l.opts.logger != nil {
@@ -221,18 +224,8 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 		}
 		return nil, errClosed
 	}
-	l.activeLocks.Store(key, lk)
-	l.mu.Unlock()
-	if lk.terminal.Load() { // ended before it was tracked
-		l.activeLocks.DeleteIf(key, lk)
-	}
 
-	// Wrap the lock to remove from tracking on release
-	return &trackedLock{
-		lock:    lk,
-		key:     key,
-		tracker: l.activeLocks,
-	}, nil
+	return lk, nil
 }
 
 // GetLockInfo retrieves metadata about the lock identified by key.
@@ -241,24 +234,26 @@ func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockIn
 	return readLockInfo(ctx, l.kvOps, key)
 }
 
-// Close closes the provider and releases all resources.
-// It releases all active locks before closing.
+// Close rejects new acquisitions, stops renewing active locks, and releases
+// them. It reports release failures and can be called again to retry them.
 func (l *Locker) Close(ctx context.Context) error {
-	// Mark as closed to prevent new locks
 	l.mu.Lock()
-	if !l.closed.CompareAndSwap(false, true) {
-		l.mu.Unlock()
-		return errors.New("provider already closed")
+	l.closed.Store(true)
+	held := l.activeLocks.Snapshot()
+	for _, lk := range held {
+		lk.lease.StopCamping()
 	}
+	// Wait for acquisitions that had already passed the closed check.
+	if l.drained == nil {
+		l.drained = make(chan struct{})
+		go func() {
+			defer panics.Handle(ctx)
+			l.inflight.Wait()
+			close(l.drained)
+		}()
+	}
+	drained := l.drained
 	l.mu.Unlock()
-
-	// Acquisitions already past the closed check register before the drain
-	// below or release themselves; wait until they have done either.
-	drained := make(chan struct{})
-	go func() {
-		l.inflight.Wait()
-		close(drained)
-	}()
 	select {
 	case <-drained:
 	case <-ctx.Done():
@@ -269,26 +264,17 @@ func (l *Locker) Close(ctx context.Context) error {
 		l.opts.logger.InfoContext(ctx, "closing NATS dlock provider")
 	}
 
-	// Release all active locks. Each gets its own budget so one unreachable
-	// key cannot consume the whole shutdown.
-	for key, lk := range l.activeLocks.Drain() {
-		releaseCtx, cancel := corectx.ApplyTimeout(ctx, DefaultOperationsTimeout)
+	var releaseErrs []error
+	for _, lk := range l.activeLocks.Snapshot() {
+		releaseCtx, cancel := corectx.WithMaxTimeout(ctx, DefaultOperationsTimeout)
 		err := lk.Release(releaseCtx)
 		cancel()
 
-		if err != nil && l.opts.logger != nil {
-			l.opts.logger.ErrorContext(ctx, "error during provider close",
-				slog.Any("error", coreerrs.Wrapf(err, "failed to release lock %s", key)))
+		if err != nil {
+			releaseErrs = append(releaseErrs, coreerrs.Wrapf(err, "release lock %q", lk.config.Key))
 		}
 	}
-
-	// Note: We don't close the NATS connection as it's managed externally
-	// The caller who provided the connection is responsible for closing it
-
-	if l.opts.logger != nil {
-		l.opts.logger.InfoContext(ctx, "nats dlock provider closed successfully")
-	}
-	return nil
+	return errors.Join(releaseErrs...)
 }
 
 // Probe implements [providers.Prober]. It returns nil when the NATS
@@ -307,27 +293,5 @@ func (l *Locker) Probe(ctx context.Context) error {
 	if _, err := l.kv.Status(ctx); err != nil {
 		return coreerrs.Wrap(err, "kv bucket unreachable")
 	}
-	return nil
-}
-
-// trackedLock wraps a lock to track it in the provider
-type trackedLock struct {
-	lock    *lock
-	key     string
-	tracker *lockTracker
-}
-
-// GetLockInfo returns information about the current state of the lock.
-func (t *trackedLock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
-	return t.lock.GetLockInfo(ctx)
-}
-
-// Release releases the lock with context support. A failed release keeps the
-// lock tracked, so it can be retried — by Release or by Close.
-func (t *trackedLock) Release(ctx context.Context) error {
-	if err := t.lock.Release(ctx); err != nil {
-		return err
-	}
-	t.tracker.DeleteIf(t.key, t.lock)
 	return nil
 }
