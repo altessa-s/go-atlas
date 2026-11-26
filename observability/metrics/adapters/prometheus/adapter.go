@@ -73,8 +73,11 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 	}
 
 	norm := desc.Clone()
-	if norm.Type == adapters.TypeHistogram && len(norm.Buckets) == 0 {
-		norm.Buckets = slices.Clone(metrics.DefaultDurationBuckets)
+	switch norm.Type {
+	case adapters.TypeHistogram, adapters.TypeTimer:
+		if len(norm.Buckets) == 0 {
+			norm.Buckets = slices.Clone(metrics.DefaultDurationBuckets)
+		}
 	}
 
 	a.descsMu.Lock()
@@ -103,13 +106,8 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 		}, norm.LabelNames)
 		err = registerVec(a.registerer, &a.gauges, norm.Name, vec)
 
-	case adapters.TypeHistogram:
-		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    norm.Name,
-			Help:    norm.Help,
-			Buckets: norm.Buckets,
-		}, norm.LabelNames)
-		err = registerVec(a.registerer, &a.histos, norm.Name, vec)
+	case adapters.TypeHistogram, adapters.TypeTimer:
+		err = a.registerHistogram(norm)
 
 	default:
 		return fmt.Errorf("prometheus: unsupported metric type %v", norm.Type)
@@ -120,6 +118,37 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 	}
 
 	a.descs[norm.Name] = norm
+	return nil
+}
+
+// registeredHistogram carries the full descriptor with the collector that the
+// registry owns. Prometheus descriptor IDs omit bucket boundaries and kind.
+type registeredHistogram struct {
+	*prometheus.HistogramVec
+	desc *adapters.Desc
+}
+
+func (a *Adapter) registerHistogram(desc *adapters.Desc) error {
+	h := &registeredHistogram{
+		HistogramVec: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    desc.Name,
+			Help:    desc.Help,
+			Buckets: desc.Buckets,
+		}, desc.LabelNames),
+		desc: desc,
+	}
+	if err := a.registerer.Register(h); err != nil {
+		already, ok := errors.AsType[prometheus.AlreadyRegisteredError](err)
+		if !ok {
+			return err
+		}
+		existing, ok := already.ExistingCollector.(*registeredHistogram)
+		if !ok || !existing.desc.Equal(desc) {
+			return fmt.Errorf("prometheus: metric %q: %w: %w", desc.Name, adapters.ErrDescriptorConflict, err)
+		}
+		h = existing
+	}
+	a.histos.Store(desc.Name, h.HistogramVec)
 	return nil
 }
 

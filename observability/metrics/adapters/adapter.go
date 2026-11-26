@@ -30,6 +30,8 @@ const (
 	TypeGauge
 	// TypeHistogram represents a histogram metric.
 	TypeHistogram
+	// TypeTimer represents a duration metric stored as a histogram.
+	TypeTimer
 )
 
 // String returns the string representation of the metric type.
@@ -41,6 +43,8 @@ func (t MetricType) String() string {
 		return "gauge"
 	case TypeHistogram:
 		return "histogram"
+	case TypeTimer:
+		return "timer"
 	default:
 		return "unknown"
 	}
@@ -60,7 +64,7 @@ type Desc struct {
 	// LabelNames are the names of labels for this metric.
 	LabelNames []string
 
-	// Buckets contains histogram bucket boundaries (for histograms only).
+	// Buckets contains histogram bucket boundaries (for histograms and timers).
 	Buckets []float64
 }
 

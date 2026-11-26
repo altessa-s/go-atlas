@@ -70,7 +70,7 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 		a.counters[norm.Name] = make(map[string]float64)
 	case adapters.TypeGauge:
 		a.gauges[norm.Name] = make(map[string]float64)
-	case adapters.TypeHistogram:
+	case adapters.TypeHistogram, adapters.TypeTimer:
 		a.histograms[norm.Name] = make(map[string]*histogramSeries)
 	}
 	return nil

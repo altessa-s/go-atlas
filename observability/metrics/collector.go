@@ -55,8 +55,10 @@ func (k instrumentKind) adapterType() adapters.MetricType {
 		return adapters.TypeCounter
 	case kindGauge:
 		return adapters.TypeGauge
-	case kindHistogram, kindTimer:
+	case kindHistogram:
 		return adapters.TypeHistogram
+	case kindTimer:
+		return adapters.TypeTimer
 	default:
 		return adapters.TypeCounter
 	}
