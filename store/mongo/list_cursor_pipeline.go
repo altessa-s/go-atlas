@@ -15,13 +15,13 @@ import (
 // buildCursorFilter resumes after a validated boundary. MongoDB's comparison
 // operators only match within the boundary's BSON type, so null and missing
 // values need explicit branches when entering or leaving the null segment.
-func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M {
+func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) (bson.M, error) {
 	if cursor.IsZero() {
-		return bson.M{}
+		return bson.M{}, nil
 	}
 	oid, err := bson.ObjectIDFromHex(cursor.CursorId)
 	if err != nil {
-		return bson.M{}
+		return nil, fmt.Errorf("%w: malformed cursor ID", ErrInvalidCursor)
 	}
 	descending := getSortDirection(sort) == sortDirectionDescending
 	op := "$gt"
@@ -30,20 +30,20 @@ func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M
 	}
 	idComparison := bson.M{op: oid}
 	if len(sort) == 0 || sort[0].Key == cursorIdField {
-		return bson.M{cursorIdField: idComparison}
+		return bson.M{cursorIdField: idComparison}, nil
 	}
 	value, err := decodeSortValue(cursor.SortValue)
 	if err != nil {
-		return bson.M{}
+		return nil, fmt.Errorf("%w: malformed cursor sort value", ErrInvalidCursor)
 	}
 
 	field := sort[0].Key
 	if value.Type == bson.TypeNull {
 		ties := bson.M{field: nil, cursorIdField: idComparison}
 		if descending {
-			return ties
+			return ties, nil
 		}
-		return bson.M{"$or": bson.A{ties, bson.M{field: bson.M{"$ne": nil}}}}
+		return bson.M{"$or": bson.A{ties, bson.M{field: bson.M{"$ne": nil}}}}, nil
 	}
 
 	branches := bson.A{
@@ -57,7 +57,7 @@ func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M
 	if descending {
 		branches = append(branches, bson.M{field: nil})
 	}
-	return bson.M{"$or": branches}
+	return bson.M{"$or": branches}, nil
 }
 
 // getSortDirection extracts the sort direction from the primary (first) sort field.
@@ -155,10 +155,14 @@ func ensureCursorIdInSort(sort bson.D, cursorIdField string) bson.D {
 //
 // Returns:
 //   - bson.A: Pipeline stages (empty if no filters)
-func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort bson.D) bson.A {
+//   - error: ErrInvalidCursor if the continuation cannot be decoded
+func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort bson.D) (bson.A, error) {
 	// Add cursor filter if cursor is provided
 	if cursor != nil && !cursor.IsZero() {
-		cursorFilter := buildCursorFilter(cursor, cursorIdField, sort)
+		cursorFilter, err := buildCursorFilter(cursor, cursorIdField, sort)
+		if err != nil {
+			return nil, err
+		}
 
 		// Merge cursor filter with existing filter using $and
 		if len(filter) > pipeline.EmptyDocumentSize {
@@ -169,16 +173,16 @@ func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort
 						opAnd: bson.A{filter, cursorFilter},
 					},
 				},
-			}
+			}, nil
 		}
-		return bson.A{bson.M{opMatch: cursorFilter}}
+		return bson.A{bson.M{opMatch: cursorFilter}}, nil
 	}
 
 	if len(filter) > pipeline.EmptyDocumentSize {
-		return bson.A{bson.M{opMatch: filter}}
+		return bson.A{bson.M{opMatch: filter}}, nil
 	}
 
-	return bson.A{}
+	return bson.A{}, nil
 }
 
 // buildSortStage creates the $sort stage.
@@ -217,6 +221,7 @@ func buildSortStage(sort bson.D) bson.A {
 //
 // Returns:
 //   - bson.A: Complete aggregation pipeline ready for execution
+//   - error: ErrInvalidCursor if the continuation cannot be decoded
 //
 // Performance characteristics:
 //   - O(1) pagination depth (unlike offset-based which is O(n))
@@ -225,19 +230,22 @@ func buildSortStage(sort bson.D) bson.A {
 //     ensure the user filter is index-backed — otherwise the count branch costs a full
 //     collection scan in addition to the items branch
 //   - Efficient index usage with proper $match before $sort
-func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A {
+func buildCursorPipeline(opts *listCursorOptions, collectionName string) (bson.A, error) {
 	// Extend sort with cursor_id tiebreaker for deterministic pagination.
 	// A local variable is used intentionally — opts.sort must stay unchanged
 	// because cursor generation and checksum validation depend on the original value.
 	sort := ensureCursorIdInSort(opts.sort, opts.cursorIdField)
 
 	// 1. MATCH - Combine user filter with cursor filter
-	match := buildMatchStage(
+	match, err := buildMatchStage(
 		opts.prepared,
 		opts.cursor,
 		opts.cursorIdField,
 		sort, // local sort with tiebreaker
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// 2. SORT - Order results
 	sortStage := buildSortStage(sort)
@@ -266,5 +274,5 @@ func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A 
 	pipeline = append(pipeline, items...)
 	pipeline = append(pipeline, count...)
 
-	return pipeline
+	return pipeline, nil
 }

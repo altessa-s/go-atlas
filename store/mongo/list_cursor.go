@@ -506,7 +506,10 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 		"cursor_provided", opts.cursor != nil)
 
 	// Build optimized pipeline
-	pipeline := buildCursorPipeline(opts, collection.Name())
+	pipeline, err := buildCursorPipeline(opts, collection.Name())
+	if err != nil {
+		return nil, err
+	}
 
 	// Execute explain analysis if requested
 	executeExplainIfRequested(queryCtx, collection, pipeline, opts.hint, opts.explain, opts.logger)

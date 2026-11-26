@@ -307,7 +307,8 @@ func TestStatefulCursor_SortValueRoundTrip(t *testing.T) {
 
 	boundary, err := decodeSortValue(cursor.SortValue)
 	require.NoError(t, err)
-	got := buildCursorFilter(cursor, DefaultCursorIdField, sort)
+	got, err := buildCursorFilter(cursor, DefaultCursorIdField, sort)
+	require.NoError(t, err)
 	want := bson.M{"$or": bson.A{
 		bson.M{"created_at": bson.M{"$lt": boundary}},
 		bson.M{"$and": bson.A{
@@ -330,8 +331,9 @@ func TestBuildCursorFilter_EqualityUsesEq(t *testing.T) {
 	oid := bson.NewObjectID()
 	boundary, err := decodeSortValue(sortVal)
 	require.NoError(t, err)
-	got := buildCursorFilter(&Cursor{CursorId: oid.Hex(), SortValue: sortVal}, DefaultCursorIdField,
+	got, err := buildCursorFilter(&Cursor{CursorId: oid.Hex(), SortValue: sortVal}, DefaultCursorIdField,
 		bson.D{{Key: "name", Value: 1}})
+	require.NoError(t, err)
 
 	want := bson.M{"$or": bson.A{
 		bson.M{"name": bson.M{"$gt": boundary}},
