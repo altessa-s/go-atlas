@@ -7,7 +7,7 @@ package auth
 import "testing"
 
 func BenchmarkPerRPCCredentials_GetRequestMetadata(b *testing.B) {
-	creds := NewPerRPCCredentials(StaticTokenProvider("tok"))
+	creds, _ := NewPerRPCCredentials(StaticTokenProvider("tok"))
 	for b.Loop() {
 		creds.GetRequestMetadata(b.Context()) //nolint:errcheck
 	}

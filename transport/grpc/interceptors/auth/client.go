@@ -6,9 +6,16 @@ package auth
 
 import (
 	"context"
-	"strings"
+	"fmt"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // TokenProvider is an interface for providing authentication tokens for outgoing requests.
@@ -44,9 +51,8 @@ func StaticTokenProvider(token string) TokenProvider {
 var _ credentials.PerRPCCredentials = (*perRPCCredentials)(nil)
 
 type perRPCCredentials struct {
-	provider   TokenProvider
-	headerName string
-	scheme     string
+	provider TokenProvider
+	opts     clientOptions
 }
 
 // NewPerRPCCredentials returns credentials that attach a token from provider
@@ -56,48 +62,31 @@ type perRPCCredentials struct {
 // [github.com/altessa-s/go-atlas/transport/grpc/client.InsecureTokenCredentials].
 //
 // By default the token is sent as a Bearer token in the "authorization" header.
-// Use WithHeaderName and WithScheme to customize the header and scheme.
+// Use WithHeaderName, WithScheme and WithNoScheme to customize the header and scheme.
+//
+// A call whose outgoing metadata already carries the credential header is
+// rejected with codes.Unauthenticated instead of sending two values, and a
+// provider failure is reported with a fixed message: the provider's error text
+// never reaches the call status. A nil provider is a construction error that
+// matches [coreerrs.ErrInvalidArgument].
 //
 // Example:
 //
-//	creds := auth.NewPerRPCCredentials(auth.TokenProviderFunc(func(ctx context.Context) (string, error) {
+//	creds, err := auth.NewPerRPCCredentials(auth.TokenProviderFunc(func(ctx context.Context) (string, error) {
 //	    return fetchTokenFromVault(ctx)
 //	}))
-//
+//	if err != nil {
+//	    return err
+//	}
 //	c, err := client.New(ctx, target,
 //	    client.WithDialOptions(grpc.WithPerRPCCredentials(creds)),
 //	)
-func NewPerRPCCredentials(provider TokenProvider, opts ...ClientOption) credentials.PerRPCCredentials {
-	c := &perRPCCredentials{
-		provider:   provider,
-		headerName: "authorization",
-		scheme:     "Bearer",
+func NewPerRPCCredentials(provider TokenProvider, opts ...ClientOption) (credentials.PerRPCCredentials, error) {
+	if nilcheck.IsNil(provider) {
+		return nil, fmt.Errorf("%w: token provider is required", coreerrs.ErrInvalidArgument)
 	}
-
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	return c
-}
-
-// ClientOption configures the client token credentials.
-type ClientOption func(*perRPCCredentials)
-
-// WithHeaderName sets the metadata header name for the token.
-// Default is "authorization".
-func WithHeaderName(name string) ClientOption {
-	return func(c *perRPCCredentials) {
-		c.headerName = strings.ToLower(name)
-	}
-}
-
-// WithScheme sets the authentication scheme prefix.
-// Default is "Bearer". Set to empty string for no scheme prefix.
-func WithScheme(scheme string) ClientOption {
-	return func(c *perRPCCredentials) {
-		c.scheme = scheme
-	}
+	c := &perRPCCredentials{provider: provider, opts: *newClientOptions(opts...)}
+	return c, nil
 }
 
 // RequireTransportSecurity reports true: the token is never sent over plaintext.
@@ -106,17 +95,21 @@ func (*perRPCCredentials) RequireTransportSecurity() bool { return true }
 // GetRequestMetadata returns the token header for one call. It returns no
 // metadata when the provider has no token to attach.
 func (c *perRPCCredentials) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
+	if md, ok := metadata.FromOutgoingContext(ctx); ok && len(md.Get(c.opts.headerName)) > 0 {
+		return nil, status.Error(codes.Unauthenticated, "credential header already set on the call")
+	}
+
 	token, err := c.provider.Token(ctx)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.Unauthenticated, "token unavailable")
 	}
 
 	if token == "" {
 		return nil, nil //nolint:nilnil // No token means no metadata.
 	}
 
-	if c.scheme != "" {
-		token = c.scheme + " " + token
+	if !c.opts.noScheme {
+		token = c.opts.scheme + " " + token
 	}
-	return map[string]string{c.headerName: token}, nil
+	return map[string]string{c.opts.headerName: token}, nil
 }
