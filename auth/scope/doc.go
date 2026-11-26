@@ -43,7 +43,7 @@
 //	reg := scope.NewRegistry()
 //	reg.Register("/files.v1.Files/Read", "files:read")
 //	reg.Register("/files.v1.Files/Write", "files:write")
-//	reg.Register("/health.v1.Health/Check", "") // public
+//	reg.RegisterPublic("/health.v1.Health/Check") // public
 //	reg.Freeze()
 //
 //	base := scope.ScopeAuthorizer(func(p *Principal) []string { return p.Scopes }, scope.Exact())

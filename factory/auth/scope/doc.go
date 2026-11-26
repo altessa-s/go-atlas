@@ -9,7 +9,7 @@
 //
 // Only the action-key→required-scope table is declarative. The matcher and the
 // authorizer stay in code: they depend on the caller's principal type, which has
-// no place in configuration.
+// no place in configuration. Each rule requires a scope or public: true.
 //
 // # Usage
 //

@@ -29,7 +29,7 @@ caller, so the core bakes in no identity fields.
 | Function                            | Description                                                                                     |
 |-------------------------------------|-------------------------------------------------------------------------------------------------|
 | `NewRegistry()`                     | Empty registry ready for registration.                                                          |
-| `Registry.Register(key, scope)`     | Record that `key` requires `scope` (empty scope = public). Panics after `Freeze`.               |
+| `Registry.Register(key, scope)`     | Record that `key` requires `scope`. Panics after `Freeze`.               |
 | `Registry.RegisterMany(scope, ...)` | Bulk-register many keys with the same scope.                                                    |
 | `Registry.Freeze()`                 | Immutable snapshot, safe for lock-free concurrent reads; further registration panics.           |
 | `Registry.Required(key)`            | `(scope, ok)`; `ok=false` (unregistered) is denied by default, `("", true)` is public.          |
@@ -64,7 +64,7 @@ type Principal struct {
 reg := scope.NewRegistry()
 reg.Register("/files.v1.Files/Read", "files:read")
 reg.Register("/files.v1.Files/Write", "files:write")
-reg.Register("/health.v1.Health/Check", "") // public
+reg.RegisterPublic("/health.v1.Health/Check") // public
 reg.Freeze()
 
 base := scope.ScopeAuthorizer(func(p *Principal) []string { return p.Scopes }, scope.Exact())

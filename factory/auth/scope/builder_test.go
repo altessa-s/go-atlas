@@ -20,7 +20,7 @@ func TestBuildRegistersRules(t *testing.T) {
 	reg, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read", "/files.v1.Files/List"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write"}},
-		{Scope: "", Keys: []string{"/health.v1.Health/Check"}},
+		{Public: true, Keys: []string{"/health.v1.Health/Check"}},
 	}}).Build()
 	require.NoError(t, err)
 
@@ -82,4 +82,35 @@ func TestBuiltRegistryWithEnforcer(t *testing.T) {
 
 	require.NoError(t, enf.Enforce(&principal{scopes: []string{"files:write"}}, "/files.v1.Files/Write"))
 	require.ErrorIs(t, enf.Enforce(&principal{scopes: []string{"files:read"}}, "/files.v1.Files/Write"), scope.ErrAccessDenied)
+}
+
+func TestBuildRejectsImplicitPublicAction(t *testing.T) {
+	t.Parallel()
+	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{{Keys: []string{"admin.delete"}}}}
+	_, err := factory.New(cfg).Build()
+	require.Error(t, err, "a missing scope must fail startup")
+	require.Error(t, cfg.Validate())
+}
+
+func TestBuildValidatesPublicAction(t *testing.T) {
+	t.Parallel()
+	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{{Public: true, Keys: []string{"status"}}}}
+	require.NoError(t, cfg.Validate())
+	reg, err := factory.New(cfg).Build()
+	require.NoError(t, err)
+	enforcer := scope.NewEnforcer[[]scope.Scope](reg, scope.ScopeAuthorizer(func(scopes []scope.Scope) []scope.Scope {
+		return scopes
+	}, scope.Exact()))
+	require.NoError(t, enforcer.Enforce(nil, "status"))
+
+	for _, invalid := range []authconfig.ScopeRule{
+		{Public: true, Scope: "admin", Keys: []string{"status"}},
+		{Scope: "admin", Keys: []string{" "}},
+		{Scope: " ", Keys: []string{"status"}},
+	} {
+		cfg.Rules[0] = invalid
+		require.Error(t, cfg.Validate())
+		_, err := factory.New(cfg).Build()
+		require.Error(t, err)
+	}
 }

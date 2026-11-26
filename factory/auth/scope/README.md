@@ -41,7 +41,7 @@ scope:
       keys: ["/files.v1.Files/Read", "/files.v1.Files/List"]
     - scope: "files:write"
       keys: ["/files.v1.Files/Write"]
-    - scope: ""               # public — always allowed once authenticated
+    - public: true             # always allowed once authenticated
       keys: ["/health.v1.Health/Check"]
 ```
 
