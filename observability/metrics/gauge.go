@@ -160,7 +160,7 @@ func seriesKey(labels Labels) string {
 	return b.String()
 }
 
-// newLabeledGauge builds a labeled view with an immutable copy of labels.
+// newLabeledGauge builds a labeled view.
 // When the backend supports native additive updates ([adapters.BoundGaugeAdder]
 // or [adapters.GaugeAdder]), updates go directly to the backend; otherwise
 // handles share per-series shadow state.
@@ -185,7 +185,7 @@ func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
 	return &labeledGauge{
 		parent:     parent,
 		shutdown:   parent.shutdown,
-		labels:     snapshotLabels(labels, bound == nil),
+		labels:     retainLabels(labels, bound == nil),
 		series:     series,
 		bound:      bound,
 		boundAdder: boundAdder,
@@ -196,7 +196,7 @@ func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
 type labeledGauge struct {
 	parent     *gauge
 	shutdown   *atomic.Bool
-	labels     labelSnapshot
+	labels     Labels
 	series     *gaugeSeries
 	bound      adapters.BoundGauge      // non-nil when the adapter pre-resolved the child
 	boundAdder adapters.BoundGaugeAdder // non-nil when bound also supports native Add
@@ -211,7 +211,7 @@ func (l *labeledGauge) Set(value float64) {
 		return
 	}
 	if l.bound == nil && l.parent.gaugeAdder != nil {
-		l.parent.adapter.RecordGauge(l.parent.name, l.labels.m, value)
+		l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
 		return
 	}
 	l.series.mu.Lock()
@@ -237,7 +237,7 @@ func (l *labeledGauge) Add(delta float64) {
 		return
 	}
 	if l.bound == nil && l.parent.gaugeAdder != nil {
-		l.parent.gaugeAdder.AddGauge(l.parent.name, l.labels.m, delta)
+		l.parent.gaugeAdder.AddGauge(l.parent.name, l.labels, delta)
 		return
 	}
 	l.series.mu.Lock()
@@ -256,12 +256,12 @@ func (l *labeledGauge) record(value float64) {
 		l.bound.Set(value)
 		return
 	}
-	l.parent.adapter.RecordGauge(l.parent.name, l.labels.m, value)
+	l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
 }
 
 func (l *labeledGauge) WithLabels(labels Labels) Gauge {
 	if l.shutdown.Load() {
 		return noopGauge{}
 	}
-	return newLabeledGauge(l.parent, l.labels.merge(labels))
+	return newLabeledGauge(l.parent, MergeLabels(l.labels, labels))
 }

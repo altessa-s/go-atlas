@@ -57,8 +57,7 @@ func (h *histogram) WithLabels(labels Labels) Histogram {
 	return newLabeledHistogram(h, labels)
 }
 
-// newLabeledHistogram builds a labeled view with an immutable copy of labels
-// and, when the adapter supports [adapters.Binder], resolves the concrete child
+// newLabeledHistogram builds a labeled view and, when the adapter supports [adapters.Binder], resolves the concrete child
 // once so Observe is a direct update with no per-observation lookup.
 func newLabeledHistogram(parent *histogram, labels Labels) *labeledHistogram {
 	var bound adapters.BoundHistogram
@@ -68,35 +67,33 @@ func newLabeledHistogram(parent *histogram, labels Labels) *labeledHistogram {
 		}
 	}
 	return &labeledHistogram{
-		parent:   parent,
-		shutdown: parent.shutdown,
-		labels:   snapshotLabels(labels, bound == nil),
-		bound:    bound,
+		parent: parent,
+		labels: retainLabels(labels, bound == nil),
+		bound:  bound,
 	}
 }
 
 // labeledHistogram is a histogram with labels applied.
 type labeledHistogram struct {
-	parent   *histogram
-	shutdown *atomic.Bool
-	labels   labelSnapshot
-	bound    adapters.BoundHistogram // non-nil when the adapter pre-resolved the child
+	parent *histogram
+	labels Labels
+	bound  adapters.BoundHistogram // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledHistogram) Observe(value float64) {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return
 	}
 	if l.bound != nil {
 		l.bound.Observe(value)
 		return
 	}
-	l.parent.adapter.RecordHistogram(l.parent.name, l.labels.m, value)
+	l.parent.adapter.RecordHistogram(l.parent.name, l.labels, value)
 }
 
 func (l *labeledHistogram) WithLabels(labels Labels) Histogram {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return noopHistogram{}
 	}
-	return newLabeledHistogram(l.parent, l.labels.merge(labels))
+	return newLabeledHistogram(l.parent, MergeLabels(l.labels, labels))
 }

@@ -106,46 +106,13 @@ func NormalizeLabelNames(names []string) []string {
 	return slices.Sorted(slices.Values(names))
 }
 
-type labelKV struct {
-	k, v string
-}
-
-// labelSnapshot holds an immutable copy of a caller-supplied Labels map so
-// later caller mutations never affect bound handles. When a full map is not
-// needed (pre-bound handles) and at most two labels are present, pairs are
-// stored inline to avoid a map allocation.
-type labelSnapshot struct {
-	m       Labels
-	inline  [2]labelKV
-	nInline uint8
-}
-
-func snapshotLabels(labels Labels, needMap bool) labelSnapshot {
-	if len(labels) == 0 {
-		return labelSnapshot{}
+// retainLabels snapshots labels when updates still need the map. A resolved
+// child already has its label values; the map is only used when chaining.
+func retainLabels(labels Labels, needsMap bool) Labels {
+	if needsMap {
+		return maps.Clone(labels)
 	}
-	if !needMap && len(labels) <= len(labelSnapshot{}.inline) {
-		var s labelSnapshot
-		for k, v := range labels {
-			s.inline[s.nInline] = labelKV{k: k, v: v}
-			s.nInline++
-		}
-		return s
-	}
-	return labelSnapshot{m: maps.Clone(labels)}
-}
-
-func (s *labelSnapshot) merge(other Labels) Labels {
-	if s.nInline == 0 {
-		return MergeLabels(s.m, other)
-	}
-	out := make(Labels, int(s.nInline)+len(other))
-	for i := range s.nInline {
-		kv := s.inline[i]
-		out[kv.k] = kv.v
-	}
-	maps.Copy(out, other)
-	return out
+	return labels
 }
 
 // --- LabelBuilder ---

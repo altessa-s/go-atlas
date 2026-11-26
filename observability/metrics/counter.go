@@ -64,7 +64,7 @@ func (c *counter) WithLabels(labels Labels) Counter {
 	return newLabeledCounter(c, labels)
 }
 
-// newLabeledCounter builds a labeled view with an immutable copy of labels and,
+// newLabeledCounter builds a labeled view and,
 // when the adapter supports [adapters.Binder], resolves the concrete child once
 // so Inc/Add are direct updates with no per-observation lookup.
 func newLabeledCounter(parent *counter, labels Labels) *labeledCounter {
@@ -75,19 +75,17 @@ func newLabeledCounter(parent *counter, labels Labels) *labeledCounter {
 		}
 	}
 	return &labeledCounter{
-		parent:   parent,
-		shutdown: parent.shutdown,
-		labels:   snapshotLabels(labels, bound == nil),
-		bound:    bound,
+		parent: parent,
+		labels: retainLabels(labels, bound == nil),
+		bound:  bound,
 	}
 }
 
 // labeledCounter is a counter with labels applied.
 type labeledCounter struct {
-	parent   *counter
-	shutdown *atomic.Bool
-	labels   labelSnapshot
-	bound    adapters.BoundCounter // non-nil when the adapter pre-resolved the child
+	parent *counter
+	labels Labels
+	bound  adapters.BoundCounter // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledCounter) Inc() {
@@ -95,19 +93,19 @@ func (l *labeledCounter) Inc() {
 }
 
 func (l *labeledCounter) Add(delta float64) {
-	if delta < 0 || l.shutdown.Load() {
+	if delta < 0 || l.parent.shutdown.Load() {
 		return
 	}
 	if l.bound != nil {
 		l.bound.Add(delta)
 		return
 	}
-	l.parent.adapter.RecordCounter(l.parent.name, l.labels.m, delta)
+	l.parent.adapter.RecordCounter(l.parent.name, l.labels, delta)
 }
 
 func (l *labeledCounter) WithLabels(labels Labels) Counter {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return noopCounter{}
 	}
-	return newLabeledCounter(l.parent, l.labels.merge(labels))
+	return newLabeledCounter(l.parent, MergeLabels(l.labels, labels))
 }

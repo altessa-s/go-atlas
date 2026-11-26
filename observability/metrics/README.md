@@ -20,7 +20,7 @@ export happens through pluggable adapters (Prometheus and in-memory ship in [ada
 | `Gauge`                                                                  | Value that can increase and decrease                                                           |
 | `Histogram`                                                              | Distribution of observed values                                                                |
 | `Timer`                                                                  | Duration measurement with `Start()` / `ObserveDuration()`                                      |
-| `Labels`                                                                 | `map[string]string` for metric dimensions (cloned by `WithLabels`)                             |
+| `Labels`                                                                 | `map[string]string` for metric dimensions                             |
 | `ErrDescriptorConflict`                                                  | Returned when a metric name is redeclared with another kind, label set, help, or bucket list   |
 | `Noop()`                                                                 | Zero-cost no-op implementation                                                                 |
 | `IsNoop`                                                                 | Report whether a `Meter` is the `Noop()` singleton                                             |
@@ -35,6 +35,9 @@ Each metric name owns one canonical descriptor (`kind`, sorted `LabelNames`, `He
 Use `RegisterCounter` / `RegisterGauge` / `RegisterHistogram` / `RegisterTimer` for checked error returns, or `MustCounter` / `MustGauge` /
 `MustHistogram` / `MustTimer` (and `MustMeter`) to panic on failure. Calling the unchecked `Meter` methods with an incompatible descriptor or a failing
 backend logs once at `Error` and returns a no-op handle.
+
+Observations use the label set supplied to `WithLabels` at bind time. When chaining `WithLabels` on a bound handle, keep its original label map
+unchanged until the chained call returns.
 
 ## Naming convention
 

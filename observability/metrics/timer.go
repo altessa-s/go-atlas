@@ -43,7 +43,7 @@ func (t *timer) WithLabels(labels Labels) Timer {
 	return newLabeledTimer(t, labels)
 }
 
-// newLabeledTimer builds a labeled view with an immutable copy of labels and,
+// newLabeledTimer builds a labeled view and,
 // when the adapter supports [adapters.Binder], resolves the concrete child once
 // so ObserveDuration is a direct update with no per-observation lookup.
 func newLabeledTimer(parent *timer, labels Labels) *labeledTimer {
@@ -54,23 +54,21 @@ func newLabeledTimer(parent *timer, labels Labels) *labeledTimer {
 		}
 	}
 	return &labeledTimer{
-		parent:   parent,
-		shutdown: parent.shutdown,
-		labels:   snapshotLabels(labels, bound == nil),
-		bound:    bound,
+		parent: parent,
+		labels: retainLabels(labels, bound == nil),
+		bound:  bound,
 	}
 }
 
 // labeledTimer is a timer with labels applied.
 type labeledTimer struct {
-	parent   *timer
-	shutdown *atomic.Bool
-	labels   labelSnapshot
-	bound    adapters.BoundHistogram // non-nil when the adapter pre-resolved the child
+	parent *timer
+	labels Labels
+	bound  adapters.BoundHistogram // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledTimer) Start() func() {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return func() {}
 	}
 	start := time.Now()
@@ -80,19 +78,19 @@ func (l *labeledTimer) Start() func() {
 }
 
 func (l *labeledTimer) ObserveDuration(d time.Duration) {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return
 	}
 	if l.bound != nil {
 		l.bound.Observe(d.Seconds())
 		return
 	}
-	l.parent.adapter.RecordHistogram(l.parent.name, l.labels.m, d.Seconds())
+	l.parent.adapter.RecordHistogram(l.parent.name, l.labels, d.Seconds())
 }
 
 func (l *labeledTimer) WithLabels(labels Labels) Timer {
-	if l.shutdown.Load() {
+	if l.parent.shutdown.Load() {
 		return noopTimer{}
 	}
-	return newLabeledTimer(l.parent, l.labels.merge(labels))
+	return newLabeledTimer(l.parent, MergeLabels(l.labels, labels))
 }
