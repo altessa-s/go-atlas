@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -86,10 +87,9 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) (_ []oidc.Op
 	}
 
 	opts = slices.AppendIfFunc(opts, cfg.IsJWKSConfigured(), func() []oidc.Option {
-		return []oidc.Option{
-			oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout),
-			oidc.WithJWKSMaxStaleness(cfg.JWKS.MaxStaleness),
-		}
+		jwksOpts := []oidc.Option{oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout)}
+		// An omitted bound keeps the provider default; an explicit zero disables it.
+		return slices.AppendIf(jwksOpts, cfg.JWKS.MaxStaleness != nil, oidc.WithJWKSMaxStaleness(ptr.Unwrap(cfg.JWKS.MaxStaleness)))
 	})
 
 	if cfg.IsValidationConfigured() {

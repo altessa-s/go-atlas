@@ -137,9 +137,9 @@ func TestBuildStaleCacheRefuses(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		cache, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
-			UseRefreshSchedule("@every 1m").UseMaxStaleness(time.Minute).Build(t.Context())
+			UseRefreshSchedule("@every 1m").UseMaxStaleness(2 * time.Minute).Build(t.Context())
 		require.NoError(t, err)
-		time.Sleep(2 * time.Minute)
+		time.Sleep(3 * time.Minute)
 		_, err = cache.IsRevoked("x")
 		require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
 	})
@@ -250,6 +250,38 @@ func TestBuildDefaultMaxStalenessIsValidated(t *testing.T) {
 
 	_, err = factory.NewBuilder(&source{}).UseScheduler(&registrar{}).Build(t.Context())
 	require.NoError(t, err, "the default schedule fits the default bound")
+}
+
+func TestBuildValidatesTheInstalledBound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		schedule string
+		bound    time.Duration
+		wantErr  bool
+	}{
+		{name: "negative bound is rejected", schedule: "@every 10m", bound: -time.Second, wantErr: true},
+		{name: "bound equal to the interval is rejected", schedule: "@every 1m", bound: time.Minute, wantErr: true},
+		{name: "bound at twice the interval", schedule: "@every 1m", bound: 2 * time.Minute},
+		{name: "cron every 5 minutes needs 10m", schedule: "0 */5 * * * *", bound: 5 * time.Minute, wantErr: true},
+		{name: "cron every 5 minutes at 10m", schedule: "0 */5 * * * *", bound: 10 * time.Minute},
+		{name: "daily cron with the default bound", schedule: "0 0 0 * * *", bound: 5 * time.Minute, wantErr: true},
+		{name: "daily cron with the bound off", schedule: "0 0 0 * * *"},
+		{name: "invalid schedule", schedule: "not a schedule", bound: time.Hour, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+				UseRefreshSchedule(tc.schedule).UseMaxStaleness(tc.bound).Build(t.Context())
+			if tc.wantErr {
+				require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestManagedCloseReleasesHealthAndNeutralizesTask(t *testing.T) {

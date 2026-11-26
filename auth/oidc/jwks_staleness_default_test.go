@@ -5,6 +5,7 @@
 package oidc
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -22,9 +23,11 @@ func TestJWKSStaleness_DefaultBound(t *testing.T) {
 		name    string
 		opts    []Option
 		age     time.Duration
+		down    bool
 		wantErr error
 	}{
-		{name: "past the default bound", age: DefaultJWKSMaxStaleness + time.Minute, wantErr: ErrJWKSStale},
+		{name: "past the default bound, IdP down", age: DefaultJWKSMaxStaleness + time.Minute, down: true, wantErr: ErrJWKSStale},
+		{name: "past the default bound, IdP healthy refreshes once", age: DefaultJWKSMaxStaleness + time.Minute},
 		{name: "within the default bound", age: DefaultJWKSMaxStaleness - time.Minute},
 		{name: "zero opts out", opts: []Option{WithJWKSMaxStaleness(0)}, age: 10 * DefaultJWKSMaxStaleness},
 		{name: "disabled mode opts out", opts: []Option{WithJWKSFailureMode(JWKSFailureModeDisabled)}, age: 10 * DefaultJWKSMaxStaleness},
@@ -37,6 +40,9 @@ func TestJWKSStaleness_DefaultBound(t *testing.T) {
 			raw := idp.sign(t, idp.claims(nil))
 			p := idp.newProvider(t, tc.opts...)
 			setStaleness(t, p, tc.age)
+			if tc.down {
+				idp.jwksStatus.Store(http.StatusInternalServerError)
+			}
 
 			_, err := p.ValidateToken(t.Context(), raw)
 			if tc.wantErr != nil {
@@ -44,6 +50,10 @@ func TestJWKSStaleness_DefaultBound(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			if tc.age > DefaultJWKSMaxStaleness && len(tc.opts) == 0 {
+				require.Less(t, p.keys.clock.elapsed(p.keys.lastJWKSRefresh.Load().observedAt), time.Minute,
+					"a stale cache is refreshed before the token is rejected")
+			}
 		})
 	}
 }

@@ -9,10 +9,11 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/altessa-s/go-horai/schedule"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -107,8 +108,8 @@ func (b *Builder) Build(ctx context.Context) (*Managed, error) {
 	if err := b.RequireDependency(b.scheduler, "scheduler"); err != nil {
 		return nil, err
 	}
-	schedule := cmp.Or(b.schedule, DefaultRefreshSchedule)
-	if err := b.checkStaleness(schedule); err != nil {
+	sched := cmp.Or(b.schedule, DefaultRefreshSchedule)
+	if err := b.checkStaleness(sched); err != nil {
 		return nil, err
 	}
 	taskID, healthName := b.identity()
@@ -134,7 +135,7 @@ func (b *Builder) Build(ctx context.Context) (*Managed, error) {
 	if err := b.scheduler.Register(ctx, schedtask.Config{
 		ID:          taskID,
 		Description: "Refresh the local snapshot of the distributed denylist",
-		Schedule:    schedule,
+		Schedule:    sched,
 		Func: func(ctx context.Context) error {
 			if closed.Load() {
 				return nil
@@ -179,21 +180,39 @@ func (b *Builder) identity() (taskID, healthName string) {
 	return taskID, cmp.Or(b.healthName, healthName)
 }
 
-// checkStaleness rejects a maximum staleness shorter than the refresh interval
-// of an "@every" schedule: every gap between two refreshes would then refuse
-// all tokens. Other cron expressions cannot be measured and are not checked.
-func (b *Builder) checkStaleness(schedule string) error {
-	spec, ok := strings.CutPrefix(schedule, "@every ")
-	if !ok || b.maxStaleness <= 0 {
+// scheduleSampleRuns is how many successive runs checkStaleness inspects to
+// find the longest gap between two refreshes of a cron schedule.
+const scheduleSampleRuns = 512
+
+// checkStaleness rejects a maximum staleness below twice the longest gap
+// between two refreshes (so one failed refresh does not refuse every token),
+// and a negative one, which the cache would ignore. For a cron schedule the gap
+// is the longest one over the next [scheduleSampleRuns] runs. Zero disables the
+// bound and the check.
+func (b *Builder) checkStaleness(spec string) error {
+	if b.maxStaleness < 0 {
+		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "max staleness %s is negative", b.maxStaleness)
+	}
+	sched, err := schedule.Parse(spec)
+	if err != nil {
+		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "refresh schedule %q", spec)
+	}
+	if b.maxStaleness == 0 {
 		return nil
 	}
-	interval, err := time.ParseDuration(strings.TrimSpace(spec))
-	if err != nil {
-		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "refresh schedule %q", schedule)
+	var maxGap time.Duration
+	next := sched.Next(time.Now())
+	for range scheduleSampleRuns {
+		following := sched.Next(next)
+		if following.IsZero() {
+			break
+		}
+		maxGap = max(maxGap, following.Sub(next))
+		next = following
 	}
-	if b.maxStaleness < interval {
+	if b.maxStaleness < 2*maxGap {
 		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument,
-			"max staleness %s is shorter than the refresh interval %s", b.maxStaleness, interval)
+			"max staleness %s is shorter than twice the refresh interval %s", b.maxStaleness, maxGap)
 	}
 	return nil
 }

@@ -343,10 +343,11 @@ type OIDCJwks struct {
 	// HTTPTimeout is the timeout for JWKS HTTP requests
 	HTTPTimeout time.Duration `yaml:"httpTimeout" default:"30s"`
 
-	// MaxStaleness bounds the age of the cached JWKS: past it validation is
-	// rejected (fail closed) until a refresh succeeds. Keep it at several
-	// refresh intervals. Zero disables the bound.
-	MaxStaleness time.Duration `yaml:"maxStaleness" default:"24h"`
+	// MaxStaleness bounds the age of the cached JWKS: past it validation first
+	// tries one refresh and is rejected (fail closed) only if that fails. Nil
+	// (key omitted) applies the 24h default; an explicit zero disables the
+	// bound. Keep it at several refresh intervals.
+	MaxStaleness *time.Duration `yaml:"maxStaleness"`
 }
 
 // DefaultOIDCJwks returns an OIDCJwks configuration with default values.
@@ -354,7 +355,7 @@ func DefaultOIDCJwks() OIDCJwks {
 	return OIDCJwks{
 		RefreshSchedule: defaultOIDCJwksRefreshSchedule,
 		HTTPTimeout:     defaultOIDCJwksHTTPTimeout,
-		MaxStaleness:    defaultOIDCJwksMaxStaleness,
+		MaxStaleness:    new(defaultOIDCJwksMaxStaleness),
 	}
 }
 

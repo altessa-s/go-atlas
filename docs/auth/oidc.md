@@ -612,10 +612,11 @@ oidc:
     httpTimeout: 30s
 ```
 
-| Field             | Type       | Default         | Description                                                            |
-|-------------------|------------|-----------------|------------------------------------------------------------------------|
-| `refreshSchedule` | `string`   | `"0 0 * * * *"` | Cron expression (6-field with seconds)                                 |
-| `httpTimeout`     | `duration` | `30s`           | HTTP timeout for JWKS endpoint requests                                |
+| Field             | Type       | Default         | Description                                                                                                           |
+|-------------------|------------|-----------------|-----------------------------------------------------------------------------------------------------------------------|
+| `refreshSchedule` | `string`   | `"0 0 * * * *"` | Cron expression (6-field with seconds)                                                                                |
+| `httpTimeout`     | `duration` | `30s`           | HTTP timeout for JWKS endpoint requests                                                                               |
+| `maxStaleness`    | `duration` | `24h`           | Max age of the cached JWKS; omit for the default, `0` disables. Keep at least twice the longest `refreshSchedule` gap |
 
 The factory schedules JWKS refresh in every provider, even when the `jwks` block is omitted. When constructing a provider directly, supply
 `WithJWKSRefreshSchedule` to schedule refreshes or call `provider.RefreshJWKS(ctx)` manually. An unknown key ID can also trigger a refresh,
@@ -623,7 +624,7 @@ at most once per minute by default. Use `WithJWKSUnknownKidRefreshInterval` to c
 
 Only signature-eligible keys are loaded. The JWK's `use` must be `"sig"` or omitted, and when `key_ops` is present it must include `"verify"`.
 
-#### Staleness check (Go-only)
+#### Staleness check
 
 The Go API exposes a freshness bound for the locally cached JWKS so an unreachable IdP cannot keep accepting tokens forever on
 unrefreshed keys:
@@ -640,7 +641,8 @@ provider, _ := oidc.NewProvider(ctx, discoveryURL,
 | `WithJWKSMaxStaleness(d)`   | `24h` (zero disables)    | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
 | `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check)                              |
 
-The check is on by default (24h) and fails closed once the cache is older than the bound. YAML sets the bound through `jwks.maxStaleness`; zero (or
+The check is on by default (24h). Once the cache is older than the bound, validation first attempts one coalesced, throttled JWKS refresh and fails
+closed with `ErrJWKSStale` only if it fails. YAML sets the bound through `jwks.maxStaleness`; zero (or
 `WithJWKSMaxStaleness(0)` / `JWKSFailureModeDisabled` in Go) disables it explicitly.
 
 #### Discovery validation (Go-only)

@@ -67,34 +67,46 @@ func TestProviderBuilder_RevocationMaxStalenessIsMapped(t *testing.T) {
 	}
 }
 
-// jwks.maxStaleness must reach oidc.WithJWKSMaxStaleness: a bound of one
-// nanosecond is already exceeded by the first validation, while the default
-// and zero trust a freshly loaded JWKS.
+// jwks.maxStaleness must reach oidc.WithJWKSMaxStaleness only when set: an
+// omitted value adds no option (the provider keeps its 24h default), a tiny
+// bound is enforced once the IdP is down, and an explicit zero opts out.
 func TestProviderBuilder_JWKSMaxStalenessIsMapped(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, oidc.DefaultJWKSMaxStaleness, authconfig.DefaultOIDCJwks().MaxStaleness)
+	require.Equal(t, oidc.DefaultJWKSMaxStaleness, *authconfig.DefaultOIDCJwks().MaxStaleness)
 
-	tests := []struct {
-		name         string
-		maxStaleness time.Duration
-		wantErr      error
-	}{
-		{name: "bound is enforced", maxStaleness: time.Nanosecond, wantErr: oidc.ErrJWKSStale},
-		{name: "default bound trusts a fresh JWKS", maxStaleness: authconfig.DefaultOIDCJwks().MaxStaleness},
-		{name: "zero opts out"},
+	build := func(maxStaleness *time.Duration, idp *coverageIdP) *ProviderBuilder {
+		return New(&authconfig.OIDC{
+			DiscoveryUrl: idp.discoveryURL(),
+			Validation:   &authconfig.OIDCValidation{Claims: &authconfig.OIDCClaims{Audience: []string{"svc"}}},
+			JWKS:         &authconfig.OIDCJwks{HTTPTimeout: 5 * time.Second, MaxStaleness: maxStaleness},
+		})
 	}
-	for _, tc := range tests {
+
+	t.Run("omitted adds no option", func(t *testing.T) {
+		t.Parallel()
+		idp := newCoverageIdP(t)
+		omitted, err := build(nil, idp).buildProviderOptions(t.Context())
+		require.NoError(t, err)
+		set, err := build(new(time.Hour), idp).buildProviderOptions(t.Context())
+		require.NoError(t, err)
+		require.Len(t, set, len(omitted)+1)
+	})
+
+	for _, tc := range []struct {
+		name    string
+		bound   time.Duration
+		wantErr error
+	}{
+		{name: "bound is enforced when the refresh fails", bound: time.Nanosecond, wantErr: oidc.ErrJWKSStale},
+		{name: "explicit zero opts out"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			idp := newCoverageIdP(t)
-			cfg := &authconfig.OIDC{
-				DiscoveryUrl: idp.discoveryURL(),
-				Validation:   &authconfig.OIDCValidation{Claims: &authconfig.OIDCClaims{Audience: []string{"svc"}}},
-				JWKS:         &authconfig.OIDCJwks{HTTPTimeout: 5 * time.Second, MaxStaleness: tc.maxStaleness},
-			}
-			p := idp.provider(t, New(cfg))
+			p := idp.provider(t, build(&tc.bound, idp))
+			idp.down.Store(true)
 
 			_, err := p.ValidateToken(t.Context(), idp.sign(t, nil))
 			if tc.wantErr != nil {

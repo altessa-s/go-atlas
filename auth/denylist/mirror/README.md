@@ -18,25 +18,25 @@ bridges the two: `Refresh` pulls the authoritative revoked set into a local snap
 
 ## Types
 
-| Type     | Description                                                                                                   |
-|----------|---------------------------------------------------------------------------------------------------------------|
-| `Cache`  | Synchronous, periodically-refreshed snapshot of a distributed denylist. Satisfies `jwt.RevocationChecker`.    |
+| Type     | Description                                                                                                              |
+|----------|--------------------------------------------------------------------------------------------------------------------------|
+| `Cache`  | Synchronous, periodically-refreshed snapshot of a distributed denylist. Satisfies `jwt.RevocationChecker`.               |
 | `Source` | Consumer-side seam the cache reads: `StreamValues(ctx) iter.Seq2[string, error]`. `redis.Store.RawSource()` supplies it. |
 
 ## API
 
-| Symbol                                                | Description                                                                                                   |
-|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `New(src, opt…) *Cache`                               | Cache backed by `src`. Starts unprimed and fails closed — call `Prime` before serving.                        |
-| `Cache.Prime(ctx)`                                    | First synchronous refresh; returns the source error so a service can refuse to start.                          |
-| `Cache.IsRevoked(id)`                                 | Lock-free check against the current snapshot; `jwt.ErrRevocationUnavailable` when unprimed or stale.          |
-| `Cache.Refresh(ctx)`                                  | Rebuild the snapshot from `src` and swap it in atomically; on error the previous snapshot is kept.            |
-| `Cache.Ready()` / `Cache.Age()`                       | Primed and fresh enough to answer; time since the last successful refresh (for health checks).                |
-| `WithMaxStaleness(d)` / `WithClock(fn)`               | Oldest snapshot still trusted (default 5m; zero: no bound); time source.                                               |
-| `WithInsecureServeUnprimed()`                         | Answer "not revoked" while unprimed instead of refusing.                                                      |
-| `WithLogger(l)`                                       | Logs a change between serving and refusing, once per change.                                                  |
-| `Cache.Len()`                                         | Keys in the current snapshot, for observability/tests.                                                        |
-| `WithMetrics(m)` / `NewMetrics(collector, subsystem)` | Enable refresh telemetry (see [Metrics](#metrics)).                                                           |
+| Symbol                                                | Description                                                                                          |
+|-------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| `New(src, opt…) *Cache`                               | Cache backed by `src`. Starts unprimed and fails closed — call `Prime` before serving.               |
+| `Cache.Prime(ctx)`                                    | First synchronous refresh; returns the source error so a service can refuse to start.                |
+| `Cache.IsRevoked(id)`                                 | Lock-free check against the current snapshot; `jwt.ErrRevocationUnavailable` when unprimed or stale. |
+| `Cache.Refresh(ctx)`                                  | Rebuild the snapshot from `src` and swap it in atomically; on error the previous snapshot is kept.   |
+| `Cache.Ready()` / `Cache.Age()`                       | Primed and fresh enough to answer; time since the last successful refresh (for health checks).       |
+| `WithMaxStaleness(d)` / `WithClock(fn)`               | Oldest snapshot still trusted (default 5m; zero: no bound); time source.                             |
+| `WithInsecureServeUnprimed()`                         | Answer "not revoked" while unprimed instead of refusing.                                             |
+| `WithLogger(l)`                                       | Logs a change between serving and refusing, once per change.                                         |
+| `Cache.Len()`                                         | Keys in the current snapshot, for observability/tests.                                               |
+| `WithMetrics(m)` / `NewMetrics(collector, subsystem)` | Enable refresh telemetry (see [Metrics](#metrics)).                                                  |
 
 ## Staleness
 
@@ -51,10 +51,10 @@ default (`DefaultMaxStaleness`, 5m; `WithMaxStaleness(0)` disables it) the snaps
 
 `WithMetrics(NewMetrics(collector, ""))` records, under subsystem `auth_denylist_mirror`:
 
-| Metric            | Type    | Labels   | Meaning                                                                      |
-|-------------------|---------|----------|------------------------------------------------------------------------------|
-| `refreshes_total` | counter | `result` | Refresh outcomes: `ok` (new snapshot swapped in) / `error` (previous kept).  |
-| `snapshot_size`   | gauge   | —        | Revoked-key count in the current snapshot after the last successful refresh. |
+| Metric              | Type    | Labels   | Meaning                                                                                     |
+|---------------------|---------|----------|---------------------------------------------------------------------------------------------|
+| `refreshes_total`   | counter | `result` | Refresh outcomes: `ok` (new snapshot swapped in) / `error` (previous kept).                 |
+| `snapshot_size`     | gauge   | —        | Revoked-key count in the current snapshot after the last successful refresh.                |
 | `unavailable_total` | counter | `reason` | Lookups refused: `unprimed` (no refresh yet) or `stale` (older than the maximum staleness). |
 
 A climbing `result="error"` rate flags a degraded source (the snapshot is going stale); watch `snapshot_size` for unexpected growth or a collapse to
