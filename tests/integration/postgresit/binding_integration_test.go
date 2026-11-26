@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -112,15 +113,21 @@ func TestPoolsBinding_PgBouncerAndDirectPoolSameDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, events.EnsureSchema(ctx))
 
-	require.NoError(t, postgres.WithTransaction(ctx, directDB, func(txCtx context.Context) error {
-		return events.SaveEvents(txCtx, outbox.Event{
+	rollback := errors.New("roll back outer transaction")
+	err = postgres.WithTransaction(ctx, directDB, func(txCtx context.Context) error {
+		if err := events.SaveEvents(txCtx, outbox.Event{
 			Id:      "ev-1",
 			Key:     "order.created",
 			Payload: []byte("payload"),
 			Status:  outbox.StatusPending,
-		})
-	}))
-	require.Equal(t, 1, count(t, ctx, pooledDB, table))
+		}); err != nil {
+			return err
+		}
+		require.Equal(t, 1, count(t, txCtx, postgres.Queryer(txCtx, directDB), table))
+		return rollback
+	})
+	require.ErrorIs(t, err, rollback)
+	require.Zero(t, count(t, ctx, pooledDB, table), "the store write must roll back with the outer transaction")
 }
 
 func TestFactoryBuild_VerifyRejectsMismatchedDatabase(t *testing.T) {

@@ -28,6 +28,7 @@ func TestExplainRun_AndListSingleAggregate(t *testing.T) {
 
 	var aggregateCount atomic.Int64
 	var explainCount atomic.Int64
+	var queryPlannerCount atomic.Int64
 	monitor := &event.CommandMonitor{
 		Started: func(_ context.Context, evt *event.CommandStartedEvent) {
 			switch evt.CommandName {
@@ -35,6 +36,9 @@ func TestExplainRun_AndListSingleAggregate(t *testing.T) {
 				aggregateCount.Add(1)
 			case "explain":
 				explainCount.Add(1)
+				if verbosity, ok := evt.Command.Lookup("verbosity").StringValueOK(); ok && verbosity == string(explain.VerbosityQueryPlanner) {
+					queryPlannerCount.Add(1)
+				}
 			}
 		},
 	}
@@ -82,6 +86,7 @@ func TestExplainRun_AndListSingleAggregate(t *testing.T) {
 
 	aggregateCount.Store(0)
 	explainCount.Store(0)
+	queryPlannerCount.Store(0)
 
 	type userDoc struct {
 		Email string `bson:"email"`
@@ -93,5 +98,6 @@ func TestExplainRun_AndListSingleAggregate(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Items, 2)
 	require.Equal(t, int64(1), aggregateCount.Load(), "List with explain must execute only one aggregate command")
-	require.Equal(t, int64(1), explainCount.Load(), "List with explain must execute one queryPlanner explain command")
+	require.Equal(t, int64(1), explainCount.Load(), "List must send one explain command")
+	require.Equal(t, int64(1), queryPlannerCount.Load(), "the explain command must use queryPlanner verbosity")
 }
