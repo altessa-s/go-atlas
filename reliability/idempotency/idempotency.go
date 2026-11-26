@@ -26,18 +26,16 @@ import (
 // guarantee that two consecutive in-progress writes for the same key
 // produce distinct bytes — required for byte-equality CAS guards in
 // the memory and redis backends. NATS uses revisions and ignores the
-// nonce. LockedAt supplies the acquisition time for stores that delegate
-// the age check to the Keeper. LockIssuer and LockTick let the same Keeper
-// recognize a fresh lock using elapsed monotonic time. [State] omits these fields.
+// nonce. LockIssuer and LockTick let the same Keeper recognize a fresh
+// lock using elapsed monotonic time. [State] omits these fields.
 type serializedState struct {
-	Status      Status    `json:"status"`
-	Data        any       `json:"data,omitempty"`
-	Nonce       string    `json:"nonce,omitempty"`
-	LockedAt    time.Time `json:"locked_at,omitzero"`
-	LockIssuer  string    `json:"lock_issuer,omitempty"`
-	LockTick    int64     `json:"lock_tick,omitzero"`
-	Fingerprint []byte    `json:"fingerprint,omitempty"`
-	Owner       string    `json:"owner,omitempty"`
+	Status      Status `json:"status"`
+	Data        any    `json:"data,omitempty"`
+	Nonce       string `json:"nonce,omitempty"`
+	LockIssuer  string `json:"lock_issuer,omitempty"`
+	LockTick    int64  `json:"lock_tick,omitzero"`
+	Fingerprint []byte `json:"fingerprint,omitempty"`
+	Owner       string `json:"owner,omitempty"`
 }
 
 // ErrEmptyKey is returned by Keeper operations when the idempotency key is empty.
@@ -74,8 +72,10 @@ type AttemptLockOpts struct {
 
 	// MaxLockDuration overrides the Keeper's configured threshold for
 	// orphan-lock reclaim. When AttemptLock observes an existing
-	// InProgress entry older than this, it issues a CAS-steal to take
-	// ownership. Pass <= 0 to use the Keeper default
+	// InProgress entry older than this, it asks an age-aware backend
+	// to take ownership. For lease-based stores such as NATS, this
+	// caps the lifetime of a lock acquired by this call.
+	// Pass <= 0 to use the Keeper default
 	// ([DefaultMaxLockDuration]). Set the Keeper-wide value via
 	// [WithMaxLockDuration].
 	MaxLockDuration time.Duration
@@ -108,8 +108,8 @@ type Idempotency interface {
 	// Complete marks the key as successfully processed. The lockState
 	// must be the *State returned by [Idempotency.AttemptLock] —
 	// its embedded CAS token gates the write. Returns
-	// [ErrLockStolen] when the lock has been taken over by another
-	// holder since AttemptLock, [ErrMissingLockState] when lockState
+	// [ErrLockStolen] when the lock expired or was replaced after
+	// AttemptLock, [ErrMissingLockState] when lockState
 	// is nil.
 	Complete(ctx context.Context, key string, data any, lockState *State) error
 
@@ -128,6 +128,7 @@ type Keeper struct {
 	metrics    *keeperMetrics
 	lockIssuer string
 	lockEpoch  time.Time
+	lockLeases bool
 }
 
 // effectiveKey returns the storage key for key: the tuple ("namespace",
@@ -175,12 +176,14 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 		options.maxLockDuration = DefaultMaxLockDuration
 	}
 
+	leaseStore, ok := storage.(storages.LockLeaseStorage)
 	return &Keeper{
 		storage:    storage,
 		opts:       options,
 		metrics:    newKeeperMetrics(options.meter),
 		lockIssuer: uuid.New().String(),
 		lockEpoch:  time.Now(),
+		lockLeases: ok && leaseStore.UsesLockLease(),
 	}
 }
 
@@ -197,7 +200,8 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *State, err
 //
 // On collision with an in-progress entry, AttemptLockWithOpts can ask the
 // store to reclaim locks older than MaxLockDuration. A successful takeover
-// returns a state with a fresh lock token.
+// returns a state with a fresh lock token. Lease-based stores reclaim
+// expired locks through ordinary acquisition.
 func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *State, error) {
 	if key == "" {
 		return false, nil, ErrEmptyKey
@@ -219,6 +223,8 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		Owner:       owner,
 	}
 
+	maxAge := i.resolveMaxLockDuration(opts)
+	lockTTL := i.acquisitionTTL(opts.LockTTL, maxAge)
 	i.stampLock(&wire)
 	val, err := i.opts.serializer.Serialize(wire)
 	if err != nil {
@@ -228,7 +234,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	var existingVal []byte
 	const lockAttempts = 2
 	for range lockAttempts {
-		ok, current, lockToken, lockErr := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
+		ok, current, lockToken, lockErr := i.storage.AttemptLockWithTTL(ctx, ek, val, lockTTL)
 		if lockErr != nil {
 			i.metrics.errors.Inc()
 			return false, nil, lockErr
@@ -254,7 +260,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 
 	// A ReplayAuthorizer grants visibility, not ownership. Only the
 	// record's owner can replace its lock.
-	if maxAge := i.resolveMaxLockDuration(opts); i.canReclaim(existing, owner, maxAge) {
+	if !i.lockLeases && i.canReclaim(existing, owner, maxAge) {
 		if len(existing.Fingerprint) > 0 {
 			wire.Fingerprint = existing.Fingerprint
 		}
@@ -263,9 +269,6 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		replacement, err := i.opts.serializer.Serialize(wire)
 		if err != nil {
 			return false, nil, coreerrs.WrapOperation(err, "serialize state")
-		}
-		if i.usesKeeperClock() {
-			maxAge = 0 // The Keeper already checked the wire timestamp.
 		}
 		stolen, current, token, err := i.storage.Steal(ctx, ek, existingVal, replacement, maxAge, opts.LockTTL)
 		if err != nil {
@@ -319,14 +322,15 @@ func (i *Keeper) readCollision(ctx context.Context, val []byte, owner string, fi
 	return existing, nil
 }
 
-func (i *Keeper) usesKeeperClock() bool {
-	store, ok := i.storage.(storages.KeeperClockStorage)
-	return ok && store.UsesKeeperClock()
+func (i *Keeper) acquisitionTTL(requested, maxAge time.Duration) time.Duration {
+	if i.lockLeases && maxAge > 0 && (requested <= 0 || maxAge < requested) {
+		return maxAge
+	}
+	return requested
 }
 
 func (i *Keeper) stampLock(wire *serializedState) {
-	if i.usesKeeperClock() {
-		wire.LockedAt = time.Now()
+	if i.lockLeases {
 		return
 	}
 	wire.LockIssuer = i.lockIssuer
@@ -336,9 +340,6 @@ func (i *Keeper) stampLock(wire *serializedState) {
 func (i *Keeper) canReclaim(existing serializedState, owner string, maxAge time.Duration) bool {
 	if maxAge <= 0 || existing.Status != StatusInProgress || (existing.Owner != "" && existing.Owner != owner) {
 		return false
-	}
-	if i.usesKeeperClock() {
-		return !existing.LockedAt.IsZero() && time.Since(existing.LockedAt) > maxAge
 	}
 	if existing.LockIssuer == i.lockIssuer {
 		// The stamp precedes acquisition, so a fresh local stamp lets us

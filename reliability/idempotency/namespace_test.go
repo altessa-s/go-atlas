@@ -7,6 +7,7 @@ package idempotency
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -92,54 +93,56 @@ func TestKeyNamespace_CollidingTuplesAreIsolated(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := idempotencytest.NewMockIdempotencyStorage()
-			k := New(s, WithKeyNamespace(tenantNamespace), WithMaxLockDuration(time.Minute))
-			ctx1 := withTenant(t.Context(), tc.first.namespace)
-			ctx2 := withTenant(t.Context(), tc.second.namespace)
-			key1, key2 := tc.first.key, tc.second.key
+			synctest.Test(t, func(t *testing.T) {
+				s := idempotencytest.NewMockIdempotencyStorage()
+				k := New(s, WithKeyNamespace(tenantNamespace), WithMaxLockDuration(time.Minute))
+				ctx1 := withTenant(t.Context(), tc.first.namespace)
+				ctx2 := withTenant(t.Context(), tc.second.namespace)
+				key1, key2 := tc.first.key, tc.second.key
 
-			ok, _, err := k.AttemptLock(ctx1, key1)
-			require.NoError(t, err)
-			require.True(t, ok)
-			// The first lock looks orphaned: a caller reaching its record
-			// would steal it.
-			storageKey1 := ComposeKey("namespace", tc.first.namespace, key1)
-			forgeStoredLockedAt(t, s, storageKey1, time.Hour)
-			orphan, _ := s.Entry(storageKey1)
+				ok, _, err := k.AttemptLock(ctx1, key1)
+				require.NoError(t, err)
+				require.True(t, ok)
+				// The first lock looks orphaned: a caller reaching its record
+				// would steal it.
+				storageKey1 := ComposeKey("namespace", tc.first.namespace, key1)
+				time.Sleep(time.Hour)
+				orphan, _ := s.Entry(storageKey1)
 
-			ok, held2, err := k.AttemptLock(ctx2, key2)
-			require.NoError(t, err)
-			require.True(t, ok, "the second tuple must get a lock of its own")
-			require.NoError(t, k.Release(ctx2, key2, held2))
-			current, found := s.Entry(storageKey1)
-			require.True(t, found, "the second's Release must not remove the first lock")
-			require.Equal(t, orphan, current, "the second must not steal the first lock")
+				ok, held2, err := k.AttemptLock(ctx2, key2)
+				require.NoError(t, err)
+				require.True(t, ok, "the second tuple must get a lock of its own")
+				require.NoError(t, k.Release(ctx2, key2, held2))
+				current, found := s.Entry(storageKey1)
+				require.True(t, found, "the second's Release must not remove the first lock")
+				require.Equal(t, orphan, current, "the second must not steal the first lock")
 
-			// The first caller reclaims its own orphan and completes.
-			ok, held1, err := k.AttemptLock(ctx1, key1)
-			require.NoError(t, err)
-			require.True(t, ok)
-			require.NoError(t, k.Complete(ctx1, key1, "first", held1))
+				// The first caller reclaims its own orphan and completes.
+				ok, held1, err := k.AttemptLock(ctx1, key1)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.NoError(t, k.Complete(ctx1, key1, "first", held1))
 
-			ok, held2, err = k.AttemptLock(ctx2, key2)
-			require.NoError(t, err)
-			require.True(t, ok, "the second tuple must not replay the first's result")
-			require.NoError(t, k.Complete(ctx2, key2, "second", held2))
+				ok, held2, err = k.AttemptLock(ctx2, key2)
+				require.NoError(t, err)
+				require.True(t, ok, "the second tuple must not replay the first's result")
+				require.NoError(t, k.Complete(ctx2, key2, "second", held2))
 
-			ok, state, err := k.AttemptLock(ctx1, key1)
-			require.NoError(t, err)
-			require.False(t, ok)
-			require.Equal(t, "first", state.Data)
-			ok, state, err = k.AttemptLock(ctx2, key2)
-			require.NoError(t, err)
-			require.False(t, ok)
-			require.Equal(t, "second", state.Data)
+				ok, state, err := k.AttemptLock(ctx1, key1)
+				require.NoError(t, err)
+				require.False(t, ok)
+				require.Equal(t, "first", state.Data)
+				ok, state, err = k.AttemptLock(ctx2, key2)
+				require.NoError(t, err)
+				require.False(t, ok)
+				require.Equal(t, "second", state.Data)
 
-			require.NoError(t, k.Delete(ctx2, key2))
-			ok, state, err = k.AttemptLock(ctx1, key1)
-			require.NoError(t, err)
-			require.False(t, ok, "the second's Delete must not remove the first's result")
-			require.Equal(t, "first", state.Data)
+				require.NoError(t, k.Delete(ctx2, key2))
+				ok, state, err = k.AttemptLock(ctx1, key1)
+				require.NoError(t, err)
+				require.False(t, ok, "the second's Delete must not remove the first's result")
+				require.Equal(t, "first", state.Data)
+			})
 		})
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -159,69 +160,72 @@ func TestAttemptLockWithOpts_PassedToStorage(t *testing.T) {
 // reclaimed by the next AttemptLock via storage.Steal.
 func TestAttemptLock_OrphanSteal_KeeperDefault(t *testing.T) {
 	t.Parallel()
-	s := idempotencytest.NewMockIdempotencyStorage()
-	k := New(s, WithMaxLockDuration(50*time.Millisecond))
-	ctx := t.Context()
+	synctest.Test(t, func(t *testing.T) {
+		s := idempotencytest.NewMockIdempotencyStorage()
+		k := New(s, WithMaxLockDuration(50*time.Millisecond))
+		ctx := t.Context()
 
-	// Holder A acquires the lock, then "crashes" — never calls Complete/Delete.
-	okA, stateA, err := k.AttemptLock(ctx, "key-orphan")
-	require.NoError(t, err)
-	require.True(t, okA)
-	require.NotNil(t, stateA.LockToken())
+		// Holder A acquires the lock, then "crashes" — never calls Complete/Delete.
+		okA, stateA, err := k.AttemptLock(ctx, "key-orphan")
+		require.NoError(t, err)
+		require.True(t, okA)
+		require.NotNil(t, stateA.LockToken())
 
-	// Forge LockedAt into the past so the next AttemptLock sees an
-	// orphan beyond the Keeper's MaxLockDuration without sleeping.
-	forgePastLockedAt(t, s, "key-orphan", 10*time.Minute)
+		// Advance the test clock beyond the acquisition's MaxLockDuration.
+		time.Sleep(10 * time.Minute)
 
-	okB, stateB, err := k.AttemptLock(ctx, "key-orphan")
-	require.NoError(t, err)
-	require.True(t, okB, "stale orphan must be reclaimed by AttemptLock")
-	require.NotNil(t, stateB)
-	require.Equal(t, StatusInProgress, stateB.Status)
-	require.NotNil(t, stateB.LockToken(), "fresh lock token must be carried on the stolen state")
-	require.NotEqual(t, stateA.LockToken(), stateB.LockToken(),
-		"stolen lock token must differ from the orphan's token")
+		okB, stateB, err := k.AttemptLock(ctx, "key-orphan")
+		require.NoError(t, err)
+		require.True(t, okB, "stale orphan must be reclaimed by AttemptLock")
+		require.NotNil(t, stateB)
+		require.Equal(t, StatusInProgress, stateB.Status)
+		require.NotNil(t, stateB.LockToken(), "fresh lock token must be carried on the stolen state")
+		require.NotEqual(t, stateA.LockToken(), stateB.LockToken(),
+			"stolen lock token must differ from the orphan's token")
 
-	// Holder A's stale Complete must now surface ErrLockStolen — its
-	// CAS token is no longer current.
-	err = k.Complete(ctx, "key-orphan", "result-from-A", stateA)
-	require.ErrorIs(t, err, ErrLockStolen,
-		"crashed holder's Complete must not overwrite the new owner")
+		// Holder A's stale Complete must now surface ErrLockStolen — its
+		// CAS token is no longer current.
+		err = k.Complete(ctx, "key-orphan", "result-from-A", stateA)
+		require.ErrorIs(t, err, ErrLockStolen,
+			"crashed holder's Complete must not overwrite the new owner")
 
-	// Holder B's Complete must succeed.
-	require.NoError(t, k.Complete(ctx, "key-orphan", "result-from-B", stateB))
+		// Holder B's Complete must succeed.
+		require.NoError(t, k.Complete(ctx, "key-orphan", "result-from-B", stateB))
+	})
 }
 
 // TestAttemptLock_OrphanSteal_PerCallOverride verifies that
 // AttemptLockOpts.MaxLockDuration overrides the Keeper-wide value.
 func TestAttemptLock_OrphanSteal_PerCallOverride(t *testing.T) {
 	t.Parallel()
-	s := idempotencytest.NewMockIdempotencyStorage()
-	// Keeper-wide threshold is huge; per-call override is tight.
-	k := New(s, WithMaxLockDuration(time.Hour))
-	ctx := t.Context()
+	synctest.Test(t, func(t *testing.T) {
+		s := idempotencytest.NewMockIdempotencyStorage()
+		// Keeper-wide threshold is huge; per-call override is tight.
+		k := New(s, WithMaxLockDuration(time.Hour))
+		ctx := t.Context()
 
-	_, _, err := k.AttemptLock(ctx, "key1")
-	require.NoError(t, err)
-	forgePastLockedAt(t, s, "key1", 30*time.Second)
+		_, _, err := k.AttemptLock(ctx, "key1")
+		require.NoError(t, err)
+		time.Sleep(30 * time.Second)
 
-	// Without override, the Keeper would say "in progress" because the
-	// entry is well within the 1h threshold.
-	ok, state, err := k.AttemptLock(ctx, "key1")
-	require.NoError(t, err)
-	require.False(t, ok, "Keeper-wide MaxLockDuration would not steal here")
-	require.Equal(t, StatusInProgress, state.Status)
+		// Without override, the Keeper would say "in progress" because the
+		// entry is well within the 1h threshold.
+		ok, state, err := k.AttemptLock(ctx, "key1")
+		require.NoError(t, err)
+		require.False(t, ok, "Keeper-wide MaxLockDuration would not steal here")
+		require.Equal(t, StatusInProgress, state.Status)
 
-	// With a tight per-call override, the same entry is now an orphan.
-	ok, state, err = k.AttemptLockWithOpts(ctx, "key1", AttemptLockOpts{MaxLockDuration: 5 * time.Second})
-	require.NoError(t, err)
-	require.True(t, ok, "per-call MaxLockDuration must override the Keeper default")
-	require.NotNil(t, state.LockToken())
+		// With a tight per-call override, the same entry is now an orphan.
+		ok, state, err = k.AttemptLockWithOpts(ctx, "key1", AttemptLockOpts{MaxLockDuration: 5 * time.Second})
+		require.NoError(t, err)
+		require.True(t, ok, "per-call MaxLockDuration must override the Keeper default")
+		require.NotNil(t, state.LockToken())
+	})
 }
 
 // TestAttemptLock_OrphanSteal_FreshLockNotStolen verifies that a
 // fresh InProgress entry is NOT reclaimed even when MaxLockDuration is
-// configured — orphan-steal is gated by the LockedAt timestamp.
+// configured — orphan-steal is gated by the backend clock.
 func TestAttemptLock_OrphanSteal_FreshLockNotStolen(t *testing.T) {
 	t.Parallel()
 	s := idempotencytest.NewMockIdempotencyStorage()
@@ -231,7 +235,6 @@ func TestAttemptLock_OrphanSteal_FreshLockNotStolen(t *testing.T) {
 	_, stateA, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
 
-	// Don't touch LockedAt — the entry is fresh.
 	ok, state, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
 	require.False(t, ok, "fresh InProgress entry must not be stolen")
@@ -247,20 +250,22 @@ func TestAttemptLock_OrphanSteal_FreshLockNotStolen(t *testing.T) {
 // stale entries surface as in-progress to the caller.
 func TestAttemptLock_OrphanSteal_Disabled(t *testing.T) {
 	t.Parallel()
-	s := idempotencytest.NewMockIdempotencyStorage()
-	// WithMaxLockDuration rejects non-positive values, so we have to
-	// force the field manually via the Keeper internals.
-	k := New(s)
-	k.opts.maxLockDuration = 0 // disable orphan reclaim
-	ctx := t.Context()
+	synctest.Test(t, func(t *testing.T) {
+		s := idempotencytest.NewMockIdempotencyStorage()
+		// WithMaxLockDuration rejects non-positive values, so we have to
+		// force the field manually via the Keeper internals.
+		k := New(s)
+		k.opts.maxLockDuration = 0 // disable orphan reclaim
+		ctx := t.Context()
 
-	_, _, err := k.AttemptLock(ctx, "key1")
-	require.NoError(t, err)
-	forgePastLockedAt(t, s, "key1", time.Hour)
+		_, _, err := k.AttemptLock(ctx, "key1")
+		require.NoError(t, err)
+		time.Sleep(time.Hour)
 
-	ok, _, err := k.AttemptLock(ctx, "key1")
-	require.NoError(t, err)
-	require.False(t, ok, "MaxLockDuration<=0 must keep orphan-reclaim disabled")
+		ok, _, err := k.AttemptLock(ctx, "key1")
+		require.NoError(t, err)
+		require.False(t, ok, "MaxLockDuration<=0 must keep orphan-reclaim disabled")
+	})
 }
 
 // TestNew_WarnsOnDefaultMaxLockDuration verifies the soft-acknowledgment
@@ -314,33 +319,6 @@ func TestNew_NoWarnWhenExplicitDefault(t *testing.T) {
 	require.Empty(t, strings.TrimSpace(buf.String()),
 		"WithMaxLockDuration(DefaultMaxLockDuration) must be treated as explicit acknowledgment")
 	require.Equal(t, DefaultMaxLockDuration, k.opts.maxLockDuration)
-}
-
-// forgePastLockedAt rewrites the InProgress wire a Keeper without a
-// namespace stores for key so that LockedAt is `age` in the past. Used
-// to exercise orphan-steal without sleeping in tests.
-func forgePastLockedAt(t *testing.T, s *idempotencytest.MockIdempotencyStorage, key string, age time.Duration) {
-	t.Helper()
-	forgeStoredLockedAt(t, s, ComposeKey("namespace", "", key), age)
-}
-
-// forgeStoredLockedAt rewrites the InProgress wire stored under
-// storageKey so that LockedAt is `age` in the past.
-func forgeStoredLockedAt(t *testing.T, s *idempotencytest.MockIdempotencyStorage, storageKey string, age time.Duration) {
-	t.Helper()
-	raw, ok := s.Entry(storageKey)
-	require.True(t, ok, "key must exist in storage to forge LockedAt")
-
-	ser := &serializer.JSON{}
-
-	var wire serializedState
-	require.NoError(t, ser.Deserialize(raw, &wire),
-		"forged wire must round-trip through the keeper's serializer")
-	wire.LockedAt = time.Now().Add(-age)
-
-	forged, err := ser.Serialize(wire)
-	require.NoError(t, err)
-	s.SetEntry(storageKey, forged)
 }
 
 // TestComplete_StolenLock verifies that ErrLockStolen from the

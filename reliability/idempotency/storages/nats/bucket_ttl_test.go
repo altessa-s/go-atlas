@@ -48,6 +48,73 @@ func TestNew_BucketTTLMismatch(t *testing.T) {
 	require.Equal(t, 2*time.Hour, status.LimitMarkerTTL(), "migration also moves the marker TTL, which follows MaxAge")
 }
 
+func TestStorage_LeaseUsesCallerTTLAfterBucketMigration(t *testing.T) {
+	t.Parallel()
+
+	ns := natstest.StartNATSServer(t)
+	_, acquiringJS := natstest.ConnectJetStream(t, ns)
+	_, migratingJS := natstest.ConnectJetStream(t, ns)
+	ctx := t.Context()
+
+	const bucket = "lease-ttl-migration"
+	const lease = 5 * time.Minute
+	storage, err := idempnats.New(acquiringJS, idempnats.WithBucket(bucket), idempnats.WithMaxAge(lease))
+	require.NoError(t, err)
+
+	_, err = idempnats.New(migratingJS, idempnats.WithBucket(bucket), idempnats.WithMaxAge(time.Hour), idempnats.WithMigrateBucketTTL())
+	require.NoError(t, err)
+
+	const key = "key"
+	locked, _, _, err := storage.AttemptLockWithTTL(ctx, key, []byte("lock"), lease)
+	require.NoError(t, err)
+	require.True(t, locked)
+
+	stream, err := acquiringJS.Stream(ctx, "KV_"+bucket)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, stream.CachedInfo().Config.MaxAge)
+	msg, err := stream.GetLastMsgForSubject(ctx, "$KV."+bucket+"."+key)
+	require.NoError(t, err)
+	require.Equal(t, lease.String(), msg.Header.Get(jetstream.MsgTTLHeader))
+}
+
+func TestNew_MigrateBucketWithMatchingTTLEnablesPerKeyTTL(t *testing.T) {
+	t.Parallel()
+
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	ctx := t.Context()
+
+	const bucket = "matching-ttl-idempotency"
+	const description = "existing idempotency records"
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: bucket, TTL: time.Hour, Description: description,
+	})
+	require.NoError(t, err)
+	const existingKey = "existing"
+	value := []byte("existing record")
+	revision, err := kv.Put(ctx, existingKey, value)
+	require.NoError(t, err)
+
+	storage, err := idempnats.New(js, idempnats.WithBucket(bucket), idempnats.WithMaxAge(time.Hour), idempnats.WithMigrateBucketTTL())
+	require.NoError(t, err)
+
+	stream, err := js.Stream(ctx, "KV_"+bucket)
+	require.NoError(t, err)
+	cfg := stream.CachedInfo().Config
+	require.True(t, cfg.AllowMsgTTL)
+	require.Equal(t, time.Hour, cfg.MaxAge)
+	require.Equal(t, time.Hour, cfg.SubjectDeleteMarkerTTL)
+	require.Equal(t, description, cfg.Description)
+	entry, err := kv.Get(ctx, existingKey)
+	require.NoError(t, err)
+	require.Equal(t, revision, entry.Revision())
+	require.Equal(t, value, entry.Value())
+
+	locked, _, _, err := storage.AttemptLockWithTTL(ctx, "key", []byte("lock"), time.Minute)
+	require.NoError(t, err)
+	require.True(t, locked)
+}
+
 // TestNew_MigrateBucketWithoutMarkerTTLEnablesPerKeyTTL pins that migrating a
 // bucket created without a limit-marker TTL turns per-key TTL on, so
 // AttemptLockWithTTL works on the migrated bucket.

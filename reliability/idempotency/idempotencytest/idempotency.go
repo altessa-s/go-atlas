@@ -21,13 +21,18 @@ import (
 // when the key is already present, mimicking real lock-or-load semantics.
 type MockIdempotencyStorage struct {
 	mu      sync.Mutex
-	entries map[string][]byte
+	entries map[string]entry
+}
+
+type entry struct {
+	value    []byte
+	lockedAt time.Time
 }
 
 // NewMockIdempotencyStorage returns a ready-to-use [MockIdempotencyStorage]
 // with an empty entry set.
 func NewMockIdempotencyStorage() *MockIdempotencyStorage {
-	return &MockIdempotencyStorage{entries: make(map[string][]byte)}
+	return &MockIdempotencyStorage{entries: make(map[string]entry)}
 }
 
 // AttemptLock stores val under key if the key does not yet exist
@@ -38,9 +43,9 @@ func (m *MockIdempotencyStorage) AttemptLock(_ context.Context, key string, val 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing, ok := m.entries[key]; ok {
-		return false, existing, nil, nil
+		return false, existing.value, nil, nil
 	}
-	m.entries[key] = val
+	m.entries[key] = entry{value: val, lockedAt: time.Now()}
 	return true, nil, slices.Clone(val), nil
 }
 
@@ -55,10 +60,10 @@ func (m *MockIdempotencyStorage) Complete(_ context.Context, key string, val []b
 	if !exists {
 		return storages.ErrLockStolen
 	}
-	if lockToken != nil && !bytes.Equal(current, lockToken) {
+	if lockToken != nil && !bytes.Equal(current.value, lockToken) {
 		return storages.ErrLockStolen
 	}
-	m.entries[key] = val
+	m.entries[key] = entry{value: val}
 	return nil
 }
 
@@ -69,29 +74,28 @@ func (m *MockIdempotencyStorage) AttemptLockWithTTL(ctx context.Context, key str
 	return m.AttemptLock(ctx, key, val)
 }
 
-// UsesKeeperClock lets tests forge the holder's wire timestamp.
-func (m *MockIdempotencyStorage) UsesKeeperClock() bool { return true }
-
-// Steal replaces the matching value after the Keeper checks its age.
+// Steal replaces a matching lock once it exceeds maxLockAge.
 // The mock omits TTL handling.
-func (m *MockIdempotencyStorage) Steal(_ context.Context, key string, expected, replacement []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
+func (m *MockIdempotencyStorage) Steal(
+	_ context.Context, key string, expected, replacement []byte, maxLockAge, _ time.Duration,
+) (bool, []byte, []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current, exists := m.entries[key]
-	if !exists || !bytes.Equal(current, expected) {
-		return false, slices.Clone(current), nil, nil
+	if !exists || current.lockedAt.IsZero() || !bytes.Equal(current.value, expected) ||
+		(maxLockAge > 0 && time.Since(current.lockedAt) <= maxLockAge) {
+		return false, slices.Clone(current.value), nil, nil
 	}
-	m.entries[key] = replacement
+	m.entries[key] = entry{value: replacement, lockedAt: time.Now()}
 	return true, nil, slices.Clone(replacement), nil
 }
 
 // SetEntry overwrites the raw bytes stored under key without any CAS
-// check. Tests use this to inject a forged InProgress wire (e.g. with
-// LockedAt set in the past) to exercise the orphan-steal path.
+// check and timestamps it as a newly acquired lock.
 func (m *MockIdempotencyStorage) SetEntry(key string, val []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.entries[key] = slices.Clone(val)
+	m.entries[key] = entry{value: slices.Clone(val), lockedAt: time.Now()}
 }
 
 // Entry returns a copy of the bytes stored under key. The second
@@ -104,7 +108,7 @@ func (m *MockIdempotencyStorage) Entry(key string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	return slices.Clone(val), true
+	return slices.Clone(val.value), true
 }
 
 // Delete removes the entry for key.
@@ -126,7 +130,7 @@ func (m *MockIdempotencyStorage) Release(_ context.Context, key string, lockToke
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current, ok := m.entries[key]
-	if !ok || !bytes.Equal(current, lockToken) {
+	if !ok || !bytes.Equal(current.value, lockToken) {
 		return storages.ErrLockStolen
 	}
 	delete(m.entries, key)

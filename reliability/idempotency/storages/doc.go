@@ -14,5 +14,6 @@
 //	err = store.Complete(ctx, "request-123", result, token)
 //
 // Storage implementations with access to a backend clock use it to decide
-// whether an observed lock is old enough for takeover.
+// whether an observed lock is old enough for takeover. Stores that recover
+// locks through backend-enforced expiry can implement [LockLeaseStorage].
 package storages

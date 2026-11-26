@@ -37,8 +37,8 @@ type Config struct {
 	TTL time.Duration `yaml:"ttl" default:"24h"`
 
 	// MaxLockDuration is the threshold for treating an in-progress
-	// lock as orphaned. AttemptLock callers that observe a stale
-	// InProgress entry older than this attempt a CAS-steal. When unset
+	// lock as orphaned. Age-aware stores check it on collision, and
+	// NATS uses it to cap the lease on acquisition. When unset
 	// (zero), the Keeper logs a one-time warning at construction and
 	// falls back to the package-level default
 	// (idempotency.DefaultMaxLockDuration, 5m). Set explicitly to

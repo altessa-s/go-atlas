@@ -72,7 +72,9 @@ type capturedStream struct {
 	jetstream.Stream
 }
 
-func (capturedStream) CachedInfo() *jetstream.StreamInfo { return &jetstream.StreamInfo{} }
+func (capturedStream) CachedInfo() *jetstream.StreamInfo {
+	return &jetstream.StreamInfo{Config: jetstream.StreamConfig{MaxMsgsPerSubject: 1, AllowMsgTTL: true}}
+}
 
 func TestStorage_AttemptLock_New(t *testing.T) {
 	storage := setupStorage(t)
@@ -190,12 +192,15 @@ func TestStorage_AttemptLockWithTTL_OverridesBucketTtl(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	ok, _, _, err := storage.AttemptLockWithTTL(ctx, "k", []byte("lock"), time.Second)
+	ok, _, token, err := storage.AttemptLockWithTTL(ctx, "k", []byte("lock"), time.Second)
 	require.NoError(t, err)
 	require.True(t, ok)
 
 	// NATS expiry is lazy — give the server time to GC the entry.
 	time.Sleep(2500 * time.Millisecond)
+
+	require.ErrorIs(t, storage.Complete(ctx, "k", []byte("late"), token), storages.ErrLockStolen)
+	require.ErrorIs(t, storage.Release(ctx, "k", token), storages.ErrLockStolen)
 
 	ok, _, _, err = storage.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
 	require.NoError(t, err)
@@ -248,32 +253,22 @@ func TestStorage_Complete_StolenLock_MalformedToken(t *testing.T) {
 	require.ErrorIs(t, err, storages.ErrLockStolen)
 }
 
-// TestStorage_Steal_Success verifies the Get→bytes.Equal→Update CAS
-// happy path: when current bytes match expectedVal, the value is
-// replaced and a fresh revision-encoded token is returned.
-func TestStorage_Steal_Success(t *testing.T) {
-	storage := setupStorage(t)
+func TestStorage_Steal_RefusesMatchingLiveLock(t *testing.T) {
+	t.Parallel()
+	store := setupStorage(t)
 	ctx := t.Context()
-
-	_, _, origToken, err := storage.AttemptLock(ctx, "k", []byte("orphan"))
+	_, _, old, err := store.AttemptLock(ctx, "k", []byte("lock"))
 	require.NoError(t, err)
-	require.NotNil(t, origToken)
 
-	didSteal, _, newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"), 0, 0)
+	stolen, current, token, err := store.Steal(ctx, "k", []byte("lock"), []byte("replacement"), 0, time.Minute)
 	require.NoError(t, err)
-	require.True(t, didSteal)
-	require.NotNil(t, newToken)
-	require.NotEqual(t, origToken, newToken,
-		"NATS Steal must return a fresh revision-encoded token")
-
-	// Stale revision token must no longer satisfy Complete.
-	err = storage.Complete(ctx, "k", []byte("done"), origToken)
-	require.ErrorIs(t, err, storages.ErrLockStolen)
-	require.NoError(t, storage.Complete(ctx, "k", []byte("done"), newToken))
+	require.False(t, stolen)
+	require.Equal(t, []byte("lock"), current)
+	require.Empty(t, token)
+	require.NoError(t, store.Complete(ctx, "k", []byte("done"), old))
 }
 
-// TestStorage_Steal_Mismatch verifies that Steal surfaces
-// ErrLockStolen when current bytes differ from expectedVal.
+// TestStorage_Steal_Mismatch verifies that Steal returns the observed value.
 func TestStorage_Steal_Mismatch(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
@@ -306,57 +301,81 @@ func TestStorage_Steal_EmptyKey(t *testing.T) {
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
-func TestStealWritesNATSPerKeyTTL(t *testing.T) {
+func TestKeeperLeaseIgnoresReplicaClock(t *testing.T) {
 	t.Parallel()
-	const bucket = "steal-ttl"
-	ns := natstest.StartNATSServer(t)
-	_, js := natstest.ConnectJetStream(t, ns)
-	store, err := idempnats.New(js, idempnats.WithBucket(bucket))
-	require.NoError(t, err)
+	store := setupStorage(t)
 	ctx := t.Context()
-	acquired, _, old, err := store.AttemptLock(ctx, "k", []byte("lock"))
+	const key = "clock"
+	storageKey := idempotency.ComposeKey("namespace", "", key)
+	wire, err := json.Marshal(map[string]any{
+		"status":    idempotency.StatusInProgress,
+		"locked_at": time.Now().Add(-24 * time.Hour),
+	})
+	require.NoError(t, err)
+	acquired, _, old, err := store.AttemptLock(ctx, storageKey, wire)
 	require.NoError(t, err)
 	require.True(t, acquired)
 
-	stolen, _, fresh, err := store.Steal(ctx, "k", []byte("lock"), []byte("replacement"), 0, time.Minute)
+	k := idempotency.New(store, idempotency.WithMaxLockDuration(time.Second))
+	acquired, state, err := k.AttemptLock(ctx, key)
 	require.NoError(t, err)
-	require.True(t, stolen)
-	require.ErrorIs(t, store.Complete(ctx, "k", []byte("stale"), old), storages.ErrLockStolen)
-	entry, err := store.KV().Get(ctx, "k")
+	require.False(t, acquired, "only server expiry can make a live lease available")
+	require.Equal(t, idempotency.StatusInProgress, state.Status)
+	require.Empty(t, state.LockToken())
+	require.NoError(t, store.Complete(ctx, storageKey, []byte("done"), old))
+}
+
+func TestNew_RejectsBucketWithoutPerKeyTTL(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	const bucket = "without-key-ttl"
+	_, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: bucket, TTL: time.Hour})
+	require.NoError(t, err)
+
+	_, err = idempnats.New(js, idempnats.WithBucket(bucket), idempnats.WithMaxAge(time.Hour))
+	require.ErrorIs(t, err, idempnats.ErrBucketPerKeyTTLRequired)
+}
+
+func TestStorage_Complete_ZeroRevisionCannotWrite(t *testing.T) {
+	t.Parallel()
+	store := setupStorage(t)
+	ctx := t.Context()
+	require.ErrorIs(t, store.Complete(ctx, "absent", []byte("forged"), make([]byte, 8)), storages.ErrLockStolen)
+}
+
+func TestNew_RejectsBucketWithMultipleRevisions(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	const bucket = "with-history"
+	_, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
+		Bucket: bucket, TTL: time.Hour, LimitMarkerTTL: time.Hour, History: 2,
+	})
+	require.NoError(t, err)
+
+	_, err = idempnats.New(js, idempnats.WithBucket(bucket), idempnats.WithMaxAge(time.Hour))
+	require.ErrorIs(t, err, idempnats.ErrBucketHistoryMismatch)
+}
+
+func TestStorage_RoundsLeaseUpToServerResolution(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	const bucket = "rounded-ttl"
+	ctx := t.Context()
+	store, err := idempnats.New(js, idempnats.WithBucket(bucket))
+	require.NoError(t, err)
+
+	ok, _, _, err := store.AttemptLockWithTTL(ctx, "key", []byte("lock"), time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	entry, err := store.KV().Get(ctx, "key")
 	require.NoError(t, err)
 	stream, err := js.Stream(ctx, "KV_"+bucket)
 	require.NoError(t, err)
 	msg, err := stream.GetMsg(ctx, entry.Revision())
 	require.NoError(t, err)
-	require.Equal(t, time.Minute.String(), msg.Header.Get(jetstream.MsgTTLHeader))
-	require.NoError(t, store.Complete(ctx, "k", []byte("done"), fresh))
-}
-
-func TestKeeperClockTakeoverRequiresExplicitDelegation(t *testing.T) {
-	t.Parallel()
-	store := setupStorage(t)
-	ctx := t.Context()
-	const maxAge = time.Hour
-	key := idempotency.ComposeKey("namespace", "", "clock")
-	wire, err := json.Marshal(map[string]any{
-		"status":    idempotency.StatusInProgress,
-		"locked_at": time.Now().Add(-2 * maxAge),
-	})
-	require.NoError(t, err)
-	acquired, _, old, err := store.AttemptLock(ctx, key, wire)
-	require.NoError(t, err)
-	require.True(t, acquired)
-
-	wrapped := struct{ storages.Storage }{store}
-	k := idempotency.New(wrapped, idempotency.WithMaxLockDuration(maxAge))
-	acquired, state, err := k.AttemptLock(ctx, "clock")
-	require.NoError(t, err)
-	require.False(t, acquired, "the wrapper did not delegate the age check")
-	require.Equal(t, idempotency.StatusInProgress, state.Status)
-
-	k = idempotency.New(store, idempotency.WithMaxLockDuration(maxAge))
-	acquired, _, err = k.AttemptLock(ctx, "clock")
-	require.NoError(t, err)
-	require.True(t, acquired, "the Keeper verified the age from the wire timestamp")
-	require.ErrorIs(t, store.Complete(ctx, key, []byte("stale"), old), storages.ErrLockStolen)
+	require.Equal(t, time.Second.String(), msg.Header.Get(jetstream.MsgTTLHeader))
 }

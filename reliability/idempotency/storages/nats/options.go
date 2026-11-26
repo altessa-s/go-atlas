@@ -26,8 +26,9 @@ type options struct {
 
 	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
 	// from the configured one instead of rejecting it with
-	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
-	// key in it, including keys of other processes sharing the bucket.
+	// [ErrBucketTTLMismatch]. It also enables per-key TTL on an existing
+	// bucket, even when its key TTL already matches. Off by default:
+	// the bucket's TTL governs keys of all processes sharing the bucket.
 	migrateBucketTTL bool
 }
 

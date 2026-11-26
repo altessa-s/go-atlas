@@ -22,8 +22,8 @@ one fails with `ErrKeyTooLong` before any network I/O.
 The bucket's key TTL (`WithMaxAge`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already
 exists with a different key TTL, `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched instead of rewriting it under those processes.
 Align the configuration, use another bucket, or pass `WithMigrateBucketTTL()` to update the existing bucket deliberately; through the idempotency
-factory the switch is `storage.nats.migrateBucketTTL: true`. Migration applies the whole bucket config, so the limit-marker TTL moves to the new
-`WithMaxAge` as well, and a bucket created without one gets per-key TTL enabled (NATS server 2.11+).
+factory the switch is `storage.nats.migrateBucketTTL: true`. When migration changes `MaxAge`, the limit-marker TTL follows it. When `MaxAge` already
+matches, migration can enable per-key TTL and limit markers in place while preserving the other bucket settings.
 
 ## Bucket storage
 
@@ -32,12 +32,22 @@ untouched when it already exists with another one; align the configuration, recr
 
 ## Orphan takeover
 
-Orphan takeover uses the Keeper clock and requires synchronized clocks across instances sharing the bucket. A positive per-call lock TTL
-applies to both acquisition and takeover. Storage wrappers must forward `storages.KeeperClockStorage` to preserve takeover.
+JetStream expires each in-progress lock lease. The Keeper uses the acquiring call's `MaxLockDuration` (default five minutes) or a shorter positive
+`LockTTL`. The storage writes a per-key TTL rounded up to whole seconds. JetStream also applies the bucket's `MaxAge`. A direct call to
+`Storage.AttemptLock` uses `MaxAge` alone. Pass a positive lease to `Storage.AttemptLockWithTTL` to set the per-key TTL explicitly.
 
-`New` rejects mirrored buckets with `ErrMirroredBucket`. The per-key TTL takeover publishes directly to the bucket's stream.
+After expiry, another owner can acquire a new revision and complete the same key. With the Keeper's default owner check, the original owner gets
+`ErrOwnerMismatch` on retry until the replay record expires. Completion retains the replay record for the full bucket `MaxAge`.
+
+The Keeper passes the holder's revision to `Storage.Complete` and `Storage.Release` to fence stale holders. A direct `Storage.Complete` call
+with a nil token performs an unconditional write. `Steal` only reports the current value. Storage wrappers must forward `storages.LockLeaseStorage`
+to apply the Keeper's lease cap.
+
+`New` requires a file-backed bucket with per-key TTL enabled and one revision per key. On NATS 2.11 or later, use `WithMigrateBucketTTL()` to
+resolve `ErrBucketPerKeyTTLRequired` for an existing bucket. `New` rejects mirrored buckets with
+`ErrMirroredBucket` and multiple revisions per key with `ErrBucketHistoryMismatch`.
 
 ## Upgrade
 
-Stop old writers and recreate the idempotency KV entries before starting the new version. Entries now carry a lock or completed-record
-marker alongside the payload.
+Stop old writers before switching to lease-based writers. Existing records retain the TTL assigned when they were written. To make existing
+orphans eligible sooner, remove their keys after confirming their holders are inactive. Completed entries can remain in the bucket.

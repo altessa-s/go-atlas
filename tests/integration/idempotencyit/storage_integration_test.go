@@ -168,12 +168,11 @@ func TestStorage_Complete(t *testing.T) {
 			t.Parallel()
 			s := b.open(t, longTTL)
 			stale := lock(t, s, "k", payload("lock"))
-			stolen, _, _, err := s.Steal(t.Context(), "k", payload("lock"), payload("taken-over"), 0, 0)
-			require.NoError(t, err)
-			require.True(t, stolen)
+			require.NoError(t, s.Delete(t.Context(), "k"))
+			lock(t, s, "k", payload("replacement"))
 
 			require.ErrorIs(t, s.Complete(t.Context(), "k", payload("done"), stale), storages.ErrLockStolen)
-			require.Equal(t, payload("taken-over"), observe(t, s, "k"))
+			require.Equal(t, payload("replacement"), observe(t, s, "k"))
 		})
 
 		t.Run("VanishedKeyIsRefusedAndNotRecreated", func(t *testing.T) {
@@ -203,14 +202,21 @@ func TestStorage_Complete(t *testing.T) {
 func TestStorage_Steal(t *testing.T) {
 	t.Parallel()
 	forEachBackend(t, func(t *testing.T, b backend) {
-		t.Run("MatchTakesOverAndFencesThePreviousHolder", func(t *testing.T) {
+		t.Run("MatchingLiveLock", func(t *testing.T) {
 			t.Parallel()
 			s := b.open(t, longTTL)
 			ctx := t.Context()
 			old := lock(t, s, "k", payload("orphan"))
 
-			stolen, _, fresh, err := s.Steal(ctx, "k", payload("orphan"), payload("reclaimed"), 0, 0)
+			stolen, current, fresh, err := s.Steal(ctx, "k", payload("orphan"), payload("reclaimed"), 0, 0)
 			require.NoError(t, err)
+			if b.name == "nats" {
+				require.False(t, stolen)
+				require.Equal(t, payload("orphan"), current)
+				require.Empty(t, fresh)
+				require.NoError(t, s.Complete(ctx, "k", payload("done"), old))
+				return
+			}
 			require.True(t, stolen)
 			require.NotEmpty(t, fresh)
 			require.Equal(t, payload("reclaimed"), observe(t, s, "k"))
@@ -424,6 +430,9 @@ func TestStorage_ConcurrentAttemptLockHasOneWinner(t *testing.T) {
 func TestStorage_ConcurrentStealHasOneWinner(t *testing.T) {
 	t.Parallel()
 	forEachBackend(t, func(t *testing.T, b backend) {
+		if b.name == "nats" {
+			t.Skip("lease reclaim contention is covered by TestKeeper_ReclaimsAnOrphanedLock")
+		}
 		s := b.open(t, longTTL)
 		lock(t, s, "orphan", payload("orphan"))
 
@@ -519,11 +528,17 @@ func TestStorage_LargeBinaryValues(t *testing.T) {
 		require.False(t, stolen)
 		require.Equal(t, first, current)
 
-		stolen, _, fresh, err := s.Steal(ctx, "k", first, reclaimed, 0, 0)
+		stolen, current, fresh, err := s.Steal(ctx, "k", first, reclaimed, 0, 0)
 		require.NoError(t, err)
-		require.True(t, stolen)
-		require.ErrorIs(t, s.Complete(ctx, "k", done, token), storages.ErrLockStolen)
-		require.NoError(t, s.Complete(ctx, "k", done, fresh))
+		if b.name == "nats" {
+			require.False(t, stolen)
+			require.Equal(t, first, current)
+		} else {
+			require.True(t, stolen)
+			require.ErrorIs(t, s.Complete(ctx, "k", done, token), storages.ErrLockStolen)
+			token = fresh
+		}
+		require.NoError(t, s.Complete(ctx, "k", done, token))
 		require.Equal(t, done, observe(t, s, "k"))
 	})
 }

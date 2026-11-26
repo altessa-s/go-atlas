@@ -5,9 +5,11 @@
 // Package nats provides NATS JetStream KeyValue storage for idempotency keys.
 // Offers distributed storage with automatic TTL cleanup for cloud-native deployments.
 //
-// Orphan takeover requires synchronized Keeper clocks.
+// JetStream expires lock leases. Retrying after expiry acquires a new KV
+// revision. Completing a lease stores the result for the bucket's MaxAge.
+// Use [WithMigrateBucketTTL] to enable per-key TTL on an existing bucket.
 //
-// Example:
+// # Usage
 //
 //	js, _ := jetstream.New(nc)
 //	storage, _ := nats.New(js,
@@ -15,7 +17,4 @@
 //	    nats.WithMaxAge(24*time.Hour),
 //	)
 //	handler := idempotency.New(storage)
-//
-// Orphan takeover requires synchronized Keeper clocks. Storage decorators must
-// forward storages.KeeperClockStorage to preserve takeover. New rejects mirrors.
 package nats

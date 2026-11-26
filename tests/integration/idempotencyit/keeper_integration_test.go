@@ -15,6 +15,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
@@ -82,8 +83,8 @@ func TestKeeper_ReleasedKeyCanBeRetried(t *testing.T) {
 	})
 }
 
-// TestKeeper_ReclaimsAnOrphanedLock pins orphan reclaim through Steal: past
-// MaxLockDuration a new caller takes the lock over, the crashed holder can
+// TestKeeper_ReclaimsAnOrphanedLock verifies that past MaxLockDuration a
+// new caller takes the lock over, the crashed holder can
 // no longer complete, and of many callers racing for the reclaim only one
 // wins.
 func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
@@ -94,7 +95,8 @@ func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
 		// 1s proved too short when the whole integration suite shares the
 		// backends.
 		const maxLock = 3 * time.Second
-		k := newKeeper(t, b, idempotency.WithMaxLockDuration(maxLock))
+		store := b.open(t, longTTL)
+		k := idempotency.New(store, idempotency.WithMaxLockDuration(maxLock))
 		ctx := t.Context()
 
 		_, orphan, err := k.AttemptLock(ctx, "job-1")
@@ -103,9 +105,16 @@ func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, acquired, "a fresh lock must not be reclaimed")
 
-		// The orphan check reads the lock's own timestamp; nothing on the
-		// server changes when it passes, so there is nothing to poll.
-		time.Sleep(maxLock + 100*time.Millisecond)
+		if b.name == "nats" {
+			key := idempotency.ComposeKey("namespace", "", "job-1")
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				_, current, _, err := store.Steal(ctx, key, nil, nil, 0, 0)
+				require.NoError(c, err)
+				require.Nil(c, current)
+			}, settleWindow, samplingInterval)
+		} else {
+			time.Sleep(maxLock + 100*time.Millisecond)
+		}
 
 		var (
 			wins   atomic.Int32
@@ -335,7 +344,7 @@ func TestKeeperUsesBackendClockForTakeover(t *testing.T) {
 	t.Parallel()
 	for _, b := range backends() {
 		if b.name == "nats" {
-			continue // NATS delegates the age check to synchronized Keeper clocks.
+			continue // NATS expires the lease on the server.
 		}
 		t.Run(b.name, func(t *testing.T) {
 			t.Parallel()

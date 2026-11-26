@@ -13,18 +13,18 @@ SQL (`database/sql`), where the MongoDB and SQL backends can join the caller's t
 
 ## When to reach for `idempotency`
 
-| Scenario                                                                                          | Use                                                                           |
-|---------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| HTTP / gRPC handler returning a cached response for a repeated request (`Idempotency-Key` header) | `AttemptLock` + `Complete(data)`                                              |
-| Long-running operation; concurrent caller should see "in progress, retry later"                   | `AttemptLock` + check `State.Status == StatusInProgress`                      |
-| Need to know success vs failure from a previous run                                               | `state.Status` enum + `state.Data` payload                                    |
-| Operation that may exceed lock TTL — protect against stolen-lock overwrite                        | `Complete` returns `storages.ErrLockStolen`                                            |
-| Different lock lifetime per key (short OTP vs long webhook)                                       | `AttemptLockWithOpts` with `LockTTL`                                          |
-| Crashed holder leaves an InProgress entry — unblock retries before bucket TTL fires               | `WithMaxLockDuration` (or per-call `MaxLockDuration`) — orphan-lock CAS-steal |
-| Same key reused for a different request — refuse instead of replaying                             | `AttemptLockOpts.Fingerprint` → `ErrFingerprintMismatch`                      |
-| Replays visible only to the caller that recorded the key                                          | `WithOwner` (+ `WithReplayAuthorizer`) → `ErrOwnerMismatch`                   |
-| Key and business write must commit atomically                                                     | MongoDB or SQL backend inside the caller's transaction                        |
-| Failure cleanup so the next attempt can re-claim                                                  | `Release`                                                                     |
+| Scenario | Use |
+|----------|-----|
+| HTTP / gRPC handler replaying a response for the same `Idempotency-Key` | `AttemptLock` + `Complete(data)` |
+| Concurrent caller needs to see that a long-running operation is in progress | `AttemptLock` + check `State.Status == StatusInProgress` |
+| Inspect the outcome of a previous run | `state.Status` enum + `state.Data` payload |
+| An operation may outlast its lock | `Complete` returns `storages.ErrLockStolen` for a stale holder |
+| Different lock lifetimes per key | `AttemptLockWithOpts` with `LockTTL` |
+| Crashed holder leaves a lock | `MaxLockDuration` sets the takeover threshold or NATS lease cap |
+| Same key reused for a different request | `AttemptLockOpts.Fingerprint` → `ErrFingerprintMismatch` |
+| Replay is restricted to the recorded owner | `WithOwner` (+ `WithReplayAuthorizer`) → `ErrOwnerMismatch` |
+| Key and business write must commit atomically | MongoDB or SQL backend inside the caller's transaction |
+| Failure cleanup so the next attempt can reclaim the key | `Release` |
 
 ---
 
@@ -83,8 +83,8 @@ if err != nil { return err }
 keeper := idempotency.New(storage)
 ```
 
-NATS bucket auto-enables `LimitMarkerTTL`, so per-key TTL on `AttemptLockWithTTL` works. **Requires NATS server 2.11+** — older servers fail
-bucket creation with `ErrLimitMarkerTTLNotSupported` (visible at `New()`, not at runtime). When the bucket already exists with a different key TTL,
+`New` creates a file-backed bucket with per-key TTL enabled, which requires **NATS server 2.11+**. Existing buckets must allow per-key TTL
+and keep one revision per key. When the bucket already exists with a different key TTL,
 `New` returns `ErrBucketTTLMismatch` and leaves it untouched; pass `natsstorage.WithMigrateBucketTTL()` (YAML: `storage.nats.migrateBucketTTL: true`)
 to update it deliberately. Migration rewrites the whole bucket config, not only the key TTL: the limit-marker TTL follows the new `MaxAge` too, and a
 bucket created without one gets per-key TTL turned on, which needs NATS server 2.11+. New buckets are file-backed; a bucket that already exists with
@@ -154,13 +154,13 @@ string) so a scheduler periodically purges expired entries; the mongo backend ac
 
 ## Methods
 
-| Method                                | Behavior                                                                                                                                                                                                          |
-|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AttemptLock(ctx, key)`               | Atomic CAS claim. `(true, *State, nil)` on win (State carries CAS token); `(false, *State, nil)` on collision                                                                                                     |
-| `AttemptLockWithOpts(ctx, key, opts)` | Same as AttemptLock with per-call overrides — `LockTTL` (lock lifetime), `MaxLockDuration` (orphan-reclaim threshold) and `Fingerprint` (request fingerprint). Zero values fall back to backend / Keeper defaults |
-| `Complete(ctx, key, data, lockState)` | CAS-guarded write of success state. Returns `storages.ErrLockStolen` if lock was taken over since AttemptLock                                                                                                              |
-| `Release(ctx, key, lockState)`        | Removes the caller's own lock. Use on failure paths so the next attempt can re-claim; `storages.ErrLockStolen` if the lock is no longer the caller's                                                                       |
-| `Delete(ctx, key)`                    | Unconditional removal, for administrative invalidation — not request cleanup                                                                                                                                      |
+| Method | Behavior |
+|--------|----------|
+| `AttemptLock(ctx, key)` | Atomic claim. Returns `(true, *State, nil)` with a CAS token on success or `(false, *State, nil)` on collision. |
+| `AttemptLockWithOpts(ctx, key, opts)` | Overrides `LockTTL`, `MaxLockDuration`, and `Fingerprint`. Zero values use backend or Keeper defaults. |
+| `Complete(ctx, key, data, lockState)` | Stores success using CAS. Returns `storages.ErrLockStolen` if the caller lost the lock. |
+| `Release(ctx, key, lockState)` | Releases the caller's lock for another attempt. Returns `storages.ErrLockStolen` if the caller lost the lock. |
+| `Delete(ctx, key)` | Removes the key unconditionally for administrative invalidation. |
 
 `*State` returned by `AttemptLock` carries a private CAS token. Pass it back to `Complete` exactly as received; passing `nil` returns
 `storages.ErrMissingLockState` (the guard cannot be silently disabled).
@@ -215,9 +215,7 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 Useful when different keys within one Keeper need different lifetimes — short-lived OTP tokens vs long-running webhook processing — or when a
 slow operation genuinely needs more headroom before the orphan-steal kicks in.
 
-Result TTL (lifetime of the success state after `Complete`) is fixed per Keeper instance via the backend-level option. If your operation
-genuinely needs `lock=30s, result=24h` style dual-TTL semantics, file an issue with the use case — the dual-TTL API was added speculatively
-and removed because no in-tree caller exercised it.
+The backend configuration controls the lifetime of a completed result. With NATS KV, `Complete` starts a fresh bucket TTL for the result.
 
 ## Request fingerprints and owners
 
@@ -227,16 +225,20 @@ A key identifies one command. `core/encoding/keys.Digest(parts...)` hashes the o
 
 `WithOwner(func(ctx) string)` records an opaque owner label with each key. A caller with another label gets `ErrOwnerMismatch` and nothing of the
 record. A `Keeper` built without `WithOwner` (and without `WithReplayAuthorizer`) cannot replay or take over a record that has a persisted owner:
-collisions return `ErrOwnerMismatch`, and orphan-lock reclaim refuses owner-bound locks. `WithReplayAuthorizer(func(ctx, owner) error)` replaces
-the label comparison: it decides every replay from the recorded label, and its error is returned wrapped in `ErrOwnerMismatch` (return the service's
-NotFound error to hide the record). Only the record's own owner may take over its orphaned lock. `factory/reliability/idempotency` defaults
-`UseOwner` to `principalowner.PrincipalOwner`. See the [package README](../../reliability/idempotency/README.md#owners) for details.
+collisions return `ErrOwnerMismatch`, and age-based reclaim refuses a live lock owned by another caller. The optional
+`WithReplayAuthorizer(func(ctx, owner) error)` decides every replay using the recorded label. The Keeper wraps its error in `ErrOwnerMismatch`.
+Return the service's NotFound error to hide the record. A live orphaned lock can only be replaced by its owner. Expiry ends the owner and fingerprint
+bindings. The `factory/reliability/idempotency` package defaults `UseOwner` to `principalowner.PrincipalOwner`.
+See the [package README](../../reliability/idempotency/README.md#owners) for details.
 
-### NATS lock-TTL requirement
+### NATS lock leases
 
-NATS per-call `LockTTL > 0` works via `jetstream.KeyTTL` on Create — but the bucket must be created with `LimitMarkerTTL` (handled
-automatically in `storages/nats.New`).
-This requires **NATS server 2.11+**. Older servers fail bucket creation at `New()` time with `ErrLimitMarkerTTLNotSupported`.
+The acquiring call sets the lease. The Keeper uses its resolved `MaxLockDuration` or a shorter positive `LockTTL`. The storage writes that duration as
+a per-key TTL rounded up to whole seconds, and JetStream also applies the bucket TTL. To enable per-key TTL on an existing bucket, set
+`storage.nats.migrateBucketTTL: true` or pass `WithMigrateBucketTTL()` to the storage constructor.
+
+After the lease expires, another owner can acquire and complete the same key. With the default owner check, the original owner then gets
+`ErrOwnerMismatch` on retry until the completed record expires.
 
 ---
 
@@ -245,18 +247,18 @@ This requires **NATS server 2.11+**. Older servers fail bucket creation at `New(
 `Keeper.New` emits a single `slog.Warn` when no `WithMaxLockDuration` option is passed. The intent is **soft acknowledgment** — make every
 service owner think about whether the package default fits their workload, without breaking on-boarding the way Required-validation would.
 
-```
-level=WARN msg="idempotency: using default MaxLockDuration; review for your service" default=5m0s fix="pass idempotency.WithMaxLockDuration(d) to acknowledge or override"
-```
+The warning message is `idempotency: using default MaxLockDuration; review for your service`. It reports `default=5m0s` and suggests passing
+`idempotency.WithMaxLockDuration(d)` to acknowledge or override the default.
 
 ### Why this needs a deliberate choice
 
 `MaxLockDuration` is the hinge of the [orphan-lock reclaim](#orphan-lock-reclaim) mechanism: the threshold past which a stale InProgress entry
 is treated as abandoned and forcibly reclaimed by the next `AttemptLock`. Picking it wrong has asymmetric costs:
 
-| Too short relative to real handler p99                                                                                                                                                                                                                                                                                                                                   | Too long relative to retry window                                                                                                                                                                                                                                                                                                                                |
-|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **False-positive steal.** Holder A is still legitimately working when caller B reclaims the key and starts its own work. A finishes, calls `Complete` → `storages.ErrLockStolen` (correctly rejected), but B re-runs the same operation. **Duplicate side-effects** — second SMS, second bank call, second webhook delivery. Worse than the original "stuck in-progress" symptom. | **Reclaim never fires.** If `MaxLockDuration` exceeds the broker's retry window (e.g. NATS JetStream `AckWait × MaxDeliver`), the broker has already given up and dropped the message before any caller would have triggered reclaim. The orphan then waits out the storage bucket TTL — typically 24h — exactly the failure mode this feature was meant to fix. |
+- **Too short for real handler runtimes.** A second caller may acquire the key while the first is still working. The first caller's `Complete`
+  returns `storages.ErrLockStolen`, but both callers can already have produced side effects, such as sending the same webhook twice.
+- **Too long for the retry window.** When `MaxLockDuration` exceeds the broker's retry window (for example, JetStream `AckWait × MaxDeliver`), the
+  broker can give up before another attempt can acquire the key. An age-aware store may then retain the lock until its storage TTL expires.
 
 The "right" value is service-specific: it depends on the realistic upper bound of handler runtime *and* the retry window of whatever upstream
 is calling in. A service with synchronous HTTP traffic and 30s client timeouts wants something close to 30-60s. A worker behind a NATS
@@ -314,7 +316,7 @@ after evaluating handler runtime + upstream retry window.
 ## Orphan-lock reclaim
 
 If a holder crashes before calling `Complete` or `Release`, the lock remains until its TTL expires or a retry takes it over.
-On a collision with an in-progress record owned by the caller, the Keeper can call `Steal` with the observed bytes, replacement bytes,
+On an age-aware backend, when a caller collides with its own in-progress record, the Keeper can call `Steal` with the observed bytes, replacement bytes,
 the resolved `MaxLockDuration`, and the contender's `LockTTL`. A Keeper skips that attempt when its own acquisition stamp shows the
 lock is still fresh. For Redis, MongoDB, SQL, and memory, the store stamps acquisition and decides whether the lock's age strictly
 exceeds the threshold. A positive lock TTL applies to the replacement, and a nonpositive TTL uses the store default.
@@ -327,22 +329,22 @@ state to the caller. After takeover, the previous holder's token fails with `sto
 |---------|---------------------|
 | memory  | The configured clock supplies age. A mutex protects the live-lock, byte comparison, and replacement. |
 | redis   | Lua uses Redis `TIME` and checks the live lock and expected bytes before replacing it with the contender's TTL. |
-| nats    | The Keeper checks the wire timestamp and passes a zero age threshold. KV requires a live lock and uses its revision to guard replacement. |
+| nats    | JetStream expires the lease set by the acquiring call. A retry acquires a fresh KV revision. |
 | mongo   | A conditional update checks the live lock, expected bytes, and age using the server's `$$NOW`. |
 | sqldb   | A conditional update checks the live lock, expected bytes, and age using the database statement clock. |
 
-**Synchronize the clocks of all Keeper instances that share a NATS bucket.** A wrapper around NATS storage must forward
-`storages.KeeperClockStorage` to preserve takeover. Without it, the Keeper supplies a positive threshold that NATS refuses.
+NATS `Steal` returns the current value without replacing a live record. Wrappers must forward `storages.LockLeaseStorage` for the Keeper to
+apply the lease cap. A holder whose lease has expired receives `ErrLockStolen` on completion or release.
 
 Tune via:
 
 | Setting                                 | Effect                                                                                |
 |-----------------------------------------|---------------------------------------------------------------------------------------|
-| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim                               |
+| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide age threshold or acquisition-time lease cap                               |
 | `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)                           |
 | `WithMaxLockDuration(d)` with `d <= 0`  | Ignored — `New` falls back to `5m`; reclaim cannot be disabled through the public API |
 
-Reclaim runs on an `AttemptLock` collision. Without a retry, the lock remains until its TTL expires.
+Reclaim runs on an `AttemptLock` retry. JetStream expires NATS leases even when no caller retries.
 
 ---
 
@@ -375,7 +377,7 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 |--------------------------|-------------------------------------------------------------------------------------------------------------|
 | `storages.ErrEmptyKey`            | Empty key passed to AttemptLock/Complete/Release/Delete — silently succeeding would disable dedupe          |
 | `storages.ErrMissingLockState`    | `Complete(... nil)` or `Release(... nil)` — the state returned by AttemptLock is required for the CAS guard |
-| `storages.ErrLockStolen`          | Lock was taken over by another holder between AttemptLock and Complete/Release                              |
+| `storages.ErrLockStolen`          | The caller’s ownership token expired or was superseded before Complete/Release                              |
 | `ErrFingerprintMismatch` | The key was recorded with another request fingerprint                                                       |
 | `ErrOwnerMismatch`       | The key belongs to another owner, or the `ReplayAuthorizer` refused the replay (its error is wrapped)       |
 
@@ -425,8 +427,8 @@ authoritative — drop it silently. Don't retry by re-acquiring; the new holder 
 shorten the operation.
 
 **`State.Status == StatusInProgress` for very long.** Lock TTL is too long relative to the operation, or a holder crashed mid-processing. Tune
-`WithMaxLockDuration` (or per-call `MaxLockDuration`) to expected operation duration × small multiple — the next AttemptLock past that
-threshold reclaims the orphan via CAS-steal. If no caller retries, the bucket TTL eventually frees the key; in the meantime callers see "in
+`WithMaxLockDuration` (or per-call `MaxLockDuration`) based on expected operation duration. Age-aware stores can reclaim an eligible lock on
+collision. For NATS, the original acquisition sets the lease, and a retry can acquire the key after expiry. Until then, callers see "in
 progress" until either a retry triggers reclaim or the bucket TTL fires.
 
 **Memory backend "drift" between processes.** Memory storage is in-process — two instances of the same service won't see each other's locks.

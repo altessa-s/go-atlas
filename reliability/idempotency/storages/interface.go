@@ -18,7 +18,9 @@ type Storage interface {
 
 	// AttemptLockWithTTL is like [Storage.AttemptLock] but applies a
 	// per-call lockTtl that overrides the backend's configured value.
-	// Pass lockTtl <= 0 to fall back to the configured TTL.
+	// Pass lockTtl <= 0 to fall back to the configured TTL. If a
+	// conflicting record disappears before it can be returned, both
+	// acquired is false and existing can be nil. The caller may retry.
 	//
 	// Use this when different keys need different lock lifetimes
 	// (e.g. short-lived OTP tokens vs long-running webhook
@@ -27,7 +29,7 @@ type Storage interface {
 
 	// Complete writes val for key when lockToken still matches the
 	// current state (CAS). Returns [ErrLockStolen] when the lock has
-	// been taken over by another holder.
+	// expired or been taken over by another holder.
 	Complete(ctx context.Context, key string, val []byte, lockToken []byte) error
 
 	// Steal replaces an unexpired lock when its bytes match expected and
@@ -37,7 +39,8 @@ type Storage interface {
 	// stores that use the payload as the token. On success Steal returns
 	// the new token. Otherwise current is the live
 	// value observed during the attempt, or nil if the key is absent.
-	// Stores without a server clock may implement [KeeperClockStorage].
+	// Stores that expire locks as leases implement [LockLeaseStorage]
+	// and decline Steal while returning the current value, if any.
 	Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (stolen bool, current, token []byte, err error)
 
 	// Release atomically deletes key only if lockToken still owns it.
@@ -49,10 +52,10 @@ type Storage interface {
 	Delete(ctx context.Context, key string) error
 }
 
-// KeeperClockStorage is implemented by stores that delegate the lock-age
-// check to the Keeper. The Keeper passes a zero maxLockAge after checking
-// the wire timestamp. Those stores require synchronized Keeper clocks.
-// A storage wrapper must forward this interface to keep takeover enabled.
-type KeeperClockStorage interface {
-	UsesKeeperClock() bool
+// LockLeaseStorage is implemented by stores that recover orphaned locks by
+// expiring them at the backend. For these stores the Keeper caps the lock TTL
+// using the acquiring call's MaxLockDuration and does not call Steal.
+// Wrappers must forward this interface for the Keeper to apply that cap.
+type LockLeaseStorage interface {
+	UsesLockLease() bool
 }

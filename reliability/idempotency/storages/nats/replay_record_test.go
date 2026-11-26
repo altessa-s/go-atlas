@@ -27,3 +27,8 @@ func TestStorageContract(t *testing.T) {
 		return s
 	})
 }
+
+func TestKeeperLeaseExpiresAndFencesHolder(t *testing.T) {
+	t.Parallel()
+	storagetest.KeeperUsesLockLease(t, setupStorage(t))
+}
