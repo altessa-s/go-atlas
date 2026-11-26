@@ -7,10 +7,9 @@ package mongo
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -52,11 +51,11 @@ import (
 //		return err
 //	})
 func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Context) error) error {
-	return m.conn.withTransaction(ctx, handler)
+	return m.conn.withTransaction(ctx, m.Client(), handler)
 }
 
-func (m *connection) withTransaction(ctx context.Context, handler func(context.Context) error) error {
-	if joinableTransaction(ctx, m.client) {
+func (m *connection) withTransaction(ctx context.Context, client *mongo.Client, handler func(context.Context) error) error {
+	if joinableTransaction(ctx, client) {
 		return handler(ctx)
 	}
 
@@ -69,7 +68,7 @@ func (m *connection) withTransaction(ctx context.Context, handler func(context.C
 
 	startTime := time.Now()
 
-	sess, err := m.client.StartSession()
+	sess, err := client.StartSession()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "start session")
 	}
@@ -93,13 +92,13 @@ func (m *connection) withTransaction(ctx context.Context, handler func(context.C
 		// A recovered panic must abort the transaction: the driver commits
 		// whenever the callback returns a nil error, so the panic becomes the
 		// callback's error through the named result.
-		defer panics.HandleWithOpts(sessCtx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
-			if m.logger != nil {
-				m.logger.Error("transaction panicked", slog.Any("panic", r))
+		// Recover locally so generic panic hooks never receive the payload.
+		defer func() {
+			if recover() != nil {
+				panicErr = ErrTransactionPanicked
+				txErr = panicErr
 			}
-			panicErr = fmt.Errorf("%w: %v", ErrTransactionPanicked, r)
-			txErr = panicErr
-		})
+		}()
 
 		if handlerErr := handler(sessCtx); handlerErr != nil {
 			return nil, handlerErr
@@ -116,7 +115,7 @@ func (m *connection) withTransaction(ctx context.Context, handler func(context.C
 		m.metrics.transactionErrors.Inc()
 
 		if m.logger != nil {
-			m.logger.Error("transaction failed", slog.Any("error", err),
+			m.logger.ErrorContext(ctx, "transaction failed", "error_class", fmt.Sprintf("%T", err),
 				"duration_ms", time.Since(startTime).Milliseconds())
 		}
 		return err
