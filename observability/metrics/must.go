@@ -4,28 +4,12 @@
 
 package metrics
 
-// checkedMeter is implemented by meters backed by a real collector so checked
-// registrations surface descriptor conflicts and backend registration errors
-// directly without logging.
-type checkedMeter interface {
-	tryCounter(opts MetricOpts) (Counter, error)
-	tryGauge(opts MetricOpts) (Gauge, error)
-	tryHistogram(opts HistogramOpts) (Histogram, error)
-	tryTimer(opts HistogramOpts) (Timer, error)
-}
-
 // RegisterCounter validates opts and registers or retrieves a [Counter] on m.
 // Returns an error if opts are invalid, the metric name is already registered
 // with an incompatible descriptor, the backend rejects registration, or the
 // collector has been shut down.
 func RegisterCounter(m Meter, opts MetricOpts) (Counter, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, err
-	}
-	if cm, ok := m.(checkedMeter); ok {
-		return cm.tryCounter(opts)
-	}
-	return m.Counter(opts), nil
+	return m.RegisterCounter(opts)
 }
 
 // RegisterGauge validates opts and registers or retrieves a [Gauge] on m.
@@ -33,13 +17,7 @@ func RegisterCounter(m Meter, opts MetricOpts) (Counter, error) {
 // with an incompatible descriptor, the backend rejects registration, or the
 // collector has been shut down.
 func RegisterGauge(m Meter, opts MetricOpts) (Gauge, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, err
-	}
-	if cm, ok := m.(checkedMeter); ok {
-		return cm.tryGauge(opts)
-	}
-	return m.Gauge(opts), nil
+	return m.RegisterGauge(opts)
 }
 
 // RegisterHistogram validates opts and registers or retrieves a [Histogram] on m.
@@ -47,13 +25,7 @@ func RegisterGauge(m Meter, opts MetricOpts) (Gauge, error) {
 // with an incompatible descriptor, the backend rejects registration, or the
 // collector has been shut down.
 func RegisterHistogram(m Meter, opts HistogramOpts) (Histogram, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, err
-	}
-	if cm, ok := m.(checkedMeter); ok {
-		return cm.tryHistogram(opts)
-	}
-	return m.Histogram(opts), nil
+	return m.RegisterHistogram(opts)
 }
 
 // RegisterTimer validates opts and registers or retrieves a [Timer] on m.
@@ -61,35 +33,13 @@ func RegisterHistogram(m Meter, opts HistogramOpts) (Histogram, error) {
 // with an incompatible descriptor, the backend rejects registration, or the
 // collector has been shut down.
 func RegisterTimer(m Meter, opts HistogramOpts) (Timer, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, err
-	}
-	if cm, ok := m.(checkedMeter); ok {
-		return cm.tryTimer(opts)
-	}
-	return m.Timer(opts), nil
+	return m.RegisterTimer(opts)
 }
 
 // MustMeter adds validating registration methods to an embedded [Meter].
 // Use it when registering several instruments on the same meter.
 type MustMeter struct {
 	Meter
-}
-
-func (m MustMeter) tryCounter(opts MetricOpts) (Counter, error) {
-	return RegisterCounter(m.Meter, opts)
-}
-
-func (m MustMeter) tryGauge(opts MetricOpts) (Gauge, error) {
-	return RegisterGauge(m.Meter, opts)
-}
-
-func (m MustMeter) tryHistogram(opts HistogramOpts) (Histogram, error) {
-	return RegisterHistogram(m.Meter, opts)
-}
-
-func (m MustMeter) tryTimer(opts HistogramOpts) (Timer, error) {
-	return RegisterTimer(m.Meter, opts)
 }
 
 // MustCounter validates opts and returns the meter's [Counter].

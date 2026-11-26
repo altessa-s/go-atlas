@@ -29,6 +29,18 @@ type Meter interface {
 	// Timer creates or retrieves a timer metric (histogram-based).
 	Timer(opts HistogramOpts) Timer
 
+	// RegisterCounter validates options and returns a Counter or a registration error.
+	RegisterCounter(opts MetricOpts) (Counter, error)
+
+	// RegisterGauge validates options and returns a Gauge or a registration error.
+	RegisterGauge(opts MetricOpts) (Gauge, error)
+
+	// RegisterHistogram validates options and returns a Histogram or a registration error.
+	RegisterHistogram(opts HistogramOpts) (Histogram, error)
+
+	// RegisterTimer validates options and returns a Timer or a registration error.
+	RegisterTimer(opts HistogramOpts) (Timer, error)
+
 	// WithSubsystem returns a Meter with the given subsystem.
 	// The subsystem is added between namespace and metric name:
 	// {namespace}_{subsystem}_{name}

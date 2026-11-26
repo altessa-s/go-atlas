@@ -164,19 +164,23 @@ func (r *collector) Timer(opts HistogramOpts) Timer {
 	return tm
 }
 
-func (r *collector) tryCounter(opts MetricOpts) (Counter, error) {
+// RegisterCounter implements Collector.
+func (r *collector) RegisterCounter(opts MetricOpts) (Counter, error) {
 	return r.tryGetOrCreateCounter("", opts)
 }
 
-func (r *collector) tryGauge(opts MetricOpts) (Gauge, error) {
+// RegisterGauge implements Collector.
+func (r *collector) RegisterGauge(opts MetricOpts) (Gauge, error) {
 	return r.tryGetOrCreateGauge("", opts)
 }
 
-func (r *collector) tryHistogram(opts HistogramOpts) (Histogram, error) {
+// RegisterHistogram implements Collector.
+func (r *collector) RegisterHistogram(opts HistogramOpts) (Histogram, error) {
 	return r.tryGetOrCreateHistogram("", opts)
 }
 
-func (r *collector) tryTimer(opts HistogramOpts) (Timer, error) {
+// RegisterTimer implements Collector.
+func (r *collector) RegisterTimer(opts HistogramOpts) (Timer, error) {
 	return r.tryGetOrCreateTimer("", opts)
 }
 
@@ -228,7 +232,7 @@ func (r *collector) tryGetOrCreateCounter(subsystem string, opts MetricOpts) (Co
 		labelNames: NormalizeLabelNames(opts.LabelNames),
 		help:       opts.Help,
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (*counter, func()) {
+	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Counter, func()) {
 		c := newCounter(name, r.adapter, &r.shutdown)
 		return c, c.bindUnlabeled
 	})
@@ -241,7 +245,7 @@ func (r *collector) tryGetOrCreateGauge(subsystem string, opts MetricOpts) (Gaug
 		labelNames: NormalizeLabelNames(opts.LabelNames),
 		help:       opts.Help,
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (*gauge, func()) {
+	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Gauge, func()) {
 		g := newGauge(name, r.adapter, &r.shutdown)
 		return g, g.bindUnlabeled
 	})
@@ -255,7 +259,7 @@ func (r *collector) tryGetOrCreateHistogram(subsystem string, opts HistogramOpts
 		help:       opts.Help,
 		buckets:    slices.Clone(bucketsOrDefault(opts.Buckets)),
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (*histogram, func()) {
+	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Histogram, func()) {
 		h := newHistogram(name, r.adapter, &r.shutdown)
 		return h, h.bindUnlabeled
 	})
@@ -269,7 +273,7 @@ func (r *collector) tryGetOrCreateTimer(subsystem string, opts HistogramOpts) (T
 		help:       opts.Help,
 		buckets:    slices.Clone(bucketsOrDefault(opts.Buckets)),
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (*timer, func()) {
+	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Timer, func()) {
 		tm := newTimer(name, r.adapter, &r.shutdown)
 		return tm, tm.bindUnlabeled
 	})

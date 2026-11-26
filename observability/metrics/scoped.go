@@ -54,19 +54,23 @@ func (s *scopedMeter) Timer(opts HistogramOpts) Timer {
 	return tm
 }
 
-func (s *scopedMeter) tryCounter(opts MetricOpts) (Counter, error) {
+// RegisterCounter implements Meter.
+func (s *scopedMeter) RegisterCounter(opts MetricOpts) (Counter, error) {
 	return s.parent.tryGetOrCreateCounter(s.subsystem, opts)
 }
 
-func (s *scopedMeter) tryGauge(opts MetricOpts) (Gauge, error) {
+// RegisterGauge implements Meter.
+func (s *scopedMeter) RegisterGauge(opts MetricOpts) (Gauge, error) {
 	return s.parent.tryGetOrCreateGauge(s.subsystem, opts)
 }
 
-func (s *scopedMeter) tryHistogram(opts HistogramOpts) (Histogram, error) {
+// RegisterHistogram implements Meter.
+func (s *scopedMeter) RegisterHistogram(opts HistogramOpts) (Histogram, error) {
 	return s.parent.tryGetOrCreateHistogram(s.subsystem, opts)
 }
 
-func (s *scopedMeter) tryTimer(opts HistogramOpts) (Timer, error) {
+// RegisterTimer implements Meter.
+func (s *scopedMeter) RegisterTimer(opts HistogramOpts) (Timer, error) {
 	return s.parent.tryGetOrCreateTimer(s.subsystem, opts)
 }
 
@@ -79,8 +83,4 @@ func (s *scopedMeter) WithSubsystem(subsystem string) Meter {
 	}
 }
 
-// Ensure scopedMeter implements Meter and checkedMeter.
-var (
-	_ Meter        = (*scopedMeter)(nil)
-	_ checkedMeter = (*scopedMeter)(nil)
-)
+var _ Meter = (*scopedMeter)(nil)
