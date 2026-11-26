@@ -125,3 +125,27 @@ func TestGetOrCreate_Concurrent(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "value", v.(string))
 }
+
+func TestGetOrCreate_TypeMismatchDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	var m sync.Map
+	m.Store("key", 123)
+
+	var got string
+	require.NotPanics(t, func() {
+		got = GetOrCreate(&m, "key", func() string { return "wrong" })
+	})
+	require.Empty(t, got)
+	v, ok := m.Load("key")
+	require.True(t, ok)
+	require.Equal(t, 123, v)
+
+	var mu sync.Mutex
+	require.NotPanics(t, func() {
+		got = GetOrCreateWithCallback(&m, &mu, "key", func() string { return "wrong" }, func() {
+			t.Fatal("callback must not run when key already holds another type")
+		})
+	})
+	require.Empty(t, got)
+}

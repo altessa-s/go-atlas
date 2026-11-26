@@ -5,12 +5,16 @@
 package factory_test
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/factory/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
@@ -38,4 +42,23 @@ func TestCollectorBuilder_Build_Noop(t *testing.T) {
 	require.NoError(t, err)
 	// Note: MetricsTypeNoop creates a real collector without adapters, not Noop()
 	require.NotNil(t, collector)
+}
+
+func TestCollectorBuilder_UsesLoggerForRegistrationErrors(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	c, err := factory.New(&observabilityconfig.Metrics{
+		Enabled: true,
+		Type:    observabilityconfig.MetricsTypePrometheus,
+	}).UseLogger(slog.New(slog.NewTextHandler(&logs, nil))).
+		UseAdapter(observabilityconfig.MetricsTypePrometheus, func(*observabilityconfig.MetricsAdapters) (adapters.Adapter, error) {
+			return memory.New(), nil
+		}).Build()
+	require.NoError(t, err)
+
+	opts := metrics.MetricOpts{Name: "conflict"}
+	c.Gauge(opts)
+	c.Counter(opts)
+	require.Contains(t, logs.String(), "reason=descriptor_conflict")
 }

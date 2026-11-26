@@ -7,6 +7,8 @@ package metrics
 import (
 	"errors"
 
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -27,8 +29,12 @@ var (
 	// is absent from the provided [Labels] map.
 	ErrMissingLabel = errors.New("missing required label")
 
-	// ErrCollectorShutdown is returned by [Collector.ForceFlush] and other
-	// operations after [Collector.Shutdown] has been called.
+	// ErrDescriptorConflict is returned when a metric name is redeclared with
+	// an incompatible descriptor (kind, label names, help, or buckets).
+	ErrDescriptorConflict = adapters.ErrDescriptorConflict
+
+	// ErrCollectorShutdown is returned by [Collector.ForceFlush] and checked
+	// registrations after [Collector.Shutdown] has been called.
 	ErrCollectorShutdown = errors.New("collector has been shut down")
 
 	// ErrAdapterClosed is returned when an [adapters.Adapter] has been closed.

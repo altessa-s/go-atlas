@@ -5,8 +5,21 @@
 package adapters
 
 import (
+	"errors"
+	"fmt"
+	"maps"
 	"net/http"
+	"slices"
+	"sync"
+
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
+
+// ErrDescriptorConflict is returned when a metric name is redeclared with an
+// incompatible descriptor (type, label names, help, or histogram buckets).
+var ErrDescriptorConflict = fmt.Errorf("%w: metric descriptor conflict", coreerrs.ErrConflict)
 
 // MetricType represents the type of a metric.
 type MetricType int
@@ -18,6 +31,8 @@ const (
 	TypeGauge
 	// TypeHistogram represents a histogram metric.
 	TypeHistogram
+	// TypeTimer represents a duration metric stored as a histogram.
+	TypeTimer
 )
 
 // String returns the string representation of the metric type.
@@ -29,6 +44,8 @@ func (t MetricType) String() string {
 		return "gauge"
 	case TypeHistogram:
 		return "histogram"
+	case TypeTimer:
+		return "timer"
 	default:
 		return "unknown"
 	}
@@ -48,8 +65,39 @@ type Desc struct {
 	// LabelNames are the names of labels for this metric.
 	LabelNames []string
 
-	// Buckets contains histogram bucket boundaries (for histograms only).
+	// Buckets contains histogram bucket boundaries (for histograms and timers).
 	Buckets []float64
+}
+
+// Clone returns a deep copy of d with sorted LabelNames and cloned Buckets.
+func (d *Desc) Clone() *Desc {
+	if d == nil {
+		return nil
+	}
+	cp := *d
+	cp.LabelNames = sortedClone(d.LabelNames)
+	cp.Buckets = slices.Clone(d.Buckets)
+	return &cp
+}
+
+// Equal reports whether d and other describe the same metric name, type, help,
+// sorted label names, and histogram buckets.
+func (d *Desc) Equal(other *Desc) bool {
+	if d == nil || other == nil {
+		return d == other
+	}
+	return d.Name == other.Name &&
+		d.Type == other.Type &&
+		d.Help == other.Help &&
+		slices.Equal(sortedClone(d.LabelNames), sortedClone(other.LabelNames)) &&
+		slices.Equal(d.Buckets, other.Buckets)
+}
+
+func sortedClone(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	return slices.Sorted(slices.Values(names))
 }
 
 // Adapter is the interface that metrics backends must implement.
@@ -73,6 +121,13 @@ type Adapter interface {
 
 	// RecordHistogram records an observation in a histogram.
 	RecordHistogram(name string, labels map[string]string, value float64)
+}
+
+// GaugeAdder is an optional [Adapter] capability for backends that support
+// native additive gauge updates without requiring a local shadow value.
+type GaugeAdder interface {
+	// AddGauge adds delta (which may be negative) to the current gauge value.
+	AddGauge(name string, labels map[string]string, delta float64)
 }
 
 // Flusher is an optional [Adapter] capability for writing buffered metrics.
@@ -110,6 +165,15 @@ type BoundGauge interface {
 	Set(value float64)
 }
 
+// BoundGaugeAdder is an optional [BoundGauge] capability for handles that
+// support native additive updates.
+type BoundGaugeAdder interface {
+	BoundGauge
+
+	// Add adds delta (which may be negative) to the bound gauge value.
+	Add(delta float64)
+}
+
 // BoundHistogram is a histogram handle pre-resolved to one concrete label set.
 type BoundHistogram interface {
 	// Observe records a value in the bound histogram.
@@ -126,11 +190,22 @@ type Binder interface {
 	// BindCounter resolves a counter child for the given label set.
 	BindCounter(name string, labels map[string]string) (BoundCounter, bool)
 
-	// BindGauge resolves a gauge child for the given label set.
-	BindGauge(name string, labels map[string]string) (BoundGauge, bool)
+	GaugeBinder
 
 	// BindHistogram resolves a histogram child for the given label set.
 	BindHistogram(name string, labels map[string]string) (BoundHistogram, bool)
+}
+
+// GaugeBinder is the optional [Binder] capability for resolving gauge
+// children. Adapters can support gauge binding independently.
+type GaugeBinder interface {
+	// BindGauge resolves a gauge child for the given label set.
+	BindGauge(name string, labels map[string]string) (BoundGauge, bool)
+}
+
+type shadowGaugeSeries struct {
+	mu    sync.Mutex
+	value float64
 }
 
 // MultiAdapter wraps multiple [Adapter] instances to broadcast metric events.
@@ -138,11 +213,16 @@ type Binder interface {
 // method calls are safe.
 type MultiAdapter struct {
 	adapters []Adapter
+
+	descsMu sync.Mutex
+	descs   map[string]*Desc
+
+	gaugeSeries sync.Map // string -> *shadowGaugeSeries
 }
 
 // NewMultiAdapter creates an adapter that broadcasts to multiple adapters.
-func NewMultiAdapter(adapters ...Adapter) *MultiAdapter {
-	return &MultiAdapter{adapters: adapters}
+func NewMultiAdapter(children ...Adapter) *MultiAdapter {
+	return &MultiAdapter{adapters: slices.Clone(children)}
 }
 
 // Name implements Adapter.
@@ -151,13 +231,41 @@ func (m *MultiAdapter) Name() string {
 }
 
 // Register implements Adapter.
-// Broadcasts registration to all adapters.
+// Broadcasts registration to all adapters, enforcing one descriptor per name
+// and joining errors from any failing children.
 func (m *MultiAdapter) Register(desc *Desc) error {
+	if desc == nil {
+		return fmt.Errorf("multi: nil descriptor")
+	}
+	norm := desc.Clone()
+
+	m.descsMu.Lock()
+	defer m.descsMu.Unlock()
+
+	if existing, ok := m.descs[norm.Name]; ok {
+		if !existing.Equal(norm) {
+			return fmt.Errorf("multi: metric %q: %w", norm.Name, ErrDescriptorConflict)
+		}
+		return nil
+	}
+
+	var errs []error
 	for _, a := range m.adapters {
-		if err := a.Register(desc); err != nil {
-			return err
+		if a == nil {
+			continue
+		}
+		if err := a.Register(norm); err != nil {
+			errs = append(errs, err)
 		}
 	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	if m.descs == nil {
+		m.descs = make(map[string]*Desc)
+	}
+	m.descs[norm.Name] = norm
 	return nil
 }
 
@@ -165,55 +273,151 @@ func (m *MultiAdapter) Register(desc *Desc) error {
 // Broadcasts counter increment to all adapters.
 func (m *MultiAdapter) RecordCounter(name string, labels map[string]string, delta float64) {
 	for _, a := range m.adapters {
-		a.RecordCounter(name, labels, delta)
+		if a != nil {
+			a.RecordCounter(name, labels, delta)
+		}
 	}
 }
 
 // RecordGauge implements Adapter.
-// Broadcasts gauge value to all adapters.
 func (m *MultiAdapter) RecordGauge(name string, labels map[string]string, value float64) {
+	m.setGauge(m.seriesFor(name, labels), name, labels, value)
+}
+
+func (m *MultiAdapter) setGauge(s *shadowGaugeSeries, name string, labels map[string]string, value float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.value = value
 	for _, a := range m.adapters {
-		a.RecordGauge(name, labels, value)
+		if a != nil {
+			a.RecordGauge(name, labels, value)
+		}
 	}
+}
+
+// AddGauge implements [GaugeAdder].
+func (m *MultiAdapter) AddGauge(name string, labels map[string]string, delta float64) {
+	m.addGauge(m.seriesFor(name, labels), name, labels, delta)
+}
+
+func (m *MultiAdapter) addGauge(s *shadowGaugeSeries, name string, labels map[string]string, delta float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.value += delta
+	for _, a := range m.adapters {
+		if a == nil {
+			continue
+		}
+		if adder, ok := a.(GaugeAdder); ok {
+			adder.AddGauge(name, labels, delta)
+		} else {
+			a.RecordGauge(name, labels, s.value)
+		}
+	}
+}
+
+// BindGauge implements [GaugeBinder]. It resolves the series once so updates
+// through the handle skip key construction and lookup.
+func (m *MultiAdapter) BindGauge(name string, labels map[string]string) (BoundGauge, bool) {
+	return &multiGauge{adapter: m, series: m.seriesFor(name, labels), name: name, labels: maps.Clone(labels)}, true
+}
+
+type multiGauge struct {
+	adapter *MultiAdapter
+	series  *shadowGaugeSeries
+	name    string
+	labels  map[string]string
+}
+
+func (g *multiGauge) Set(value float64) {
+	g.adapter.setGauge(g.series, g.name, g.labels, value)
+}
+
+func (g *multiGauge) Add(delta float64) {
+	g.adapter.addGauge(g.series, g.name, g.labels, delta)
 }
 
 // RecordHistogram implements Adapter.
 // Broadcasts histogram observation to all adapters.
 func (m *MultiAdapter) RecordHistogram(name string, labels map[string]string, value float64) {
 	for _, a := range m.adapters {
-		a.RecordHistogram(name, labels, value)
+		if a != nil {
+			a.RecordHistogram(name, labels, value)
+		}
 	}
 }
 
 // Flush implements [Flusher].
-// Flushes participating adapters, returning the first error encountered.
+// Flushes all participating adapters, joining any errors encountered.
 func (m *MultiAdapter) Flush() error {
+	var errs []error
 	for _, a := range m.adapters {
 		capable, ok := a.(Flusher)
 		if !ok {
 			continue
 		}
 		if err := capable.Flush(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Close implements [Closer].
-// Closes participating adapters, returning the first error encountered.
+// Closes all participating adapters, joining any errors encountered.
 func (m *MultiAdapter) Close() error {
+	var errs []error
 	for _, a := range m.adapters {
 		capable, ok := a.(Closer)
 		if !ok {
 			continue
 		}
 		if err := capable.Close(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-// Ensure MultiAdapter implements Adapter.
-var _ Adapter = (*MultiAdapter)(nil)
+func (m *MultiAdapter) seriesFor(name string, labels map[string]string) *shadowGaugeSeries {
+	key := multiSeriesKey(name, labels)
+	if existing, ok := m.gaugeSeries.Load(key); ok {
+		if s, ok := existing.(*shadowGaugeSeries); ok {
+			return s
+		}
+	}
+	actual, _ := m.gaugeSeries.LoadOrStore(key, &shadowGaugeSeries{})
+	s, ok := actual.(*shadowGaugeSeries)
+	if !ok {
+		return &shadowGaugeSeries{}
+	}
+	return s
+}
+
+func multiSeriesKey(name string, labels map[string]string) string {
+	if len(labels) == 0 {
+		return keys.Compose(name)
+	}
+	names := make([]string, 0, len(labels))
+	for k := range labels {
+		names = append(names, k)
+	}
+	slices.Sort(names)
+	parts := make([]string, 0, 1+len(labels)*2)
+	parts = append(parts, name)
+	for _, k := range names {
+		parts = append(parts, k, labels[k])
+	}
+	return keys.Compose(parts...)
+}
+
+// Ensure MultiAdapter implements required interfaces.
+var (
+	_ Adapter     = (*MultiAdapter)(nil)
+	_ GaugeAdder  = (*MultiAdapter)(nil)
+	_ GaugeBinder = (*MultiAdapter)(nil)
+	_ Flusher     = (*MultiAdapter)(nil)
+	_ Closer      = (*MultiAdapter)(nil)
+)

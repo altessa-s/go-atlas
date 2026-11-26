@@ -78,6 +78,7 @@ func (b *CollectorBuilder) build() (metrics.Collector, adapters.Adapter, error) 
 	opts := []metrics.Option{
 		metrics.WithServiceName(b.cfg.ServiceName),
 		metrics.WithAdapter(adapter),
+		metrics.WithLogger(b.Logger()),
 	}
 
 	return metrics.New(opts...), adapter, nil

@@ -49,6 +49,38 @@ func (n *noopCollector) Histogram(_ HistogramOpts) Histogram { return noopHistog
 // Timer implements Collector.
 func (n *noopCollector) Timer(_ HistogramOpts) Timer { return noopTimer{} }
 
+// RegisterCounter implements Meter.
+func (n *noopCollector) RegisterCounter(opts MetricOpts) (Counter, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+	return noopCounter{}, nil
+}
+
+// RegisterGauge implements Meter.
+func (n *noopCollector) RegisterGauge(opts MetricOpts) (Gauge, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+	return noopGauge{}, nil
+}
+
+// RegisterHistogram implements Meter.
+func (n *noopCollector) RegisterHistogram(opts HistogramOpts) (Histogram, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+	return noopHistogram{}, nil
+}
+
+// RegisterTimer implements Meter.
+func (n *noopCollector) RegisterTimer(opts HistogramOpts) (Timer, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+	return noopTimer{}, nil
+}
+
 // WithSubsystem implements Collector.
 func (n *noopCollector) WithSubsystem(_ string) Meter { return n }
 

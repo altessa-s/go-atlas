@@ -4,7 +4,7 @@
 
 // Package prometheus provides a Prometheus [adapters.Adapter] for the metrics system.
 // It translates abstract metric operations to prometheus client_golang metrics
-// and implements [adapters.HTTPHandler] for the /metrics endpoint.
+// and implements [adapters.HTTPHandler], [adapters.Binder], and [adapters.GaugeAdder].
 //
 // Use [WithRegistry] to provide a custom prometheus.Registry instead of the default.
 //
@@ -12,7 +12,7 @@
 //
 //	adapter := prometheus.New()
 //	collector := metrics.New(
-//	    metrics.WithNamespace("myapp"),
+//	    metrics.WithServiceName("myapp"),
 //	    metrics.WithAdapter(adapter),
 //	)
 //

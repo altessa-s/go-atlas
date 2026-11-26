@@ -29,6 +29,18 @@ type Meter interface {
 	// Timer creates or retrieves a timer metric (histogram-based).
 	Timer(opts HistogramOpts) Timer
 
+	// RegisterCounter validates options and returns a Counter or a registration error.
+	RegisterCounter(opts MetricOpts) (Counter, error)
+
+	// RegisterGauge validates options and returns a Gauge or a registration error.
+	RegisterGauge(opts MetricOpts) (Gauge, error)
+
+	// RegisterHistogram validates options and returns a Histogram or a registration error.
+	RegisterHistogram(opts HistogramOpts) (Histogram, error)
+
+	// RegisterTimer validates options and returns a Timer or a registration error.
+	RegisterTimer(opts HistogramOpts) (Timer, error)
+
 	// WithSubsystem returns a Meter with the given subsystem.
 	// The subsystem is added between namespace and metric name:
 	// {namespace}_{subsystem}_{name}
@@ -71,7 +83,8 @@ type Counter interface {
 	// WithLabels returns a Counter with the specified labels applied.
 	// The returned Counter shares the same underlying metric but with
 	// the label values set. The label set is captured at call time;
-	// bind once and reuse the returned handle on hot paths.
+	// bind once and reuse the returned handle on hot paths. Chaining WithLabels
+	// on a bound child requires keeping the original label map unchanged.
 	WithLabels(labels Labels) Counter
 }
 
@@ -96,8 +109,8 @@ type Gauge interface {
 	Sub(delta float64)
 
 	// WithLabels returns a Gauge with the specified labels applied.
-	// The label set is captured at call time; bind once and reuse the
-	// returned handle on hot paths.
+	// The label set is captured at call time. Chaining WithLabels on a bound
+	// child requires keeping the original label map unchanged.
 	WithLabels(labels Labels) Gauge
 }
 
@@ -109,8 +122,8 @@ type Histogram interface {
 	Observe(value float64)
 
 	// WithLabels returns a Histogram with the specified labels applied.
-	// The label set is captured at call time; bind once and reuse the
-	// returned handle on hot paths.
+	// The label set is captured at call time. Chaining WithLabels on a bound
+	// child requires keeping the original label map unchanged.
 	WithLabels(labels Labels) Histogram
 }
 
@@ -133,7 +146,7 @@ type Timer interface {
 	ObserveDuration(d time.Duration)
 
 	// WithLabels returns a Timer with the specified labels applied.
-	// The label set is captured at call time; bind once and reuse the
-	// returned handle on hot paths.
+	// The label set is captured at call time. Chaining WithLabels on a bound
+	// child requires keeping the original label map unchanged.
 	WithLabels(labels Labels) Timer
 }

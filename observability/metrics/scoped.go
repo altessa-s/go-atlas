@@ -16,22 +16,62 @@ type scopedMeter struct {
 
 // Counter implements Meter.
 func (s *scopedMeter) Counter(opts MetricOpts) Counter {
-	return s.parent.getOrCreateCounter(s.subsystem, opts)
+	c, err := s.parent.tryGetOrCreateCounter(s.subsystem, opts)
+	if err != nil {
+		s.parent.recordError(shared.BuildMetricName(s.parent.serviceName, s.subsystem, opts.Name), kindCounter, err)
+		return noopCounter{}
+	}
+	return c
 }
 
 // Gauge implements Meter.
 func (s *scopedMeter) Gauge(opts MetricOpts) Gauge {
-	return s.parent.getOrCreateGauge(s.subsystem, opts)
+	g, err := s.parent.tryGetOrCreateGauge(s.subsystem, opts)
+	if err != nil {
+		s.parent.recordError(shared.BuildMetricName(s.parent.serviceName, s.subsystem, opts.Name), kindGauge, err)
+		return noopGauge{}
+	}
+	return g
 }
 
 // Histogram implements Meter.
 func (s *scopedMeter) Histogram(opts HistogramOpts) Histogram {
-	return s.parent.getOrCreateHistogram(s.subsystem, opts)
+	h, err := s.parent.tryGetOrCreateHistogram(s.subsystem, opts)
+	if err != nil {
+		s.parent.recordError(shared.BuildMetricName(s.parent.serviceName, s.subsystem, opts.Name), kindHistogram, err)
+		return noopHistogram{}
+	}
+	return h
 }
 
 // Timer implements Meter.
 func (s *scopedMeter) Timer(opts HistogramOpts) Timer {
-	return s.parent.getOrCreateTimer(s.subsystem, opts)
+	tm, err := s.parent.tryGetOrCreateTimer(s.subsystem, opts)
+	if err != nil {
+		s.parent.recordError(shared.BuildMetricName(s.parent.serviceName, s.subsystem, opts.Name), kindTimer, err)
+		return noopTimer{}
+	}
+	return tm
+}
+
+// RegisterCounter implements Meter.
+func (s *scopedMeter) RegisterCounter(opts MetricOpts) (Counter, error) {
+	return s.parent.tryGetOrCreateCounter(s.subsystem, opts)
+}
+
+// RegisterGauge implements Meter.
+func (s *scopedMeter) RegisterGauge(opts MetricOpts) (Gauge, error) {
+	return s.parent.tryGetOrCreateGauge(s.subsystem, opts)
+}
+
+// RegisterHistogram implements Meter.
+func (s *scopedMeter) RegisterHistogram(opts HistogramOpts) (Histogram, error) {
+	return s.parent.tryGetOrCreateHistogram(s.subsystem, opts)
+}
+
+// RegisterTimer implements Meter.
+func (s *scopedMeter) RegisterTimer(opts HistogramOpts) (Timer, error) {
+	return s.parent.tryGetOrCreateTimer(s.subsystem, opts)
 }
 
 // WithSubsystem implements Meter.
@@ -43,5 +83,4 @@ func (s *scopedMeter) WithSubsystem(subsystem string) Meter {
 	}
 }
 
-// Ensure scopedMeter implements Meter.
 var _ Meter = (*scopedMeter)(nil)

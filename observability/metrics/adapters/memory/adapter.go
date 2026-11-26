@@ -49,29 +49,29 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "memory" }
 
 // Register implements [adapters.Adapter]. Re-registration of an
-// already-known name is a no-op so repeated [metrics.MustCounter]
-// calls with the same name behave like the Prometheus adapter.
+// already-known name with an equal descriptor is a no-op; an incompatible
+// descriptor returns [adapters.ErrDescriptorConflict].
 func (a *Adapter) Register(desc *adapters.Desc) error {
 	if desc == nil {
 		return fmt.Errorf("memory: nil descriptor")
 	}
+	norm := desc.Clone()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, ok := a.registered[desc.Name]; ok {
+	if existing, ok := a.registered[norm.Name]; ok {
+		if !existing.Equal(norm) {
+			return fmt.Errorf("memory: metric %q: %w", norm.Name, adapters.ErrDescriptorConflict)
+		}
 		return nil
 	}
-	// Defensive copy of LabelNames + Buckets so callers can mutate their slices.
-	copied := *desc
-	copied.LabelNames = slices.Clone(desc.LabelNames)
-	copied.Buckets = slices.Clone(desc.Buckets)
-	a.registered[desc.Name] = &copied
-	switch desc.Type {
+	a.registered[norm.Name] = norm
+	switch norm.Type {
 	case adapters.TypeCounter:
-		a.counters[desc.Name] = make(map[string]float64)
+		a.counters[norm.Name] = make(map[string]float64)
 	case adapters.TypeGauge:
-		a.gauges[desc.Name] = make(map[string]float64)
-	case adapters.TypeHistogram:
-		a.histograms[desc.Name] = make(map[string]*histogramSeries)
+		a.gauges[norm.Name] = make(map[string]float64)
+	case adapters.TypeHistogram, adapters.TypeTimer:
+		a.histograms[norm.Name] = make(map[string]*histogramSeries)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@
 package metrics
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
@@ -20,6 +21,19 @@ type Option func(o *options)
 func WithAdapter(v adapters.Adapter) Option {
 	return func(o *options) {
 		o.adapter = v
+	}
+}
+
+// WithLogger sets the logger option.
+//
+// logger records metric registration errors on the unchecked Meter API.
+// Defaults to slog.Default().
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
 	}
 }
 
@@ -51,6 +65,7 @@ func WithServiceName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		logger:      slog.Default(),
 		serviceName: appinfo.Name,
 	}
 }

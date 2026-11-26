@@ -107,3 +107,52 @@ func TestMultiAdapter_Close_Error(t *testing.T) {
 	m := NewMultiAdapter(a1)
 	require.Error(t, m.Close())
 }
+
+func TestMultiAdapter_IteratesAllChildrenOnError(t *testing.T) {
+	t.Parallel()
+
+	regErr1 := errors.New("reg-1")
+	regErr2 := errors.New("reg-2")
+	flushErr1 := errors.New("flush-1")
+	flushErr2 := errors.New("flush-2")
+	closeErr1 := errors.New("close-1")
+	closeErr2 := errors.New("close-2")
+
+	a1 := &testAdapter{name: "a1", registerErr: regErr1, flushErr: flushErr1, closeErr: closeErr1}
+	a2 := &testAdapter{name: "a2", registerErr: regErr2, flushErr: flushErr2, closeErr: closeErr2}
+	m := NewMultiAdapter(a1, a2)
+
+	err := m.Register(&Desc{Name: "m", Type: TypeCounter})
+	require.ErrorIs(t, err, regErr1)
+	require.ErrorIs(t, err, regErr2)
+
+	err = m.Flush()
+	require.ErrorIs(t, err, flushErr1)
+	require.ErrorIs(t, err, flushErr2)
+
+	err = m.Close()
+	require.ErrorIs(t, err, closeErr1)
+	require.ErrorIs(t, err, closeErr2)
+}
+
+func TestMultiAdapter_DescriptorConflict(t *testing.T) {
+	t.Parallel()
+
+	m := NewMultiAdapter(&testAdapter{name: "a1"})
+	require.NoError(t, m.Register(&Desc{Name: "x", Type: TypeCounter, LabelNames: []string{"a"}}))
+	require.NoError(t, m.Register(&Desc{Name: "x", Type: TypeCounter, LabelNames: []string{"a"}}))
+
+	err := m.Register(&Desc{Name: "x", Type: TypeGauge, LabelNames: []string{"a"}})
+	require.ErrorIs(t, err, ErrDescriptorConflict)
+
+	err = m.Register(&Desc{Name: "x", Type: TypeCounter, LabelNames: []string{"b"}})
+	require.ErrorIs(t, err, ErrDescriptorConflict)
+}
+
+func TestMultiAdapter_ZeroValueRegisters(t *testing.T) {
+	t.Parallel()
+
+	var multi MultiAdapter
+	require.NoError(t, multi.Register(&Desc{Name: "gauge", Type: TypeGauge}))
+	require.ErrorIs(t, multi.Register(&Desc{Name: "gauge", Type: TypeCounter}), ErrDescriptorConflict)
+}

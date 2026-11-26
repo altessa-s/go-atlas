@@ -21,22 +21,43 @@
 //	collector := metrics.New(
 //	    metrics.WithServiceName("myapp"),
 //	    metrics.WithAdapter(prometheusAdapter),
+//	    metrics.WithLogger(logger),
 //	)
 //
-//	// Create metrics
-//	requestsTotal := metrics.MustCounter(collector, metrics.MetricOpts{
+//	// Checked registration (returns an error on conflict or backend failure)
+//	requestsTotal, err := metrics.RegisterCounter(collector, metrics.MetricOpts{
 //	    Name: "requests_total",
 //	    Help: "Total number of requests",
 //	    LabelNames: []string{"method", "status"},
 //	})
 //
+//	// Or Must* registration (panics on invalid options, conflict, or backend failure)
+//	activeConns := metrics.MustGauge(collector, metrics.MetricOpts{
+//	    Name: "active_connections",
+//	    Help: "Current number of active connections",
+//	})
+//
 //	// Use metrics
 //	requestsTotal.WithLabels(metrics.Labels{"method": "GET", "status": "200"}).Inc()
+//	activeConns.Inc()
+//
+// # Descriptor Consistency
+//
+// Each published metric name has a single canonical descriptor (instrument kind,
+// sorted label names, help text, and histogram buckets). Compatible redeclarations
+// return the existing instrument. Incompatible redeclarations or backend registration
+// failures return an error from [RegisterCounter], [RegisterGauge], [RegisterHistogram],
+// and [RegisterTimer] (wrapping [ErrDescriptorConflict] on conflicts), panic from the
+// Must* helpers, and on the unchecked [Meter] methods log once at Error and return a
+// no-op handle.
+//
+// Shutdown stops admission, drains accepted observations on adapters with a
+// lifecycle, and then flushes and closes those adapters.
 //
 // # Scoped Meter
 //
 // Components can use WithSubsystem to create a scoped [Meter] with a subsystem prefix.
-// The scoped Meter shares the parent's instruments but does not expose its lifecycle:
+// The scoped Meter shares the parent's instruments and lifecycle without exposing Shutdown:
 //
 //	// Collector has namespace "myapp"
 //	scoped := collector.WithSubsystem("inprogress")
@@ -46,9 +67,6 @@
 //	    Name: "active_heartbeaters",
 //	    Help: "Current number of active heartbeaters",
 //	})
-//
-// The Must helpers validate options and panic on invalid input, including with [Noop].
-// [MustMeter] provides the same helpers as methods for repeated registrations.
 //
 // # Optional Metrics
 //

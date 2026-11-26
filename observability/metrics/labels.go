@@ -106,6 +106,15 @@ func NormalizeLabelNames(names []string) []string {
 	return slices.Sorted(slices.Values(names))
 }
 
+// retainLabels snapshots labels when updates still need the map. A resolved
+// child already has its label values; the map is only used when chaining.
+func retainLabels(labels Labels, needsMap bool) Labels {
+	if needsMap {
+		return maps.Clone(labels)
+	}
+	return labels
+}
+
 // --- LabelBuilder ---
 
 // LabelBuilder provides a fluent API for building [Labels].

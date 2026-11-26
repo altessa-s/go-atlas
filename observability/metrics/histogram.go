@@ -4,13 +4,18 @@
 
 package metrics
 
-import "github.com/altessa-s/go-atlas/observability/metrics/adapters"
+import (
+	"sync/atomic"
+
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
+)
 
 // histogram is the default implementation of Histogram.
 type histogram struct {
-	name    string
-	adapter adapters.Adapter
-	bound   adapters.BoundHistogram // unlabeled child, bound at registration when supported
+	name     string
+	adapter  adapters.Adapter
+	shutdown *atomic.Bool
+	bound    adapters.BoundHistogram // unlabeled child, bound at registration when supported
 }
 
 // bindUnlabeled resolves the unlabeled child once. The collector calls it
@@ -23,14 +28,21 @@ func (h *histogram) bindUnlabeled() {
 	}
 }
 
-func newHistogram(name string, adapter adapters.Adapter) *histogram {
+func newHistogram(name string, adapter adapters.Adapter, shutdown *atomic.Bool) *histogram {
+	if shutdown == nil {
+		shutdown = &activeLifecycle
+	}
 	return &histogram{
-		name:    name,
-		adapter: adapter,
+		name:     name,
+		adapter:  adapter,
+		shutdown: shutdown,
 	}
 }
 
 func (h *histogram) Observe(value float64) {
+	if h.shutdown.Load() {
+		return
+	}
 	if h.bound != nil {
 		h.bound.Observe(value)
 		return
@@ -39,20 +51,26 @@ func (h *histogram) Observe(value float64) {
 }
 
 func (h *histogram) WithLabels(labels Labels) Histogram {
+	if h.shutdown.Load() {
+		return noopHistogram{}
+	}
 	return newLabeledHistogram(h, labels)
 }
 
-// newLabeledHistogram builds a labeled view and, when the adapter supports
-// [adapters.Binder], resolves the concrete child once so Observe is a direct
-// update with no per-observation lookup.
+// newLabeledHistogram builds a labeled view and, when the adapter supports [adapters.Binder], resolves the concrete child
+// once so Observe is a direct update with no per-observation lookup.
 func newLabeledHistogram(parent *histogram, labels Labels) *labeledHistogram {
-	l := &labeledHistogram{parent: parent, labels: labels}
+	var bound adapters.BoundHistogram
 	if b, ok := parent.adapter.(adapters.Binder); ok {
 		if h, ok := b.BindHistogram(parent.name, labels); ok {
-			l.bound = h
+			bound = h
 		}
 	}
-	return l
+	return &labeledHistogram{
+		parent: parent,
+		labels: retainLabels(labels, bound == nil),
+		bound:  bound,
+	}
 }
 
 // labeledHistogram is a histogram with labels applied.
@@ -63,6 +81,9 @@ type labeledHistogram struct {
 }
 
 func (l *labeledHistogram) Observe(value float64) {
+	if l.parent.shutdown.Load() {
+		return
+	}
 	if l.bound != nil {
 		l.bound.Observe(value)
 		return
@@ -71,5 +92,8 @@ func (l *labeledHistogram) Observe(value float64) {
 }
 
 func (l *labeledHistogram) WithLabels(labels Labels) Histogram {
+	if l.parent.shutdown.Load() {
+		return noopHistogram{}
+	}
 	return newLabeledHistogram(l.parent, MergeLabels(l.labels, labels))
 }

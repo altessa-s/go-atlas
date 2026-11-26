@@ -11,9 +11,11 @@
 // For Prometheus specifically, see the prometheus sub-package.
 //
 // Backends that can pre-resolve a (metric, label set) pair into a direct
-// recording handle additionally implement the optional [Binder] capability,
-// which lets the facade skip the per-observation metric lookup and label
-// hashing on hot paths.
+// recording handle implement the optional [Binder] capability, letting the
+// facade skip per-observation metric lookup and label hashing on hot paths.
+// Backends with native additive gauge updates implement [GaugeAdder] (and
+// [BoundGaugeAdder] on bound handles) so multiple collectors sharing one
+// backend accumulate deltas without overwriting each other.
 //
 // Implement [Flusher] to write buffered metrics or [Closer] to release resources.
 //

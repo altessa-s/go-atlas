@@ -119,8 +119,8 @@ func BenchmarkLabeledGaugeSet(b *testing.B) {
 	}
 }
 
-// BenchmarkGaugeInc measures the unlabeled additive gauge path, which keeps
-// the shadow value and its publication consistent per series.
+// BenchmarkGaugeInc measures the unlabeled additive gauge path delegated
+// natively to the Prometheus gauge handle.
 func BenchmarkGaugeInc(b *testing.B) {
 	c := newPromCollector(b)
 	g := metrics.MustGauge(c, metrics.MetricOpts{

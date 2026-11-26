@@ -5,6 +5,7 @@
 package metrics
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
@@ -15,13 +16,16 @@ type timer struct {
 	*histogram
 }
 
-func newTimer(name string, adapter adapters.Adapter) *timer {
+func newTimer(name string, adapter adapters.Adapter, shutdown *atomic.Bool) *timer {
 	return &timer{
-		histogram: newHistogram(name, adapter),
+		histogram: newHistogram(name, adapter, shutdown),
 	}
 }
 
 func (t *timer) Start() func() {
+	if t.shutdown.Load() {
+		return func() {}
+	}
 	start := time.Now()
 	return func() {
 		t.ObserveDuration(time.Since(start))
@@ -33,20 +37,27 @@ func (t *timer) ObserveDuration(d time.Duration) {
 }
 
 func (t *timer) WithLabels(labels Labels) Timer {
+	if t.shutdown.Load() {
+		return noopTimer{}
+	}
 	return newLabeledTimer(t, labels)
 }
 
-// newLabeledTimer builds a labeled view and, when the adapter supports
-// [adapters.Binder], resolves the concrete child once so ObserveDuration is
-// a direct update with no per-observation lookup.
+// newLabeledTimer builds a labeled view and,
+// when the adapter supports [adapters.Binder], resolves the concrete child once
+// so ObserveDuration is a direct update with no per-observation lookup.
 func newLabeledTimer(parent *timer, labels Labels) *labeledTimer {
-	l := &labeledTimer{parent: parent, labels: labels}
+	var bound adapters.BoundHistogram
 	if b, ok := parent.adapter.(adapters.Binder); ok {
 		if h, ok := b.BindHistogram(parent.name, labels); ok {
-			l.bound = h
+			bound = h
 		}
 	}
-	return l
+	return &labeledTimer{
+		parent: parent,
+		labels: retainLabels(labels, bound == nil),
+		bound:  bound,
+	}
 }
 
 // labeledTimer is a timer with labels applied.
@@ -57,6 +68,9 @@ type labeledTimer struct {
 }
 
 func (l *labeledTimer) Start() func() {
+	if l.parent.shutdown.Load() {
+		return func() {}
+	}
 	start := time.Now()
 	return func() {
 		l.ObserveDuration(time.Since(start))
@@ -64,6 +78,9 @@ func (l *labeledTimer) Start() func() {
 }
 
 func (l *labeledTimer) ObserveDuration(d time.Duration) {
+	if l.parent.shutdown.Load() {
+		return
+	}
 	if l.bound != nil {
 		l.bound.Observe(d.Seconds())
 		return
@@ -72,5 +89,8 @@ func (l *labeledTimer) ObserveDuration(d time.Duration) {
 }
 
 func (l *labeledTimer) WithLabels(labels Labels) Timer {
+	if l.parent.shutdown.Load() {
+		return noopTimer{}
+	}
 	return newLabeledTimer(l.parent, MergeLabels(l.labels, labels))
 }

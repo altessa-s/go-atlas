@@ -7,6 +7,8 @@
 package metrics
 
 import (
+	"log/slog"
+
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 
 	_ "github.com/altessa-s/go-atlas-core/runtime/appinfo"
@@ -21,4 +23,8 @@ type options struct {
 	// adapter receives metric events.
 	// For multiple backends, use adapters.NewMultiAdapter().
 	adapter adapters.Adapter
+
+	// logger records metric registration errors on the unchecked Meter API.
+	// Defaults to slog.Default().
+	logger *slog.Logger `optgen:"default=slog.Default()"`
 }
