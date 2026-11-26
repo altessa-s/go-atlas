@@ -11,6 +11,7 @@ and `Count` contract that `audit.FetchPage` relies on. A custom storage should r
 
 | Subtest               | Verifies                                                                                               |
 |-----------------------|--------------------------------------------------------------------------------------------------------|
+| `StoreNil`            | `Store(ctx, nil)` returns `ErrInvalidArgument` and leaves `Count` intact                               |
 | `StoreBatch`          | Empty batches succeed and nil elements reject the batch before any write |
 | `BatchFailure`        | Backend-specific failure and the IDs still stored after it |
 | `Order`               | Total `(timestamp millisecond, ID)` order in both directions, at every page size                       |

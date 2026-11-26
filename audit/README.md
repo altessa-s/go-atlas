@@ -18,6 +18,7 @@ run off the request path; submission itself runs in the caller and can block on 
 |-----------------------------|-------------------------------------------------------------------------|
 | `Auditor`                   | Main entry point for emitting audit events (non-blocking)               |
 | `Dispatcher`                | Async item dispatch interface (`Submit`, `Dropped`)                     |
+| `Enqueuer`                  | Optional `Dispatcher` interface reporting typed rejection errors        |
 | `Storage`                   | Persistence interface: Store, StoreBatch, Query, Count, Close           |
 | `StorageSink`               | Adapts `Storage` to `dispatch.Sink` for engine construction             |
 | `JSONCodec`                 | Default `dispatch.Codec` for WAL durability (JSON)                      |
@@ -67,9 +68,9 @@ _ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
 
 ## Batch writes
 
-An empty batch succeeds. A nil event rejects the whole batch before any event is written. MongoDB can persist an ordered prefix on a write error.
-ClickHouse can retain completed chunks. Memory appends atomically. SQL makes storage-owned transactions atomic and requires the caller to roll back a
-failed caller-owned transaction.
+An empty batch succeeds. A nil event rejects the whole batch before any event is written. MongoDB writes unordered batches (idempotent by event ID) and
+can retain valid events when another element fails. ClickHouse can retain completed chunks. Memory appends atomically. SQL makes storage-owned
+transactions atomic and requires the caller to roll back a failed caller-owned transaction.
 
 ## Paging
 

@@ -6,16 +6,21 @@ package mongo
 
 import (
 	"context"
+	"math"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
 
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -436,4 +441,231 @@ func TestStoreBatchNilEvent(t *testing.T) {
 	t.Parallel()
 	s := &Storage{}
 	storagetest.NilBatchEvent(t, s)
+}
+
+func TestStoreNilEvent(t *testing.T) {
+	t.Parallel()
+	s := &Storage{}
+	require.ErrorIs(t, s.Store(t.Context(), nil), coreerrs.ErrInvalidArgument)
+}
+
+func mockMongoDB(
+	t testing.TB,
+	started func(context.Context, *event.CommandStartedEvent),
+	responses ...bson.D,
+) *mongo.Database {
+	t.Helper()
+	opts := mongoOptions.Client()
+	if started != nil {
+		opts.SetMonitor(&event.CommandMonitor{Started: started})
+	}
+	deployment := drivertest.NewMockDeployment()
+	if len(responses) > 0 {
+		deployment.AddResponses(responses...)
+	}
+	opts.Deployment = deployment
+	c, err := mongo.Connect(opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Disconnect(context.WithoutCancel(t.Context())) })
+	return c.Database("audit_mock")
+}
+
+func TestNew_RejectsInvalidTTL(t *testing.T) {
+	t.Parallel()
+
+	maxValid := time.Duration(math.MaxInt32) * time.Second
+	for _, tc := range []struct {
+		name string
+		ttl  time.Duration
+	}{
+		{name: "sub_second_720ns", ttl: 720 * time.Nanosecond},
+		{name: "sub_second_999ms", ttl: 999 * time.Millisecond},
+		{name: "overflow_int32_seconds", ttl: maxValid + time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db := mockMongoDB(t, nil,
+				bson.D{
+					{Key: "ok", Value: 1},
+					{Key: "cursor", Value: bson.M{"id": int64(0), "ns": "audit_mock.audit_events", "firstBatch": bson.A{}}},
+				},
+				bson.D{{Key: "ok", Value: 1}},
+			)
+			s, err := New(t.Context(), db, WithTTL(tc.ttl))
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.Nil(t, s)
+		})
+	}
+}
+
+func TestStoreBatch_IdempotentReplayAndWriteErrors(t *testing.T) {
+	t.Parallel()
+
+	e1 := fullEvent()
+	e1.ID = "evt-1"
+	e2 := fullEvent()
+	e2.ID = "evt-2"
+	e3 := fullEvent()
+	e3.ID = "evt-3"
+
+	t.Run("verified_replay_succeeds_unordered", func(t *testing.T) {
+		t.Parallel()
+		var (
+			mu       sync.Mutex
+			commands []bson.Raw
+		)
+		db := mockMongoDB(t, func(_ context.Context, ev *event.CommandStartedEvent) {
+			mu.Lock()
+			commands = append(commands, ev.Command)
+			mu.Unlock()
+		},
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(1)},
+				{Key: "writeErrors", Value: bson.A{
+					bson.D{{Key: "index", Value: int32(0)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secret-marker-1"}},
+					bson.D{{Key: "index", Value: int32(1)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secret-marker-2"}},
+				}},
+			},
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "cursor", Value: bson.M{
+					"id": int64(0),
+					"ns": "audit_mock.audit_events",
+					"firstBatch": bson.A{
+						bson.D{{Key: "_id", Value: "evt-1"}},
+						bson.D{{Key: "_id", Value: "evt-2"}},
+					},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{e1, e2, e3}))
+
+		mu.Lock()
+		defer mu.Unlock()
+		require.NotEmpty(t, commands)
+		ordered, ok := commands[0].Lookup("ordered").BooleanOK()
+		require.True(t, ok)
+		require.False(t, ordered, "StoreBatch must execute unordered InsertMany")
+	})
+
+	t.Run("duplicate_on_other_unique_index_rejected_without_marker", func(t *testing.T) {
+		t.Parallel()
+		db := mockMongoDB(t, nil,
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(0)},
+				{Key: "writeErrors", Value: bson.A{
+					bson.D{{Key: "index", Value: int32(0)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 replay secret-marker"}},
+					bson.D{{Key: "index", Value: int32(1)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secondary index secret-marker"}},
+				}},
+			},
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "cursor", Value: bson.M{
+					"id": int64(0),
+					"ns": "audit_mock.audit_events",
+					"firstBatch": bson.A{
+						bson.D{{Key: "_id", Value: "evt-1"}},
+					},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		err := s.StoreBatch(t.Context(), []*audit.Event{e1, e2})
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret-marker")
+	})
+
+	t.Run("mixed_validation_and_duplicate_failure_rejected_without_marker", func(t *testing.T) {
+		t.Parallel()
+		db := mockMongoDB(t, nil,
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(0)},
+				{Key: "writeErrors", Value: bson.A{
+					bson.D{{Key: "index", Value: int32(0)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secret-marker"}},
+					bson.D{{Key: "index", Value: int32(1)}, {Key: "code", Value: int32(121)}, {Key: "errmsg", Value: "Document failed validation secret-marker"}},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		err := s.StoreBatch(t.Context(), []*audit.Event{e1, e2})
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret-marker")
+	})
+
+	t.Run("write_concern_error_always_propagates_without_marker", func(t *testing.T) {
+		t.Parallel()
+		db := mockMongoDB(t, nil,
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(1)},
+				{Key: "writeConcernError", Value: bson.D{
+					{Key: "code", Value: int32(64)},
+					{Key: "errmsg", Value: "waiting for replication timed out secret-marker"},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		err := s.StoreBatch(t.Context(), []*audit.Event{e1})
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret-marker")
+	})
+}
+
+func TestStore_IdempotentReplayAndWriteErrors(t *testing.T) {
+	t.Parallel()
+
+	e1 := fullEvent()
+	e1.ID = "evt-single"
+
+	t.Run("verified_replay_succeeds", func(t *testing.T) {
+		t.Parallel()
+		db := mockMongoDB(t, nil,
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(0)},
+				{Key: "writeErrors", Value: bson.A{
+					bson.D{{Key: "index", Value: int32(0)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secret-marker"}},
+				}},
+			},
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "cursor", Value: bson.M{
+					"id":         int64(0),
+					"ns":         "audit_mock.audit_events",
+					"firstBatch": bson.A{bson.D{{Key: "_id", Value: "evt-single"}}},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		require.NoError(t, s.Store(t.Context(), e1))
+	})
+
+	t.Run("duplicate_on_other_unique_index_rejected_without_marker", func(t *testing.T) {
+		t.Parallel()
+		db := mockMongoDB(t, nil,
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "n", Value: int32(0)},
+				{Key: "writeErrors", Value: bson.A{
+					bson.D{{Key: "index", Value: int32(0)}, {Key: "code", Value: int32(11000)}, {Key: "errmsg", Value: "E11000 secret-marker"}},
+				}},
+			},
+			bson.D{
+				{Key: "ok", Value: 1},
+				{Key: "cursor", Value: bson.M{
+					"id":         int64(0),
+					"ns":         "audit_mock.audit_events",
+					"firstBatch": bson.A{},
+				}},
+			},
+		)
+		s := &Storage{collection: db.Collection(DefaultCollectionName), opts: defaultOptions()}
+		err := s.Store(t.Context(), e1)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret-marker")
+	})
 }

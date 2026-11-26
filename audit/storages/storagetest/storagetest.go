@@ -36,6 +36,16 @@ type NewStorage func(t *testing.T) audit.Storage
 func Run(t *testing.T, newStorage NewStorage, rejectsReplay func(error) bool) {
 	t.Helper()
 
+	t.Run("StoreNil", func(t *testing.T) {
+		t.Parallel()
+		s := newStorage(t)
+		existing := event("existing", 0, "u1")
+		require.NoError(t, s.Store(t.Context(), existing))
+		require.ErrorIs(t, s.Store(t.Context(), nil), coreerrs.ErrInvalidArgument)
+		count, err := s.Count(t.Context(), nil)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, count)
+	})
 	t.Run("StoreBatch", func(t *testing.T) {
 		t.Parallel()
 		s := newStorage(t)

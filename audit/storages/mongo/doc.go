@@ -7,5 +7,6 @@
 // creation for efficient queries by time range, actor, resource, request ID
 // and trace ID. [New] creates the indexes missing from an existing
 // collection too.
-// StoreBatch rejects a nil event before writing. Ordered insert errors can leave a stored prefix.
+// Store and StoreBatch reject nil events before writing and treat replayed
+// event IDs idempotently via unordered inserts and _id verification.
 package mongo

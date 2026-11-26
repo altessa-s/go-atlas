@@ -5,6 +5,7 @@
 package auditconfig_test
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,41 @@ func TestSQLTTLMatchesMongo(t *testing.T) {
 			sqlCfg.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeSQL, SQL: &sql}
 			require.NoError(t, mongoCfg.Validate())
 			require.NoError(t, sqlCfg.Validate())
+		})
+	}
+}
+
+func TestStorageMongo_ValidateTTL(t *testing.T) {
+	t.Parallel()
+
+	maxValid := time.Duration(math.MaxInt32) * time.Second
+	tests := []struct {
+		name    string
+		ttl     time.Duration
+		wantErr bool
+	}{
+		{name: "zero disabled", ttl: 0, wantErr: false},
+		{name: "sub-second 720ns rejected", ttl: 720 * time.Nanosecond, wantErr: true},
+		{name: "sub-second 999ms rejected", ttl: 999 * time.Millisecond, wantErr: true},
+		{name: "one second valid", ttl: time.Second, wantErr: false},
+		{name: "max int32 seconds valid", ttl: maxValid, wantErr: false},
+		{name: "overflow int32 seconds rejected", ttl: maxValid + time.Second, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validConfig()
+			cfg.Storage = auditconfig.Storage{
+				Type:  auditconfig.StorageTypeMongo,
+				Mongo: &auditconfig.StorageMongo{TTL: tc.ttl},
+			}
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

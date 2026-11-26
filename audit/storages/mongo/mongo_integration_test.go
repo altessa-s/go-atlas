@@ -417,7 +417,7 @@ func TestIntegration_Conformance(t *testing.T) {
 	storagetest.Run(t, func(t *testing.T) audit.Storage {
 		s, _ := newIT(t)
 		return s
-	}, mongo.IsDuplicateKeyError)
+	}, nil)
 }
 
 // IDs are ordered bytewise, like the memory and ClickHouse storages do, even

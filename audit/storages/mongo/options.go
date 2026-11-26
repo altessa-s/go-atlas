@@ -4,7 +4,10 @@
 
 package mongo
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 //go:generate go tool optgen generate --type=options
 
@@ -14,6 +17,14 @@ const (
 
 	// DefaultIndexTimeout is the default timeout for index creation operations.
 	DefaultIndexTimeout = 30 * time.Second
+
+	// MinTTL is the smallest positive retention duration MongoDB's
+	// expireAfterSeconds index option can represent without truncating to zero.
+	MinTTL = time.Second
+
+	// MaxTTL is the largest retention duration MongoDB's signed 32-bit
+	// expireAfterSeconds index option can represent.
+	MaxTTL = time.Duration(math.MaxInt32) * time.Second
 )
 
 type options struct {

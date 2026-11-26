@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -59,9 +60,9 @@ func (s *Storage) createIndexes(ctx context.Context) error {
 		},
 	}
 
-	// Add TTL index if configured.
+	// Add TTL index if configured. validateTTL guarantees MinTTL <= ttl <= MaxTTL.
 	if s.opts.ttl > 0 {
-		ttlSeconds := int32(s.opts.ttl.Seconds())
+		ttlSeconds := int32(s.opts.ttl / time.Second)
 		indexes = append(indexes, mongo.IndexModel{
 			Keys:    bson.D{{Key: fieldTimestamp, Value: 1}},
 			Options: mongoOptions.Index().SetExpireAfterSeconds(ttlSeconds),

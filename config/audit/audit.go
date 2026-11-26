@@ -5,6 +5,9 @@
 package auditconfig
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -211,7 +214,32 @@ type StorageMongo struct {
 	IndexTimeout time.Duration `yaml:"indexTimeout" default:"30s"`
 
 	// TTL is the time-to-live for audit events. Zero means no expiration.
+	// Positive values must be between 1s and math.MaxInt32 seconds.
 	TTL time.Duration `yaml:"ttl"`
+}
+
+const maxMongoTTL = time.Duration(math.MaxInt32) * time.Second
+
+// Validate performs validation of the MongoDB storage configuration.
+func (c *StorageMongo) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.IndexTimeout, validation.Min(time.Duration(0))),
+		validation.Field(&c.TTL, validation.By(validateMongoTTL)),
+	)
+}
+
+func validateMongoTTL(value any) error {
+	ttl, ok := value.(time.Duration)
+	if !ok || ttl <= 0 {
+		return nil
+	}
+	if ttl < time.Second {
+		return errors.New("must be 0 or at least 1s")
+	}
+	if ttl > maxMongoTTL {
+		return fmt.Errorf("must not exceed %s", maxMongoTTL)
+	}
+	return nil
 }
 
 // Validate performs validation of the audit configuration.
