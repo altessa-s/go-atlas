@@ -125,8 +125,8 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		parentID = parent.SpanID
 	}
 
-	// Filter absent/invalid link contexts and apply link limits before sampling.
-	validLinks, droppedLinks := filterAndCapLinks(cfg.Links(), r.tracer.limits.maxLinks)
+	// Filter absent/invalid link contexts so the sampler sees all valid start links.
+	validLinks := filterValidLinks(cfg.Links())
 
 	// Check sampling decision
 	shouldSample := r.tracer.sampler.ShouldSample(sampler.SamplingParameters{
@@ -153,6 +153,8 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		return ContextWithSpan(ctx, span), span
 	}
 
+	retainedLinks, droppedLinks := capLinks(validLinks, r.tracer.limits.maxLinks)
+
 	// Create recording span
 	span := &recordingSpan{
 		recorder:     r,
@@ -161,7 +163,7 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		spanContext:  &spanCtx,
 		kind:         cfg.Kind(),
 		startTime:    cfg.Timestamp(),
-		links:        validLinks,
+		links:        retainedLinks,
 		droppedLinks: droppedLinks,
 	}
 	if len(cfg.Attributes()) > 0 {
@@ -176,25 +178,38 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 	return ContextWithSpan(ctx, span), span
 }
 
-func filterAndCapLinks(links []Link, maxLinks int) ([]Link, int) {
+func filterValidLinks(links []Link) []Link {
 	if len(links) == 0 {
-		return nil, 0
+		return nil
 	}
-	valid := make([]Link, 0, len(links))
+	n := 0
+	for _, l := range links {
+		if isValidSpanContext(l.SpanContext) {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	valid := make([]Link, 0, n)
 	for _, l := range links {
 		if isValidSpanContext(l.SpanContext) {
 			valid = append(valid, l)
 		}
 	}
+	return valid
+}
+
+func capLinks(valid []Link, maxLinks int) ([]Link, int) {
 	if len(valid) == 0 {
 		return nil, 0
 	}
-	var dropped int
-	if maxLinks > 0 && len(valid) > maxLinks {
-		dropped = len(valid) - maxLinks
-		valid = valid[:maxLinks]
+	if maxLinks <= 0 || len(valid) <= maxLinks {
+		return valid, 0
 	}
-	return valid, dropped
+	retained := make([]Link, maxLinks)
+	copy(retained, valid[:maxLinks])
+	return retained, len(valid) - maxLinks
 }
 
 func toSamplerAttributes(attrs []Attribute) []sampler.Attribute {

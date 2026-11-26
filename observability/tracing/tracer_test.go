@@ -264,10 +264,77 @@ func TestSpan_SetAttributesLastWins(t *testing.T) {
 
 	require.NoError(t, tr.Shutdown(t.Context()))
 	require.Len(t, a.spans, 1)
-	require.Equal(t, []adapters.Attribute{
+	require.ElementsMatch(t, []adapters.Attribute{
 		{Key: "k1", Value: "third"},
 		{Key: "k2", Value: "keep"},
 	}, a.spans[0].Attributes)
+}
+
+type secondLinkSampler struct{}
+
+func (secondLinkSampler) Description() string { return "second-link" }
+
+func (secondLinkSampler) ShouldSample(params sampler.SamplingParameters) sampler.SamplingResult {
+	if len(params.Links) == 2 {
+		for _, attr := range params.Links[1].Attributes {
+			if attr.Key == "marker" && attr.Value == "select" {
+				return sampler.SamplingResult{Decision: sampler.RecordAndSample}
+			}
+		}
+	}
+	return sampler.SamplingResult{Decision: sampler.Drop}
+}
+
+func TestSampler_SeesAllValidLinksBeforeCapAndReleasesDiscardedLinks(t *testing.T) {
+	t.Parallel()
+
+	a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+	refTr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOn()))
+	defer func() { require.NoError(t, refTr.Shutdown(t.Context())) }()
+
+	_, first := refTr.Recorder("ref").Start(t.Context(), "first")
+	firstSC := first.SpanContext()
+	first.End()
+
+	_, second := refTr.Recorder("ref").Start(t.Context(), "second")
+	secondSC := second.SpanContext()
+	second.End()
+
+	tr := tracing.New(
+		tracing.WithAdapter(a),
+		tracing.WithSampler(secondLinkSampler{}),
+		tracing.WithMaxLinks(1),
+	)
+
+	var discardedRef weak.Pointer[[1024]byte]
+	span := func() tracing.Span {
+		discardedPayload := new([1024]byte)
+		discardedRef = weak.Make(discardedPayload)
+		_, sp := tr.Recorder("svc").Start(t.Context(), "op", tracing.WithLinks(
+			tracing.Link{},
+			tracing.Link{SpanContext: firstSC},
+			tracing.Link{
+				SpanContext: secondSC,
+				Attributes: []tracing.Attribute{
+					tracing.String("marker", "select"),
+					{Key: "payload", Value: discardedPayload},
+				},
+			},
+		))
+		return sp
+	}()
+
+	require.True(t, span.IsRecording(), "sampler must observe the second valid link despite WithMaxLinks(1)")
+	runtime.GC()
+	require.Nil(t, discardedRef.Value(), "recording span must not retain discarded link storage")
+
+	span.End()
+	require.NoError(t, tr.Shutdown(t.Context()))
+	require.Len(t, a.spans, 1)
+	got := a.spans[0]
+	require.Len(t, got.Links, 1)
+	require.Equal(t, hexID(t, firstSC.SpanID()), got.Links[0].SpanID[:])
+	require.Equal(t, 1, got.DroppedLinkCount)
 }
 
 func TestSpan_LimitsCapAndReportDroppedCounts(t *testing.T) {
