@@ -37,10 +37,16 @@ import (
 // handler cannot write keys: it records the key and the client hook creates
 // it once the script returned. Inserts into the live filter, which run inside
 // the journaling script, are not emulated.
+//
+// Membership lookups run inside a Lua script, which holds the miniredis lock,
+// so a handler cannot read keys through the miniredis API there. The module
+// therefore keeps a snapshot of every filter, refreshed by the client hook
+// after each command, and a handler reads it whenever the lock is taken.
 type fakeBloomModule struct {
-	mr      *miniredis.Miniredis
-	mu      sync.Mutex
-	pending []string
+	mr       *miniredis.Miniredis
+	mu       sync.Mutex
+	pending  []string
+	snapshot map[string][]string
 }
 
 // newSharedBloomRedis returns a client of an in-process Redis emulating BF.*.
@@ -76,7 +82,7 @@ func newSharedBloomRedis(t *testing.T) (*goredis.Client, *miniredis.Miniredis) {
 		_ = mr.Set(key, strings.Join(held, "\n"))
 	}))
 	require.NoError(t, srv.Register("BF.EXISTS", func(c *server.Peer, _ string, args []string) {
-		if slices.Contains(fake.items(args[0]), args[1]) {
+		if slices.Contains(fake.lookup(args[0]), args[1]) {
 			c.WriteInt(1)
 			return
 		}
@@ -107,16 +113,40 @@ func (f *fakeBloomModule) items(key string) []string {
 	return strings.Split(value, "\n")
 }
 
-// materialize creates the filters reserved by the command that just returned.
-func (f *fakeBloomModule) materialize() {
+// lookup returns the items of the filter stored under key. Inside a script
+// the miniredis lock is held by the script itself, so the snapshot taken after
+// the previous command answers instead.
+func (f *fakeBloomModule) lookup(key string) []string {
+	if f.mr.TryLock() {
+		f.mr.Unlock()
+		return f.items(key)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, key := range f.pending {
+	return f.snapshot[key]
+}
+
+// materialize creates the filters reserved by the command that just returned
+// and refreshes the snapshot of all filters.
+func (f *fakeBloomModule) materialize() {
+	f.mu.Lock()
+	pending := f.pending
+	f.pending = nil
+	f.mu.Unlock()
+	for _, key := range pending {
 		if !f.mr.Exists(key) {
 			_ = f.mr.Set(key, "")
 		}
 	}
-	f.pending = nil
+	snapshot := make(map[string][]string)
+	for _, key := range f.mr.Keys() {
+		if f.mr.Type(key) == "string" {
+			snapshot[key] = f.items(key)
+		}
+	}
+	f.mu.Lock()
+	f.snapshot = snapshot
+	f.mu.Unlock()
 }
 
 func (f *fakeBloomModule) DialHook(next goredis.DialHook) goredis.DialHook {
