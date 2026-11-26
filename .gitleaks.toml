@@ -53,6 +53,8 @@ regexes = [
     '''(?i)01ARZ3NDEKTSV4RRFFQ69G5FA[IUV]''',
     # Legacy cursor-storage ULID used by TestLegacyListCursorFixtures in store/mongo/read_filter_test.go.
     '''^01M7ZBG6HYBK7KEAJZNWQD8PAZ$''',
+    # Cursor-storage ULID used by TestListCursorStoredNil in store/mongo/cursor_storage_nil_test.go.
+    '''^01HQVZX3M8RFKJH9Q5W0BXYZ12$''',
     # HS256 JWT fixture in auth/oauth2client redaction tests: header
     # {"alg":"HS256"}, payload {}, signature "signature". The tests assert it
     # is redacted.
