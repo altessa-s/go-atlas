@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 ```
 
 Package `pool` provides gRPC client connection pooling with automatic cleanup and health monitoring. Each target address gets its own sub-pool of
-connections bounded by the configured size. A background goroutine periodically evicts idle and unhealthy connections based on configurable thresholds.
+connections bounded by the configured size. A background goroutine periodically evicts idle and shut down connections and retires unused target pools.
 Callers must return every connection obtained via `GetConnection` by calling `ReturnConnection`.
 
 ## Key types
@@ -42,7 +42,7 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 | `Bind(target, factory)` | Creates an isolated connection-policy binding sharing the target capacity |
 | `GetConnection(ctx, target)`    | Borrows or dials a conn for target                                                |
 | `Binding.GetConnection(ctx)`    | Borrows or dials a conn through the binding's own factory                         |
-| `ReturnConnection(conn)`        | Returns a conn to the pool; unhealthy conns are closed                            |
+| `ReturnConnection(conn)`        | Returns a conn to the pool; shut down conns are closed                          |
 | `SubscribeTarget(target, cb)`   | Push notifications for state changes; first call enables the state tracker      |
 | `StateForTarget(target)`        | Synchronous best-of-conns connectivity state; returns `Idle` for unknown targets |
 | `CheckHealth(ctx)`              | Implements `health.Checker` for the aggregate pool service                       |

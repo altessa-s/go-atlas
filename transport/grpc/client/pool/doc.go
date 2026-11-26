@@ -5,7 +5,7 @@
 // Package pool provides gRPC client connection pooling with automatic cleanup and health monitoring.
 //
 // Each target address gets its own sub-pool of connections. A background goroutine
-// periodically evicts idle and unhealthy connections based on configurable thresholds.
+// periodically evicts idle and shut down connections and retires unused target pools.
 // WithSize caps borrowed, idle, and in-progress connections together per target.
 // At capacity, borrowers wait with context cancellation. Bind creates an isolated
 // connection policy sharing that capacity. The default factory uses TLS 1.2+.
