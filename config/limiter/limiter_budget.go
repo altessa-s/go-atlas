@@ -37,14 +37,6 @@ type Budget struct {
 	InsecureEvictLRU bool `yaml:"insecureEvictLRU"`
 }
 
-// Normalize prepares nested config for validation by allocating the
-// storage sub-config implied by its type. Call before [Budget.Validate].
-func (b *Budget) Normalize() {
-	if b.Storage != nil {
-		b.Storage.Normalize()
-	}
-}
-
 // Validate performs validation of the budget limiter configuration.
 // Ensures limit is positive, period is at least one second, and storage is configured.
 func (b *Budget) Validate() error {

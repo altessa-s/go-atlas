@@ -135,14 +135,6 @@ func DefaultTokenBucket() TokenBucket {
 	}
 }
 
-// Normalize prepares nested config for validation by allocating the
-// storage sub-config implied by its type. Call before [TokenBucket.Validate].
-func (l *TokenBucket) Normalize() {
-	if l.Storage != nil {
-		l.Storage.Normalize()
-	}
-}
-
 // Validate performs validation of the rate limiter configuration.
 // Ensures that storage and rules are correctly configured.
 // Returns an error if validation fails, nil otherwise.

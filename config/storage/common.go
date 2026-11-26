@@ -5,6 +5,9 @@
 package storageconfig
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -82,7 +85,15 @@ type RedisConfig struct {
 func (c *RedisConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.KeysPrefix,
-			validation.When(c.KeysPrefix != "", validation.Length(0, MaxKeyPrefixLength))),
+			validation.When(c.KeysPrefix != "",
+				validation.By(func(any) error {
+					if strings.TrimSpace(c.KeysPrefix) == "" {
+						return errors.New("must not be whitespace only")
+					}
+					return nil
+				}),
+				validation.Length(1, MaxKeyPrefixLength),
+			)),
 	)
 }
 

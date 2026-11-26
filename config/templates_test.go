@@ -798,3 +798,108 @@ func render(v reflect.Value) string {
 	}
 	return strings.TrimSpace(buf.String())
 }
+
+// TestTemplates_LimiterStorageMatchesStorageBackend keeps limiter_storage.yaml
+// in sync with storage_backend.yaml for the shared MemoryConfig and
+// RedisConfig sections, while pinning that limiter_storage.yaml documents the
+// Redis limiter's "ratelimit:" fallback instead of advertising an empty prefix.
+func TestTemplates_LimiterStorageMatchesStorageBackend(t *testing.T) {
+	t.Parallel()
+
+	backendRaw, err := os.ReadFile(filepath.Join(templatesDir, "storage_backend.yaml"))
+	require.NoError(t, err)
+	backendBody, err := activate(string(backendRaw))
+	require.NoError(t, err)
+	backendStorage := mappingValue(parseDocument(t, backendBody), "storage")
+	require.NotNil(t, backendStorage)
+
+	limiterRaw, err := os.ReadFile(filepath.Join(templatesDir, "limiter_storage.yaml"))
+	require.NoError(t, err)
+	limiterBody, err := activate(string(limiterRaw))
+	require.NoError(t, err)
+	limiterStorage := mappingValue(parseDocument(t, limiterBody), "storage")
+	require.NotNil(t, limiterStorage)
+
+	var wantSections []string
+	for _, k := range mappingKeys(backendStorage) {
+		if k != "nats" {
+			wantSections = append(wantSections, k)
+		}
+	}
+	require.Equal(t, wantSections, mappingKeys(limiterStorage),
+		"limiter_storage.yaml sections must mirror non-NATS storage_backend.yaml sections")
+
+	assertYAMLSubtreeEqual(t, "storage.memory", backendStorage, limiterStorage, "memory", nil)
+	assertYAMLSubtreeEqual(t, "storage.redis", backendStorage, limiterStorage, "redis", map[string]bool{"keysPrefix": true})
+
+	backendRedis := mappingValue(backendStorage, "redis")
+	limiterRedis := mappingValue(limiterStorage, "redis")
+	backendPrefixComment, _ := mappingEntry(backendRedis, "keysPrefix")
+	limiterPrefixComment, limiterPrefixVal := mappingEntry(limiterRedis, "keysPrefix")
+	require.NotNil(t, limiterPrefixVal)
+
+	require.Equal(t,
+		strings.SplitN(backendPrefixComment, "\n", 2)[0],
+		strings.SplitN(limiterPrefixComment, "\n", 2)[0],
+		"redis.keysPrefix <type> line must match storage_backend.yaml",
+	)
+	require.Equal(t, "ratelimit:", limiterPrefixVal.Value,
+		"limiter_storage.yaml must exemplify the default Redis prefix rather than empty string")
+	_, defText, problem := parseAnnotation(limiterPrefixComment)
+	require.Empty(t, problem)
+	require.NotNil(t, defText)
+	require.Contains(t, *defText, `"ratelimit:"`)
+}
+
+func mappingKeys(node *yaml.Node) []string {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := make([]string, 0, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keys = append(keys, node.Content[i].Value)
+	}
+	return keys
+}
+
+func mappingEntry(node *yaml.Node, key string) (string, *yaml.Node) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return "", nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		k := node.Content[i]
+		if k.Value == key {
+			comment := k.HeadComment
+			if i == 0 && comment == "" {
+				comment = node.HeadComment
+			}
+			return comment, node.Content[i+1]
+		}
+	}
+	return "", nil
+}
+
+func assertYAMLSubtreeEqual(t *testing.T, path string, wantParent, gotParent *yaml.Node, key string, skipChildren map[string]bool) {
+	t.Helper()
+
+	wantComment, wantVal := mappingEntry(wantParent, key)
+	gotComment, gotVal := mappingEntry(gotParent, key)
+	require.NotNilf(t, wantVal, "%s missing in storage_backend.yaml", path)
+	require.NotNilf(t, gotVal, "%s missing in limiter_storage.yaml", path)
+	require.Equalf(t, wantComment, gotComment, "%s head comment drifted from storage_backend.yaml", path)
+	require.Equalf(t, wantVal.Kind, gotVal.Kind, "%s YAML node kind drifted", path)
+
+	switch wantVal.Kind {
+	case yaml.ScalarNode:
+		require.Equalf(t, wantVal.Style, gotVal.Style, "%s scalar style drifted", path)
+		require.Equalf(t, wantVal.Value, gotVal.Value, "%s example value drifted", path)
+	case yaml.MappingNode:
+		require.Equalf(t, mappingKeys(wantVal), mappingKeys(gotVal), "%s child keys drifted", path)
+		for _, child := range mappingKeys(wantVal) {
+			if skipChildren[child] {
+				continue
+			}
+			assertYAMLSubtreeEqual(t, path+"."+child, wantVal, gotVal, child, nil)
+		}
+	}
+}

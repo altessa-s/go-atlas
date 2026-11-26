@@ -27,6 +27,6 @@
 #  # Required when type is set to 'redis'.
 #  redis:
 #    # <string> Prefix for all keys in storage.
-#    # Namespace prefix to avoid key conflicts.
-#    # Default value: not set (empty string)
-#    keysPrefix: ""
+#    # Namespace prefix to avoid key conflicts; empty uses "ratelimit:".
+#    # Default value: not set (uses "ratelimit:")
+#    keysPrefix: "ratelimit:"

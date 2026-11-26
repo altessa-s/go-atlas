@@ -36,6 +36,7 @@ func TestRedisConfig_Validate(t *testing.T) {
 
 	require.NoError(t, (&storageconfig.RedisConfig{}).Validate())
 	require.NoError(t, (&storageconfig.RedisConfig{KeysPrefix: "svc:"}).Validate())
+	requireFieldError(t, (&storageconfig.RedisConfig{KeysPrefix: "   "}).Validate(), "KeysPrefix")
 	long := strings.Repeat("k", storageconfig.MaxKeyPrefixLength+1)
 	requireFieldError(t, (&storageconfig.RedisConfig{KeysPrefix: long}).Validate(), "KeysPrefix")
 }

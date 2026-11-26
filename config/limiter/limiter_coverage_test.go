@@ -5,10 +5,15 @@
 package limiterconfig_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-nomos/loader"
+	"github.com/altessa-s/go-nomos/loader/backend/yaml3"
 
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
@@ -51,19 +56,26 @@ func TestStorageConfig_NormalizeAndValidate(t *testing.T) {
 		require.NoError(t, custom.Validate())
 	})
 
-	t.Run("top-level Normalize forwards to Storage", func(t *testing.T) {
+	t.Run("loader normalizes nested Storage without top-level Normalize", func(t *testing.T) {
 		t.Parallel()
-		var emptyTB limiterconfig.TokenBucket
-		emptyTB.Normalize()
-		tb := limiterconfig.TokenBucket{Storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory}}
-		tb.Normalize()
-		require.NotNil(t, tb.Storage.Memory)
 
-		var emptyBudget limiterconfig.Budget
-		emptyBudget.Normalize()
-		b := limiterconfig.Budget{Storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}}
-		b.Normalize()
-		require.NotNil(t, b.Storage.Redis)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "limiter.yaml")
+		content := "budgetLimiter:\n  limit: 10\n  storage:\n    type: redis\ntokenBucketLimiter:\n  storage:\n    type: memory\n  rules:\n    default:\n      limit: 5\n      period: \"1m\"\n"
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		var root struct {
+			Budget      limiterconfig.Budget      `yaml:"budgetLimiter"`
+			TokenBucket limiterconfig.TokenBucket `yaml:"tokenBucketLimiter"`
+		}
+		_, err := loader.New(&yaml3.Backend{}, loader.WithPath(path), loader.WithSkipEnv()).Load(&root)
+		require.NoError(t, err)
+		require.NotNil(t, root.Budget.Storage)
+		require.NotNil(t, root.Budget.Storage.Redis)
+		require.NoError(t, root.Budget.Validate())
+		require.NotNil(t, root.TokenBucket.Storage)
+		require.NotNil(t, root.TokenBucket.Storage.Memory)
+		require.NoError(t, root.TokenBucket.Validate())
 	})
 }
 

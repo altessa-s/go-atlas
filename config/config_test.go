@@ -17,7 +17,6 @@ import (
 )
 
 func TestStorageNATSConfig_Validate(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		name      string
 		cfg       storageconfig.NATSConfig
@@ -42,7 +41,6 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
@@ -54,7 +52,6 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 }
 
 func TestStorageRedisConfig_Validate(t *testing.T) {
-	t.Parallel()
 	validPrefix := "valid_prefix"
 	invalidPrefix := make([]byte, 65) // Max 64
 	for i := range invalidPrefix {
@@ -77,6 +74,11 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 			wantValid: true,
 		},
 		{
+			name:      "WhitespaceOnlyPrefix",
+			cfg:       storageconfig.RedisConfig{KeysPrefix: "   "},
+			wantValid: false,
+		},
+		{
 			name:      "TooLongPrefix",
 			cfg:       storageconfig.RedisConfig{KeysPrefix: string(invalidPrefix)},
 			wantValid: false,
@@ -85,7 +87,6 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
@@ -97,7 +98,6 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 }
 
 func TestCacheStorageConfig_Validate(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		name      string
 		cfg       storageconfig.CacheStorageConfig
@@ -146,7 +146,6 @@ func TestCacheStorageConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
