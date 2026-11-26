@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,12 +73,42 @@ func NewBuilder(src mirror.Source) *Builder {
 	return &Builder{Base: corefactory.NewBase(slog.New(slog.DiscardHandler)), src: src}
 }
 
+// Managed is a [mirror.Cache] together with the scheduler task and health
+// registration the [Builder] created for it. The embedded cache serves
+// lookups; [Managed.Close] releases the registrations.
+type Managed struct {
+	*mirror.Cache
+	closed           *atomic.Bool
+	unregisterHealth func()
+	unregisterTask   func()
+}
+
+// Close stops the refresh task, removes it from a scheduler that supports
+// removal and releases the health registration. The cache itself holds no
+// resources and keeps answering. It is safe to call repeatedly.
+func (m *Managed) Close() {
+	m.closed.Store(true)
+	if m.unregisterTask != nil {
+		m.unregisterTask()
+	}
+	if m.unregisterHealth != nil {
+		m.unregisterHealth()
+	}
+}
+
+// taskRemover is implemented by schedulers that can remove a registered task,
+// such as the go-horai scheduler.
+type taskRemover interface {
+	Unregister(ctx context.Context, id string) error
+}
+
 // Build validates the dependencies, creates the cache, primes it with ctx,
-// registers the refresh task and the health checker, and returns the cache. A
+// registers the refresh task and the health checker, and returns the cache
+// with its registrations, to be released with [Managed.Close]. A
 // priming failure fails Build unless [Builder.UseInsecureServeUnprimed] was
 // set, in which case it is logged and the cache serves "not revoked" until a
 // scheduled refresh succeeds.
-func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
+func (b *Builder) Build(ctx context.Context) (*Managed, error) {
 	if err := b.RequireDependency(b.src, "revocation source"); err != nil {
 		return nil, err
 	}
@@ -107,26 +138,42 @@ func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
 			slog.Any("error", err)) // a refresh error names the source error's type, never its text
 	}
 
+	var closed atomic.Bool
 	if err := b.scheduler.Register(ctx, schedtask.Config{
 		ID:          taskID,
 		Description: "Refresh the local snapshot of the distributed denylist",
 		Schedule:    schedule,
-		Func:        cache.Refresh,
-		Priority:    schedtask.PriorityHigh,
-		Timeout:     DefaultRefreshTimeout,
+		Func: func(ctx context.Context) error {
+			if closed.Load() {
+				return nil
+			}
+			return cache.Refresh(ctx)
+		},
+		Priority: schedtask.PriorityHigh,
+		Timeout:  DefaultRefreshTimeout,
 	}); err != nil {
 		return nil, b.WrapError(err, "register denylist mirror refresh task")
 	}
 
-	if !nilcheck.IsNil(b.health) {
-		b.health.RegisterService(healthName, health.Func(func(context.Context) health.ServingStatus {
-			if cache.Ready() {
-				return health.StatusServing
+	managed := &Managed{Cache: cache, closed: &closed}
+	if remover, ok := b.scheduler.(taskRemover); ok {
+		managed.unregisterTask = sync.OnceFunc(func() {
+			// Close has no error to return and the task is already inert.
+			if err := remover.Unregister(context.WithoutCancel(ctx), taskID); err != nil {
+				b.Logger().Warn("denylist mirror: unregister refresh task failed", slog.String("task", taskID))
 			}
-			return health.StatusNotServing
-		}))
+		})
 	}
-	return cache, nil
+	if !nilcheck.IsNil(b.health) {
+		managed.unregisterHealth = sync.OnceFunc(health.RegisterOwnedChecker(b.health, healthName,
+			health.Func(func(context.Context) health.ServingStatus {
+				if cache.Ready() {
+					return health.StatusServing
+				}
+				return health.StatusNotServing
+			})))
+	}
+	return managed, nil
 }
 
 // mirrorSeq numbers the unnamed mirrors built in this process.

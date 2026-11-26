@@ -16,7 +16,9 @@
 // jwt.ErrRevocationUnavailable. Each mirror registers its own task and health
 // service ([Builder.UseName]) because a scheduler replaces a task registered
 // under an existing ID; the maximum staleness must not be shorter than an
-// "@every" refresh interval, and is off by default.
+// "@every" refresh interval, and is off by default. [Builder.Build] returns a
+// [Managed] mirror; its Close stops the refresh task, removes it from a
+// scheduler that supports removal and releases the health registration.
 //
 //	cache, err := factory.NewBuilder(store.RawSource()).
 //	    UseScheduler(scheduler).
@@ -27,5 +29,6 @@
 //	if err != nil {
 //	    return err
 //	}
+//	defer cache.Close()
 //	verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
 package factory
