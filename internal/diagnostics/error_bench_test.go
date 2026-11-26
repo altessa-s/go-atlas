@@ -16,3 +16,10 @@ func BenchmarkErrorClass(b *testing.B) {
 		diagnostics.ErrorClass(context.DeadlineExceeded)
 	}
 }
+
+func BenchmarkErrorText(b *testing.B) {
+	const raw = "dial postgres://admin:s3cr/et@db.internal:5432/app?password=secret&sslmode=disable"
+	for b.Loop() {
+		diagnostics.ErrorText(raw, diagnostics.DefaultMaxErrorLength)
+	}
+}
