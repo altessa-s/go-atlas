@@ -65,12 +65,18 @@ func (b *Base) Delete(ctx context.Context, key string) error {
 	return redisutils.Del(ctx, b.client, b.Key(key))
 }
 
-// DeleteMany removes multiple keys from Redis in a single transaction.
+// DeleteMany removes multiple keys from Redis. It pipelines one UNLINK per key
+// instead of a multi-key command in MULTI/EXEC, so keys in different Redis
+// Cluster slots work. The first failed command is reported.
 func (b *Base) DeleteMany(ctx context.Context, keys ...string) error {
-	prefixedKeys := b.BuildKeys(keys...)
+	if len(keys) == 0 {
+		return nil
+	}
 
-	_, err := b.client.TxPipelined(ctx, func(pl redis.Pipeliner) error {
-		return pl.Del(ctx, prefixedKeys...).Err()
-	})
+	pipe := b.client.Pipeline()
+	for _, key := range b.BuildKeys(keys...) {
+		pipe.Unlink(ctx, key)
+	}
+	_, err := pipe.Exec(ctx)
 	return err
 }

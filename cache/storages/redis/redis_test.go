@@ -6,6 +6,7 @@ package redis_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -287,4 +288,59 @@ func TestReadBytesAreOwned(t *testing.T) {
 	require.Equal(t, []byte("cached"), values["key"])
 	values["key"][0] = 'X'
 	require.Equal(t, "cached", hook.got)
+}
+
+// rejectMultiKey fails a DEL or UNLINK that names more than one key, like a
+// Redis Cluster answers CROSSSLOT for keys in different slots.
+type rejectMultiKey struct{}
+
+func (rejectMultiKey) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (rejectMultiKey) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		if err := rejectMulti(cmd); err != nil {
+			return err
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (rejectMultiKey) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []goredis.Cmder) error {
+		for _, cmd := range cmds {
+			if err := rejectMulti(cmd); err != nil {
+				return err
+			}
+		}
+		return next(ctx, cmds)
+	}
+}
+
+func rejectMulti(cmd goredis.Cmder) error {
+	switch cmd.Name() {
+	case "del", "unlink":
+		if len(cmd.Args()) > 2 {
+			return errors.New("CROSSSLOT keys in request don't hash to the same slot")
+		}
+	}
+	return nil
+}
+
+func TestProvider_DeleteMany_SingleKeyCommands(t *testing.T) {
+	t.Parallel()
+
+	client, _ := redistest.RedisClient(t)
+	client.AddHook(rejectMultiKey{})
+	provider := redis.New(client)
+	ctx := t.Context()
+
+	require.NoError(t, provider.Save(ctx, "k1", []byte("a"), time.Minute))
+	require.NoError(t, provider.Save(ctx, "k2", []byte("b"), time.Minute))
+
+	require.NoError(t, provider.DeleteMany(ctx, "k1", "k2"))
+
+	_, err := provider.Get(ctx, "k1")
+	require.ErrorIs(t, err, storages.ErrMissing)
+	_, err = provider.Get(ctx, "k2")
+	require.ErrorIs(t, err, storages.ErrMissing)
 }
