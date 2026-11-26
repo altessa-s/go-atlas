@@ -37,7 +37,7 @@ type Store[P any] struct {
 	// before waiting for mu. It is a test seam, nil in production: a test
 	// holding mu learns that a call passed the check and is about to block.
 	beforeLock func()
-	// requeueVisit counts item lookups in Requeue when a test installs it.
+	// requeueVisit counts candidate checks in Requeue when a test installs it.
 	requeueVisit func()
 }
 
@@ -397,11 +397,8 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 		selected = maps.Keys(s.items)
 	}
 	for key := range selected {
-		if s.requeueVisit != nil {
-			s.requeueVisit()
-		}
-		it, ok := s.items[key]
-		if !ok || it.State != retryqueue.StateExpired {
+		it := s.items[key]
+		if !s.requeueCandidate(it) {
 			continue
 		}
 		it.State = retryqueue.StatePending
@@ -412,6 +409,15 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 		moved++
 	}
 	return moved, nil
+}
+
+// requeueCandidate is the eligibility check shared by keyed and full-queue
+// requeues. A missing item has the zero state and is ineligible.
+func (s *Store[P]) requeueCandidate(it retryqueue.Item[P]) bool {
+	if s.requeueVisit != nil {
+		s.requeueVisit()
+	}
+	return it.State == retryqueue.StateExpired
 }
 
 // Move implements [retryqueue.Mover] under the store's mutex: the item is

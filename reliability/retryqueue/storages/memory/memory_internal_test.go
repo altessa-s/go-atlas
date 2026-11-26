@@ -138,6 +138,7 @@ func TestRequeueWorkScalesWithSelectedKeys(t *testing.T) {
 	moved, err := s.Requeue(t.Context(), now, keys...)
 	require.NoError(t, err)
 	require.Equal(t, len(keys), moved)
+	require.Positive(t, visits, "the measurement must observe candidate checks")
 	require.LessOrEqual(t, visits, len(keys))
 
 	moved, err = s.Requeue(t.Context(), now, "10000", "10000", "missing")
