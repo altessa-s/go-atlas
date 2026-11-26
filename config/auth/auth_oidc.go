@@ -25,7 +25,6 @@ const (
 	defaultOIDCClockSkew              = 30 * time.Second
 	defaultOIDCCacheTokensKeyPrefix   = "tokens:"
 	defaultOIDCCacheRevokedKeyPrefix  = "revoked-tokens:"
-	defaultOIDCJwksRefreshEnabled     = true
 	defaultOIDCJwksRefreshSchedule    = "0 0 * * * *"
 	defaultOIDCJwksHTTPTimeout        = 30 * time.Second
 	defaultOIDCRevocationEnabled      = false
@@ -285,7 +284,8 @@ type OIDCClaims struct {
 	// RequireAuthorizedParty requires the 'azp' (authorized party) claim
 	RequireAuthorizedParty bool `yaml:"requireAuthorizedParty"`
 
-	// AllowedAuthorizedParties is the whitelist of allowed 'azp' claim values
+	// AllowedAuthorizedParties requires an 'azp' claim with one of these values
+	// when the list is non-empty.
 	AllowedAuthorizedParties []string `yaml:"allowedAuthorizedParties"`
 
 	// AllowMissingSubject permits tokens without 'sub' claim
@@ -306,7 +306,7 @@ func (c *OIDCClaims) Validate() error {
 		validation.Field(&c.Ignored, validation.Each(validation.Required)),
 		validation.Field(&c.Expected, validation.Each(validation.Required)),
 		validation.Field(&c.AllowedAuthorizedParties,
-			validation.When(c.RequireAuthorizedParty, validation.Required, validation.Each(validation.Required))),
+			validation.When(c.RequireAuthorizedParty, validation.Required), validation.Each(validation.Required)),
 	)
 }
 
@@ -334,11 +334,8 @@ func (cc *OIDCClientCredentials) Validate() error {
 // OIDCJwks represents OIDCJwks-specific configuration.
 // It controls the refresh behavior for JSON Web Key Sets used in token signature verification.
 type OIDCJwks struct {
-	// RefreshEnabled enables proactive JWKS refresh on the provider's own
-	// process-local cron.
-	RefreshEnabled bool `yaml:"refreshEnabled" default:"true"`
-
-	// RefreshSchedule is the cron expression for periodic JWKS refresh.
+	// RefreshSchedule is the cron expression for periodic JWKS refresh. An
+	// empty value uses the default hourly schedule.
 	RefreshSchedule string `yaml:"refreshSchedule" default:"0 0 * * * *"`
 
 	// HTTPTimeout is the timeout for JWKS HTTP requests
@@ -348,7 +345,6 @@ type OIDCJwks struct {
 // DefaultOIDCJwks returns an OIDCJwks configuration with default values.
 func DefaultOIDCJwks() OIDCJwks {
 	return OIDCJwks{
-		RefreshEnabled:  defaultOIDCJwksRefreshEnabled,
 		RefreshSchedule: defaultOIDCJwksRefreshSchedule,
 		HTTPTimeout:     defaultOIDCJwksHTTPTimeout,
 	}
@@ -360,7 +356,6 @@ func DefaultOIDCJwks() OIDCJwks {
 // Returns an error if any validation rules fail.
 func (j *OIDCJwks) Validate() error {
 	return validationconfig.ValidateStruct(j,
-		validation.Field(&j.RefreshSchedule, validation.When(j.RefreshEnabled, validation.Required)),
 		validation.Field(&j.HTTPTimeout, validation.Min(time.Duration(0))),
 	)
 }

@@ -39,4 +39,7 @@
 // The context passed to Build bounds construction only: the caller owns the
 // returned provider and must call its Close on shutdown. Build releases a filter
 // it allocated on failure and transfers its cleanup to the provider on success.
+//
+// The builder always schedules JWKS refresh, defaulting to hourly. A
+// non-empty authorized-party allowlist requires a matching azp claim.
 package factory

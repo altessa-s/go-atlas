@@ -38,10 +38,6 @@
 #  # <object> JWKS-specific settings for key management.
 #  # Configures JWKS refresh behavior and HTTP timeouts.
 #  jwks:
-#    # <bool> Enables proactive JWKS refresh on the provider's own process-local cron.
-#    # Default value: true
-#    refreshEnabled: true
-#
 #    # <string> Cron schedule for periodic JWKS refresh.
 #    # Proactively updates keys before cache expiration.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
@@ -171,7 +167,7 @@
 #      requireAuthorizedParty: false
 #
 #      # <list[string]> List of allowed 'azp' claim values.
-#      # Used in conjunction with requireAuthorizedParty.
+#      # A non-empty list requires the claim even when requireAuthorizedParty is false.
 #      # Default value: not set
 #      allowedAuthorizedParties: []
 #
@@ -274,6 +270,7 @@
 #          requireAuthorizedParty: false
 #
 #          # <list[string]> Allowed authorized parties for this preset.
+#          # A non-empty list requires the claim.
 #          # Default value: not set
 #          allowedAuthorizedParties: []
 #

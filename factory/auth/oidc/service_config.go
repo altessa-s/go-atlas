@@ -172,7 +172,8 @@ func ValidationOptions(v *authconfig.ValidationRulesConfig) ([]oidc.ValidationOp
 	opts = append(opts, oidc.WithValidationAllowedClientIDs(v.AllowedClientIDs...))
 
 	// Require authorized party
-	opts = slices.AppendIf(opts, ptr.Unwrap(v.RequireAuthorizedParty), oidc.WithValidationRequireAuthorizedParty())
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.RequireAuthorizedParty) || len(v.AllowedAuthorizedParties) > 0,
+		oidc.WithValidationRequireAuthorizedParty())
 
 	// Allowed authorized parties
 	opts = slices.AppendIf(opts, len(v.AllowedAuthorizedParties) > 0, oidc.WithValidationAllowedAuthorizedParties(v.AllowedAuthorizedParties...))

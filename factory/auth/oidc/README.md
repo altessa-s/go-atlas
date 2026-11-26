@@ -75,7 +75,8 @@ With a meter configured, `Build` records the duration of its OIDC discovery atte
 | `discovery_duration_seconds` | Histogram | --     | Discovery duration in seconds |
 
 JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on every replica;
-the builder needs no scheduler. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the filter is built
+the builder needs no scheduler. JWKS refresh defaults to hourly even when the `jwks` block is absent. An unknown key ID can also trigger a refresh,
+with at most one lookup-triggered fetch attempt per provider per minute. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the filter is built
 without probfilter rebuild scheduling, and `revocation.filter.bloom.rebuildCron` or `rebuildOnStart: true` fails `Build` as a conflicting second
 schedule (`rebuildCron: ""` / `rebuildOnStart: false` are accepted). `revocation.maxStaleness` (default `3h`, `0` disables) maps to
 `oidc.WithRevocationMaxStaleness`: with a sync schedule, tokens are rejected once no sync succeeded within it.

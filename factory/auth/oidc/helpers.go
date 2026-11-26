@@ -111,11 +111,10 @@ func buildClaimsValidationOptions(claims *authconfig.OIDCClaims) []oidc.Validati
 
 	opts = slices.AppendIf(opts, claims.AllowMissingSubject, oidc.WithValidationAllowMissingSubject())
 
-	if claims.RequireAuthorizedParty && len(claims.AllowedAuthorizedParties) > 0 {
-		opts = append(opts,
-			oidc.WithValidationRequireAuthorizedParty(),
-			oidc.WithValidationAllowedAuthorizedParties(claims.AllowedAuthorizedParties...))
-	}
+	opts = slices.AppendIf(opts, claims.RequireAuthorizedParty || len(claims.AllowedAuthorizedParties) > 0,
+		oidc.WithValidationRequireAuthorizedParty())
+	opts = slices.AppendIf(opts, len(claims.AllowedAuthorizedParties) > 0,
+		oidc.WithValidationAllowedAuthorizedParties(claims.AllowedAuthorizedParties...))
 
 	return opts
 }
