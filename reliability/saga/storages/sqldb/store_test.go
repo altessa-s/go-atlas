@@ -375,7 +375,7 @@ func TestDeleteTerminal(t *testing.T) {
 			cutoff := base.Add(time.Hour)
 			store, fake := newStore(t, d, func(query string, _ []any) testhelpers.FakeSQLReply {
 				if strings.HasPrefix(query, "SELECT id") {
-					return testhelpers.FakeSQLReply{Columns: []string{"id"}, Rows: [][]driver.Value{{"a"}, {"b"}}}
+					return testhelpers.FakeSQLReply{Columns: []string{"id", "version"}, Rows: [][]driver.Value{{"a", int64(3)}, {"b", int64(4)}}}
 				}
 				return testhelpers.FakeSQLReply{Affected: 2}
 			})
@@ -392,8 +392,11 @@ func TestDeleteTerminal(t *testing.T) {
 			require.Contains(t, calls[0].Query, "LIMIT")
 			require.Contains(t, calls[1].Query, "DELETE FROM")
 			require.Contains(t, calls[1].Query, "status IN (")
-			require.Contains(t, calls[1].Query, "id IN (")
-			require.Len(t, calls[1].Args, 5, "three statuses and two ids")
+			require.Contains(t, calls[1].Query, "updated_at <")
+			require.Contains(t, calls[1].Query, "definition =")
+			require.Contains(t, calls[1].Query, "id = ")
+			require.Contains(t, calls[1].Query, "version = ")
+			require.Len(t, calls[1].Args, 9, "three statuses, the cutoff, the definition and two id and version pairs")
 		})
 	}
 }

@@ -187,10 +187,11 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	}
 
 	terminal := inst.Status.IsTerminal()
-	if !terminal {
-		if err = s.putIndex(ctx, key); err != nil {
-			return err
-		}
+	var marker jetstream.KeyValueEntry // Observed before the write; guards its removal.
+	if terminal {
+		marker = s.observeIndex(ctx, key)
+	} else if err = s.putIndex(ctx, key); err != nil {
+		return err
 	}
 	rev, err := s.KV().Update(ctx, key, data, versionToRev(inst.Version))
 	if err != nil {
@@ -212,9 +213,21 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 
 	inst.Version = revToVersion(rev)
 	if terminal {
-		_ = s.KV().Delete(ctx, indexPrefix+key) // Best effort: a dangling index key is dropped by the scan.
+		s.dropIndex(ctx, marker) // Best effort: a dangling index key is dropped by the scan.
 	}
 	return nil
+}
+
+// observeIndex reads the recoverable-index key of the instance with physical key
+// key, or returns nil when there is none or it cannot be read. A removal guarded
+// by the observed revision never deletes a key a concurrent Create has written
+// since.
+func (s *Store) observeIndex(ctx context.Context, key string) jetstream.KeyValueEntry {
+	entry, err := s.KV().Get(ctx, indexPrefix+key)
+	if err != nil {
+		return nil
+	}
+	return entry
 }
 
 // putIndex records the instance with physical key key in the recoverable index.
@@ -239,41 +252,17 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 		}
 		return nil, coreerrs.WrapOperation(err, "list saga index in NATS")
 	}
-	defer func() { _ = lister.Stop() }()
+	defer closeLister(lister)
 
 	var out []*saga.Instance
 	for indexKey := range lister.Keys() {
-		// The index entry is read first: its revision guards the delete below.
-		idx, err := s.KV().Get(ctx, indexKey)
+		inst, candidate, err := s.examine(ctx, indexKey, definition, now)
 		if err != nil {
-			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				continue
-			}
-			return nil, coreerrs.WrapOperation(err, "get saga index key during scan")
+			return nil, err
 		}
-		entry, err := s.KV().Get(ctx, strings.TrimPrefix(indexKey, indexPrefix))
-		if err != nil {
-			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				if time.Since(idx.Created()) >= indexGrace {
-					s.dropIndex(ctx, idx)
-				}
-				continue
-			}
-			return nil, coreerrs.WrapOperation(err, "get saga instance during scan")
-		}
-
-		inst, err := decodeEntry(entry)
-		if err != nil {
-			continue // Skipped: one corrupt record must not stop the scan.
-		}
-		if inst.Status.IsTerminal() {
-			s.dropIndex(ctx, idx)
+		if !candidate {
 			continue
 		}
-		if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
-			continue
-		}
-
 		out = append(out, inst)
 		if limit > 0 && len(out) >= limit {
 			break
@@ -282,9 +271,68 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 	return out, nil
 }
 
+// examine resolves one recoverable-index key during a scan. It returns the
+// instance when it is a recovery candidate, a Corrupt stub when its record
+// cannot be decoded, and nil when the key is not a candidate (terminal, leased,
+// another definition, or dangling; dangling and terminal keys are dropped).
+func (s *Store) examine(ctx context.Context, indexKey, definition string, now time.Time) (inst *saga.Instance, candidate bool, err error) {
+	// The index entry is read first: its revision guards the delete below.
+	idx, err := s.KV().Get(ctx, indexKey)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, coreerrs.WrapOperation(err, "get saga index key during scan")
+	}
+	physical := strings.TrimPrefix(indexKey, indexPrefix)
+	entry, err := s.KV().Get(ctx, physical)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			if time.Since(idx.Created()) >= indexGrace {
+				s.dropIndex(ctx, idx)
+			}
+			return nil, false, nil
+		}
+		return nil, false, coreerrs.WrapOperation(err, "get saga instance during scan")
+	}
+
+	inst, err = decodeEntry(entry)
+	if err != nil {
+		// Reported as a stub the orchestrator quarantines under a revision-checked
+		// Update, so one bad record neither stops the scan nor is read again.
+		id, derr := natskey.Decode(physical)
+		if derr != nil {
+			return nil, false, nil
+		}
+		return &saga.Instance{ID: id, Version: revToVersion(entry.Revision()), Corrupt: true}, true, nil
+	}
+	if inst.Status.IsTerminal() {
+		s.dropIndex(ctx, idx)
+		return nil, false, nil
+	}
+	if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
+		return nil, false, nil
+	}
+	return inst, true, nil
+}
+
+// closeLister releases a key lister on every exit. Stop only ends the watcher;
+// when the caller stopped reading early the producer can be blocked sending to
+// the lister's full channel, so the rest is drained until the lister closes it.
+func closeLister(l jetstream.KeyLister) {
+	_ = l.Stop()
+	go func() {
+		for range l.Keys() { //nolint:revive // Drained to release the producer.
+		}
+	}()
+}
+
 // dropIndex deletes a recoverable-index key only if it is unchanged since it
 // was read, so a concurrent re-index of the instance wins.
 func (s *Store) dropIndex(ctx context.Context, idx jetstream.KeyValueEntry) {
+	if idx == nil {
+		return
+	}
 	_ = s.KV().Delete(ctx, idx.Key(), jetstream.LastRevision(idx.Revision())) // Best effort.
 }
 
@@ -302,7 +350,7 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 		}
 		return 0, coreerrs.WrapOperation(err, "list saga keys in NATS")
 	}
-	defer func() { _ = lister.Stop() }()
+	defer closeLister(lister)
 
 	deleted := 0
 	for key := range lister.Keys() {
@@ -345,15 +393,16 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
+	marker := s.observeIndex(ctx, key)
 	if err := s.KV().Delete(ctx, key); err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil
 		}
 		return coreerrs.WrapOperation(classifyKeyError(err), "delete saga instance from NATS")
 	}
-	if err := s.KV().Delete(ctx, indexPrefix+key); err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return coreerrs.WrapOperation(classifyKeyError(err), "delete saga index key from NATS")
-	}
+	// Guarded by the marker revision observed before the delete: a Create of the
+	// same ID that wrote a new marker since keeps it.
+	s.dropIndex(ctx, marker)
 	return nil
 }
 

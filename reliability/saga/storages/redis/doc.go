@@ -23,6 +23,9 @@
 // pages the same way. All writes keep both indexes consistent with the instance
 // hash atomically.
 //
+// Scores are Unix milliseconds. With a TTL, every terminal write also drops the
+// terminal-index entries older than the TTL, whose hashes have expired.
+//
 // # Cluster
 //
 // Every write is one script over the instance hash and both indexes, so on Redis

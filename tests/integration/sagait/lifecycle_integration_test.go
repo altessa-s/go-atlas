@@ -113,7 +113,7 @@ func TestRetentionCycleDeletesTerminalInstances(t *testing.T) {
 			t.Parallel()
 			var runs atomic.Int32
 			store := newStore(t)
-			orch := saga.New(store, countingDef("retain", &runs), saga.WithRetention(time.Second), saga.WithRetentionBatchSize(2))
+			orch := saga.New(store, countingDef("retain", &runs), saga.WithRetention(time.Hour), saga.WithRetentionBatchSize(2))
 			for _, id := range []string{"a", "b", "c"} {
 				_, err := orch.Start(t.Context(), id, order{})
 				require.NoError(t, err)
@@ -121,8 +121,18 @@ func TestRetentionCycleDeletesTerminalInstances(t *testing.T) {
 			require.NoError(t, store.Create(t.Context(), &saga.Instance{
 				ID: "live", Definition: "retain", Status: saga.StatusCompensating, UpdatedAt: time.Now(),
 			}))
+			// A finished saga of another definition in the same store is never touched.
+			require.NoError(t, store.Create(t.Context(), &saga.Instance{
+				ID: "other", Definition: "other-saga", Status: saga.StatusCompleted, UpdatedAt: time.Now().Add(-3 * time.Hour),
+			}))
 
-			time.Sleep(2500 * time.Millisecond) // Past the window at the coarsest backend granularity.
+			// Age the finished sagas past the window.
+			for _, id := range []string{"a", "b", "c"} {
+				inst, err := store.Get(t.Context(), id)
+				require.NoError(t, err)
+				inst.UpdatedAt = time.Now().Add(-2 * time.Hour)
+				require.NoError(t, store.Update(t.Context(), inst))
+			}
 			require.NoError(t, orch.RunRetentionCycle(t.Context()))
 
 			for _, id := range []string{"a", "b", "c"} {
@@ -131,6 +141,14 @@ func TestRetentionCycleDeletesTerminalInstances(t *testing.T) {
 			}
 			_, err := store.Get(t.Context(), "live")
 			require.NoError(t, err)
+			_, err = store.Get(t.Context(), "other")
+			require.NoError(t, err, "another definition's history must survive")
+
+			// The id is free again: Start runs the saga anew (documented).
+			runs.Store(0)
+			_, err = orch.Start(t.Context(), "a", order{})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, runs.Load())
 		})
 	}
 }

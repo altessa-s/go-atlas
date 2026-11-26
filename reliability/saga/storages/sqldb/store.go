@@ -106,7 +106,7 @@ func (s *Store) buildStatements() statements {
 		" AND (status = ? OR lease_owner <> '' OR (deadline <> 0 AND deadline <= ?))"
 	const order = " ORDER BY status, lease_until"
 	recoverableDef := recoverable + " AND definition = ?"
-	terminal := "SELECT id FROM " + t + " WHERE status IN (?, ?, ?) AND updated_at < ?"
+	terminal := "SELECT id, version FROM " + t + " WHERE status IN (?, ?, ?) AND updated_at < ?"
 	return statements{
 		terminalIDs:    b(terminal+" LIMIT ?", 1),
 		terminalIDsDef: b(terminal+" AND definition = ? LIMIT ?", 1),
@@ -275,17 +275,27 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 		if definition != "" {
 			query, args = s.stmts.terminalIDsDef, append(args, s.dialect.textArg(definition))
 		}
-		ids, err := s.selectIDs(ctx, query, append(args, batch))
+		rows, err := s.selectTerminal(ctx, query, append(args, batch))
 		if err != nil {
 			return deleted, err
 		}
-		if len(ids) == 0 {
+		if len(rows) == 0 {
 			break
 		}
-		// The status guard keeps a row that was rewritten since the select.
-		marks := strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")
-		del := s.dialect.Bind("DELETE FROM "+s.table+" WHERE status IN (?, ?, ?) AND id IN ("+marks+")", 1)
-		res, err := s.db.ExecContext(ctx, del, append(slices.Clone(terminal), ids...)...)
+		// The delete rechecks every eligibility predicate and the observed version,
+		// so a row replaced since the select (same id, new record) is kept.
+		cond := strings.TrimSuffix(strings.Repeat("(id = ? AND version = ?) OR ", len(rows)), " OR ")
+		delQuery := "DELETE FROM " + s.table + " WHERE status IN (?, ?, ?) AND updated_at < ?"
+		delArgs := append(slices.Clone(terminal), unixNano(olderThan))
+		if definition != "" {
+			delQuery += " AND definition = ?"
+			delArgs = append(delArgs, s.dialect.textArg(definition))
+		}
+		delQuery += " AND (" + cond + ")"
+		for _, r := range rows {
+			delArgs = append(delArgs, s.dialect.textArg(r.id), r.version)
+		}
+		res, err := s.db.ExecContext(ctx, s.dialect.Bind(delQuery, 1), delArgs...)
 		if err != nil {
 			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from SQL")
 		}
@@ -294,33 +304,38 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from SQL")
 		}
 		deleted += int(n)
-		if len(ids) < batch {
+		if len(rows) < batch || n == 0 {
 			break
 		}
 	}
 	return deleted, nil
 }
 
-// selectIDs runs a query selecting one id column and returns the ids as bound
-// arguments for the dialect.
-func (s *Store) selectIDs(ctx context.Context, query string, args []any) ([]any, error) {
+// terminalRow is a candidate of a retention batch: the row as it was read.
+type terminalRow struct {
+	id      string
+	version int64
+}
+
+// selectTerminal runs a query selecting id and version of terminal rows.
+func (s *Store) selectTerminal(ctx context.Context, query string, args []any) ([]terminalRow, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "select terminal saga instances from SQL")
 	}
 	defer func() { _ = rows.Close() }()
-	var ids []any
+	var out []terminalRow
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, coreerrs.WrapOperation(err, "decode terminal saga instance id from SQL")
+		var r terminalRow
+		if err := rows.Scan(&r.id, &r.version); err != nil {
+			return nil, coreerrs.WrapOperation(err, "decode terminal saga instance from SQL")
 		}
-		ids = append(ids, s.dialect.textArg(id))
+		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, coreerrs.WrapOperation(err, "select terminal saga instances from SQL")
 	}
-	return ids, nil
+	return out, nil
 }
 
 // exists reports whether a row with the given ID is stored.

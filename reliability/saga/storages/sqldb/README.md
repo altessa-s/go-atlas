@@ -44,7 +44,8 @@ the optimistic-concurrency token, so `Update` rejects a stale writer with `errs.
 Timestamps are `BIGINT` Unix nanoseconds (`0` for the zero time), so `LeaseUntil` round-trips at full precision. `pending_steps` and `steps` hold JSON,
 `data` the opaque payload. On MySQL/MariaDB every string column is a binary type (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`), so IDs compare byte-wise
 whatever the server's character set; on PostgreSQL the ID is `VARCHAR(255) COLLATE "C"`. Three indexes back the recovery scan and retention: `(status, lease_until)`,
-`(status, deadline)` and `(status, updated_at)`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
+`(status, deadline)` and `(status, updated_at)`. A MySQL or MariaDB table created before `(status, updated_at)` needs it added by hand (`CREATE INDEX
+<table>_terminal_idx ON <table> (status, updated_at)`), because `EnsureSchema` is `CREATE TABLE IF NOT EXISTS`; PostgreSQL gets it from `EnsureSchema`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
 
 ## Usage
 

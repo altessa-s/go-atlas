@@ -47,9 +47,12 @@
 //   - A step that started but ended with a context error (canceled sibling, step
 //     timeout) has an unknown outcome and is compensated; a step that never
 //     started is not.
+//   - Quarantine is destructive (no compensation of committed stages): roll
+//     definition and payload changes out compatibly across a rolling deploy.
 //   - Retention ([WithRetention], [Orchestrator.RunRetentionCycle]) deletes
 //     terminal instances a configured time after their last update; it is off by
-//     default.
+//     default. It also deletes the idempotency record of the ID, so a later
+//     Start with a retained-and-deleted ID runs the saga again.
 //
 // Step actions and compensations must be idempotent: on interruption a step may
 // run again when the instance is resumed.

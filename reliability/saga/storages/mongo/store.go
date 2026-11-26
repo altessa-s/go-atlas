@@ -7,6 +7,7 @@ package mongo
 import (
 	"context"
 	"errors"
+	"maps"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -226,12 +227,13 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 			batch = min(batch, limit-deleted)
 		}
 		cursor, err := s.collection.Find(ctx, filter,
-			mongoOptions.Find().SetProjection(bson.M{collectionFieldId: 1}).SetLimit(int64(batch)))
+			mongoOptions.Find().SetProjection(bson.M{collectionFieldId: 1, collectionFieldVersion: 1}).SetLimit(int64(batch)))
 		if err != nil {
 			return deleted, coreerrs.WrapOperation(err, "find terminal saga instances in MongoDB")
 		}
 		var docs []struct {
-			ID string `bson:"_id"`
+			ID      string `bson:"_id"`
+			Version int64  `bson:"version"`
 		}
 		err = cursor.All(ctx, &docs)
 		if err != nil {
@@ -240,19 +242,21 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 		if len(docs) == 0 {
 			break
 		}
-		ids := make(bson.A, len(docs))
+		// Every eligibility predicate is rechecked with the observed version, so a
+		// document replaced since the find (same _id, new record) is kept.
+		candidates := make(bson.A, len(docs))
 		for i, d := range docs {
-			ids[i] = d.ID
+			candidates[i] = bson.M{collectionFieldId: d.ID, collectionFieldVersion: d.Version}
 		}
-		res, err := s.collection.DeleteMany(ctx, bson.M{
-			collectionFieldId:     bson.M{opIn: ids},
-			collectionFieldStatus: bson.M{opIn: terminalStatuses()},
-		})
+		deleteFilter := bson.M{}
+		maps.Copy(deleteFilter, filter)
+		deleteFilter["$or"] = candidates
+		res, err := s.collection.DeleteMany(ctx, deleteFilter)
 		if err != nil {
 			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from MongoDB")
 		}
 		deleted += int(res.DeletedCount)
-		if len(docs) < batch {
+		if len(docs) < batch || res.DeletedCount == 0 {
 			break
 		}
 	}

@@ -55,7 +55,9 @@ skipped and logged by class. All writes keep the index consistent with the insta
 Terminal instances are removed by the orchestrator's retention cycle (`saga.WithRetention`), which calls `DeleteTerminal` (paged over the terminal
 index), or by `Store.Delete`. With the default `WithTTL(0)` they otherwise persist; a positive `WithTTL` makes a terminal instance expire on its
 terminal write while a live instance never expires. (The NATS backend differs: its bucket carries a long backstop TTL by default.) The recoverable index scores
-deadlines in Unix seconds, so recovery eligibility is evaluated at one-second granularity.
+deadlines and lease expiries in Unix milliseconds, so a lease released within a second is recoverable at once. With a TTL every terminal write also
+drops the terminal-index entries older than the TTL (their hashes have expired), so a TTL-only deployment's index stays bounded. Terminal instances
+written before the terminal index existed are not in it and are never reaped by retention.
 
 ## See also
 

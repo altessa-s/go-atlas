@@ -24,6 +24,13 @@ marks an instance it can never run (undecodable payload, cursor outside the defi
 hook. A step that started but ended with a context error (canceled sibling, step timeout) has an unknown outcome and is compensated. Terminal instances
 stay until `WithRetention` is set; then `RunRetentionCycle` (or the scheduled task from `RegisterRetention`) deletes them via `Storage.DeleteTerminal`.
 
+Quarantine is destructive: a failed instance keeps its committed stages without compensation. Change a definition or its payload type compatibly across
+a rolling deploy, because a node on the old version quarantines instances the new one wrote once their lease expires. A stored record a backend cannot
+decode at all (Redis, NATS) is reported by `FetchRecoverable` as a `Corrupt` stub and replaced by a `Failed` instance with a version-checked `Update`.
+Retention deletes the instance and with it the idempotency record of its ID: a later `Start` with a retained-and-deleted ID runs the saga again. It needs
+a named definition (`ErrEmptyDefinitionName`), and its task ID must differ from the recovery task ID (`ErrTaskIDCollision`); `RegisterTasks` installs both
+all or nothing.
+
 Storage implementations can return `ErrInvalidStorageKey` when they cannot represent an instance ID. Command consumers can then stop retrying that ID.
 
 ## Status lifecycle

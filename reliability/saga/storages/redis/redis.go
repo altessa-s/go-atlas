@@ -25,7 +25,8 @@ import (
 
 // Hash field names and key suffixes used by the store.
 const (
-	hashFieldData    = "d" // serialized saga.Instance JSON; the 'v' version field is read only from Lua
+	hashFieldData    = "d" // serialized saga.Instance JSON
+	hashFieldVersion = "v" // version, the compare-and-set token
 	instanceKeyTag   = "i:"
 	recoverableIndex = "index:recoverable"
 	terminalIndex    = "index:terminal"
@@ -42,13 +43,15 @@ var ErrInvalidID = errors.New("saga instance id is not valid UTF-8")
 //
 // KEYS[1]=instance hash, KEYS[2]=recoverable ZSET, KEYS[3]=terminal ZSET.
 // ARGV: 1=json, 2=version, 3=score, 4=member(id), 5=indexed('1'/'0'), 6=ttlMs,
-// 7=terminal('1'/'0'), 8=terminalScore.
+// 7=terminal('1'/'0'), 8=terminalScore, 9=trimBefore (terminal-index entries
+// scored below it belong to expired hashes and are dropped; 0 = none).
 var createScript = redis.NewScript(`
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
 redis.call('HSET', KEYS[1], 'd', ARGV[1], 'v', ARGV[2])
 if ARGV[7] == '1' then
   if tonumber(ARGV[6]) > 0 then redis.call('PEXPIRE', KEYS[1], ARGV[6]) end
   redis.call('ZADD', KEYS[3], ARGV[8], ARGV[4])
+  if tonumber(ARGV[9]) > 0 then redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', '(' .. ARGV[9]) end
 end
 if ARGV[5] == '1' then redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
 else redis.call('ZREM', KEYS[2], ARGV[4]) end
@@ -63,7 +66,7 @@ return 1
 // KEYS[1]=instance hash, KEYS[2]=recoverable ZSET, KEYS[3]=terminal ZSET.
 // ARGV: 1=expectedVersion, 2=json, 3=newVersion, 4=score, 5=member(id),
 //
-//	6=indexed('1'/'0'), 7=ttlMs, 8=terminal('1'/'0'), 9=terminalScore.
+//	6=indexed('1'/'0'), 7=ttlMs, 8=terminal('1'/'0'), 9=terminalScore, 10=trimBefore.
 var updateScript = redis.NewScript(`
 local v = redis.call('HGET', KEYS[1], 'v')
 if not v then return -1 end
@@ -72,6 +75,7 @@ redis.call('HSET', KEYS[1], 'd', ARGV[2], 'v', ARGV[3])
 if ARGV[8] == '1' then
   if tonumber(ARGV[7]) > 0 then redis.call('PEXPIRE', KEYS[1], ARGV[7]) end
   redis.call('ZADD', KEYS[3], ARGV[9], ARGV[5])
+  if tonumber(ARGV[10]) > 0 then redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', '(' .. ARGV[10]) end
 else
   redis.call('PERSIST', KEYS[1])
 end
@@ -85,6 +89,29 @@ return 1
 // KEYS[1]=instance hash, KEYS[2]=recoverable ZSET, KEYS[3]=terminal ZSET.
 // ARGV[1]=member(id).
 var deleteScript = redis.NewScript(`
+redis.call('DEL', KEYS[1])
+redis.call('ZREM', KEYS[2], ARGV[1])
+redis.call('ZREM', KEYS[3], ARGV[1])
+return 1
+`)
+
+// deleteEligibleScript removes an instance for retention only while it is still
+// the record the caller examined: listed in the terminal index below the cutoff,
+// at the observed version and, when given, of the definition. Returns 1 when it
+// deleted, 0 otherwise.
+//
+// KEYS[1]=instance hash, KEYS[2]=recoverable ZSET, KEYS[3]=terminal ZSET.
+// ARGV: 1=member(id), 2=version, 3=cutoff (exclusive), 4=definition (” = any).
+var deleteEligibleScript = redis.NewScript(`
+local score = redis.call('ZSCORE', KEYS[3], ARGV[1])
+if not score or tonumber(score) >= tonumber(ARGV[3]) then return 0 end
+local v = redis.call('HGET', KEYS[1], 'v')
+if not v or tonumber(v) ~= tonumber(ARGV[2]) then return 0 end
+if ARGV[4] ~= '' then
+  local d = redis.call('HGET', KEYS[1], 'd')
+  local ok, inst = pcall(cjson.decode, d)
+  if not ok or type(inst) ~= 'table' or inst.definition ~= ARGV[4] then return 0 end
+end
 redis.call('DEL', KEYS[1])
 redis.call('ZREM', KEYS[2], ARGV[1])
 redis.call('ZREM', KEYS[3], ARGV[1])
@@ -169,7 +196,7 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 
 	res, err := createScript.Run(ctx, s.Client(),
 		[]string{s.instanceKey(inst.ID), s.indexKey(), s.terminalKey()},
-		data, inst.Version, score, inst.ID, boolArg(indexed), s.ttlMs(), terminal, terminalScore,
+		data, inst.Version, score, inst.ID, boolArg(indexed), s.ttlMs(), terminal, terminalScore, s.trimBefore(),
 	).Int64()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "create saga instance in Redis")
@@ -219,7 +246,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 
 	res, err := updateScript.Run(ctx, s.Client(),
 		[]string{s.instanceKey(inst.ID), s.indexKey(), s.terminalKey()},
-		inst.Version, data, newVersion, score, inst.ID, boolArg(indexed), s.ttlMs(), terminal, terminalScore,
+		inst.Version, data, newVersion, score, inst.ID, boolArg(indexed), s.ttlMs(), terminal, terminalScore, s.trimBefore(),
 	).Int64()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "update saga instance in Redis")
@@ -241,32 +268,58 @@ const pageSize = 64
 // member is an index entry: an instance ID and its score, as Redis rendered it.
 type member struct{ id, score string }
 
-// pageScript reads the next page of a sorted set after a cursor. The cursor is
-// the last member the caller saw, so entries removed before it between pages
-// do not shift the scan (an offset would). When the cursor member itself is
-// gone, the page restarts at its score; the caller drops repeats.
+// pageScript reads the next page of a sorted set strictly after a cursor. The
+// cursor is the last (score, member) the caller saw, so entries removed before
+// it between pages do not shift the scan (an offset would). When the cursor
+// member itself is gone, the scan continues after its score and byte position
+// among tied members, the order Redis keeps them in, so it always moves forward.
 //
 // KEYS[1]=ZSET. ARGV: 1=max score, 2=exclusive('1'/'0'), 3=cursor member (” for
 // the first page), 4=cursor score, 5=count. Returns member, score pairs.
 var pageScript = redis.NewScript(`
+local function le(a, b)
+  local n = math.min(#a, #b)
+  for i = 1, n do
+    local x, y = string.byte(a, i), string.byte(b, i)
+    if x ~= y then return x < y end
+  end
+  return #a <= #b
+end
 local max = ARGV[1]
-if ARGV[2] == '1' then max = '(' .. max end
+local exclusive = ARGV[2] == '1'
+local range = max
+if exclusive then range = '(' .. max end
 local count = tonumber(ARGV[5])
 if ARGV[3] == '' then
-  return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', max, 'WITHSCORES', 'LIMIT', 0, count)
+  return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', range, 'WITHSCORES', 'LIMIT', 0, count)
 end
-local rank = redis.call('ZRANK', KEYS[1], ARGV[3])
-if not rank then
-  return redis.call('ZRANGEBYSCORE', KEYS[1], ARGV[4], max, 'WITHSCORES', 'LIMIT', 0, count)
-end
-local limit = tonumber(ARGV[1])
 local out = {}
-local r = redis.call('ZRANGE', KEYS[1], rank + 1, rank + count, 'WITHSCORES')
-for i = 1, #r, 2 do
-  local score = tonumber(r[i + 1])
-  if score > limit or (ARGV[2] == '1' and score == limit) then break end
-  out[#out + 1] = r[i]
-  out[#out + 1] = r[i + 1]
+local rank = redis.call('ZRANK', KEYS[1], ARGV[3])
+if rank then
+  local limit = tonumber(max)
+  local r = redis.call('ZRANGE', KEYS[1], rank + 1, rank + count, 'WITHSCORES')
+  for i = 1, #r, 2 do
+    local score = tonumber(r[i + 1])
+    if score > limit or (exclusive and score == limit) then break end
+    out[#out + 1] = r[i]
+    out[#out + 1] = r[i + 1]
+  end
+  return out
+end
+local cursorScore = tonumber(ARGV[4])
+local n, offset = 0, 0
+while n < count do
+  local r = redis.call('ZRANGEBYSCORE', KEYS[1], ARGV[4], range, 'WITHSCORES', 'LIMIT', offset, 128)
+  if #r == 0 then break end
+  for i = 1, #r, 2 do
+    if not (tonumber(r[i + 1]) == cursorScore and le(r[i], ARGV[3])) then
+      out[#out + 1] = r[i]
+      out[#out + 1] = r[i + 1]
+      n = n + 1
+      if n == count then break end
+    end
+  end
+  offset = offset + #r / 2
 end
 return out
 `)
@@ -307,28 +360,23 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 		out   []*saga.Instance
 		stale []string
 		after member
-		seen  = map[string]struct{}{}
 	)
 	for {
-		members, err := s.page(ctx, s.indexKey(), now.Unix(), false, after, count)
+		members, err := s.page(ctx, s.indexKey(), now.UnixMilli(), false, after, count)
 		if err != nil {
 			return nil, err
 		}
-		fresh := members[:0:0]
-		for _, m := range members {
-			if _, dup := seen[m.id]; !dup {
-				seen[m.id] = struct{}{}
-				fresh = append(fresh, m)
-			}
-		}
-		insts, gone, err := s.loadInstances(ctx, fresh)
+		insts, gone, err := s.loadInstances(ctx, members)
 		if err != nil {
 			return nil, err
 		}
 		stale = append(stale, gone...)
 
 		for _, inst := range insts {
-			if inst == nil || (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
+			if inst == nil {
+				continue
+			}
+			if !inst.Corrupt && ((definition != "" && inst.Definition != definition) || !inst.Recoverable(now)) {
 				continue
 			}
 			out = append(out, inst)
@@ -336,7 +384,7 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 				break
 			}
 		}
-		if (limit > 0 && len(out) == limit) || len(members) < count || len(fresh) == 0 {
+		if (limit > 0 && len(out) == limit) || len(members) < count {
 			break
 		}
 		after = members[len(members)-1]
@@ -365,36 +413,43 @@ return 1
 
 // loadInstances reads and decodes the instances for members in one pipeline.
 // The result is aligned with members; an entry is nil when its instance key no
-// longer exists (its id is also returned in gone) or its record is undecodable
-// (logged by class).
+// longer exists (its id is also returned in gone). A record that cannot be
+// decoded is returned as a stub with Corrupt set and the stored version, which
+// the orchestrator quarantines, and is logged by class.
 func (s *Store) loadInstances(ctx context.Context, members []member) (insts []*saga.Instance, gone []string, err error) {
 	if len(members) == 0 {
 		return nil, nil, nil
 	}
 
 	pipe := s.Client().Pipeline()
-	cmds := make([]*redis.StringCmd, len(members))
+	cmds := make([]*redis.SliceCmd, len(members))
 	for i, m := range members {
-		cmds[i] = pipe.HGet(ctx, s.instanceKey(m.id), hashFieldData)
+		cmds[i] = pipe.HMGet(ctx, s.instanceKey(m.id), hashFieldData, hashFieldVersion)
 	}
-	// Exec returns the first command error (including redis.Nil); each command
-	// is inspected individually below, so its aggregate error is ignored here.
+	// Exec returns the first command error; each command is inspected
+	// individually below, so its aggregate error is ignored here.
 	_, _ = pipe.Exec(ctx)
 
 	insts = make([]*saga.Instance, len(members))
 	for i, cmd := range cmds {
-		data, cErr := cmd.Bytes()
+		vals, cErr := cmd.Result()
 		if cErr != nil {
-			if errors.Is(cErr, redis.Nil) {
-				gone = append(gone, members[i].id) // Key gone since it was indexed.
-				continue
-			}
 			return nil, nil, coreerrs.WrapOperation(cErr, "read saga instance from Redis")
 		}
-		inst, dErr := decodeInstance(data)
+		raw, ok := vals[0].(string)
+		if !ok {
+			gone = append(gone, members[i].id) // Key gone since it was indexed.
+			continue
+		}
+		inst, dErr := decodeInstance([]byte(raw))
 		if dErr != nil {
-			s.opts.logger.WarnContext(ctx, "saga: skipping undecodable instance record",
-				slog.String("class", "undecodable instance record"), slog.Int("bytes", len(data)))
+			var version int64
+			if v, ok := vals[1].(string); ok {
+				version, _ = strconv.ParseInt(v, 10, 64)
+			}
+			s.opts.logger.WarnContext(ctx, "saga: undecodable instance record",
+				slog.String("class", "undecodable instance record"), slog.Int("bytes", len(raw)))
+			insts[i] = &saga.Instance{ID: members[i].id, Version: version, Corrupt: true}
 			continue
 		}
 		insts[i] = inst
@@ -444,13 +499,22 @@ func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan
 		stale = append(stale, gone...)
 
 		for i, inst := range insts {
-			match := inst != nil && inst.Status.IsTerminal() && (definition == "" || inst.Definition == definition)
+			match := inst != nil && !inst.Corrupt && inst.Status.IsTerminal() && (definition == "" || inst.Definition == definition)
 			if !match || (limit > 0 && deleted == limit) {
 				after = members[i]
 				continue
 			}
-			if err := s.Delete(ctx, inst.ID); err != nil {
-				return deleted, err
+			// The delete rechecks the cutoff, definition and version atomically, so
+			// a record replaced since it was read is kept.
+			n, err := deleteEligibleScript.Run(ctx, s.Client(),
+				[]string{s.instanceKey(inst.ID), s.indexKey(), s.terminalKey()},
+				inst.ID, inst.Version, olderThan.UnixMilli(), definition).Int64()
+			if err != nil {
+				return deleted, coreerrs.WrapOperation(err, "delete terminal saga instance from Redis")
+			}
+			if n == 0 {
+				after = members[i]
+				continue
 			}
 			deleted++
 		}
@@ -479,6 +543,16 @@ func (s *Store) ttlMs() string {
 	return strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
 }
 
+// trimBefore is the terminal-index score below which an entry belongs to a hash
+// the TTL has already expired, so every terminal write also drops those entries
+// and a TTL-only deployment's index stays bounded. 0 when no TTL is set.
+func (s *Store) trimBefore() int64 {
+	if s.opts.ttl <= 0 {
+		return 0
+	}
+	return time.Now().Add(-s.opts.ttl).UnixMilli()
+}
+
 // recoverScore reports the recoverable-index score for an instance and whether
 // it should be indexed at all. A COMPENSATING instance is always due (score 0);
 // a RUNNING instance with a deadline is due at that deadline; everything else
@@ -488,11 +562,11 @@ func recoverScore(inst *saga.Instance) (score float64, indexed bool) {
 	case inst.Status.IsTerminal():
 		return 0, false
 	case inst.LeaseOwner != "":
-		return float64(inst.LeaseUntil.Unix()) + 1, true
+		return float64(inst.LeaseUntil.UnixMilli()) + 1, true
 	case inst.Status == saga.StatusCompensating:
 		return 0, true
 	case inst.Status == saga.StatusRunning && !inst.Deadline.IsZero():
-		return float64(inst.Deadline.Unix()), true
+		return float64(inst.Deadline.UnixMilli()), true
 	default:
 		return 0, false
 	}

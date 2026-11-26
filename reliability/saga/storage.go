@@ -185,7 +185,7 @@ type Storage interface {
 	// other definitions sharing the store never occupy the batch. An empty
 	// definition returns instances of every definition.
 	//
-	// Durable backends (mongo, redis) persist the deadline as Unix seconds and
+	// Durable backends (mongo) persist the deadline as Unix seconds (redis: milliseconds) and
 	// so compare it at one-second granularity; the in-memory backend uses full
 	// time precision. This only affects sub-second deadlines, which the
 	// minute-scale recovery cadence makes immaterial in practice.
