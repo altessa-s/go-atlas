@@ -37,13 +37,15 @@ the optimistic-concurrency token, so `Update` rejects a stale writer with `errs.
 | `Update`           | `UPDATE … WHERE id = ? AND version = ?`; on no match a lookup tells `ErrInstanceNotFound` from `ErrVersionConflict`.              |
 | `FetchRecoverable` | `SELECT` mirroring `Instance.Recoverable` at full precision against `now`, in `(status, lease_until)` index order: compensating sagas first. |
 | `Delete`           | `DELETE … WHERE id = ?`; a missing row is not an error.                                                                           |
+| `DeleteTerminal`   | Selects terminal ids older than the cutoff in batches (`(status, updated_at)` index), then `DELETE … WHERE status IN (…) AND id IN (…)`. |
 
 ## Schema
 
 Timestamps are `BIGINT` Unix nanoseconds (`0` for the zero time), so `LeaseUntil` round-trips at full precision. `pending_steps` and `steps` hold JSON,
 `data` the opaque payload. On MySQL/MariaDB every string column is a binary type (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`), so IDs compare byte-wise
-whatever the server's character set; on PostgreSQL the ID is `VARCHAR(255) COLLATE "C"`. Two indexes back the recovery scan: `(status, lease_until)` and
-`(status, deadline)`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
+whatever the server's character set; on PostgreSQL the ID is `VARCHAR(255) COLLATE "C"`. Three indexes back the recovery scan and retention: `(status, lease_until)`,
+`(status, deadline)` and `(status, updated_at)`. A MySQL or MariaDB table created before `(status, updated_at)` needs it added by hand (`CREATE INDEX
+<table>_terminal_idx ON <table> (status, updated_at)`), because `EnsureSchema` is `CREATE TABLE IF NOT EXISTS`; PostgreSQL gets it from `EnsureSchema`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
 
 ## Usage
 

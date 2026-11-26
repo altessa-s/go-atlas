@@ -16,9 +16,18 @@
 // Instances are removed explicitly when terminal (via Store.Delete). The bucket
 // also carries a long backstop TTL (see [DefaultBucketTTL]); active sagas reset
 // it on every checkpoint write, and stalled ones are recovered well inside the
-// window. FetchRecoverable scans the whole bucket — adequate for moderate
-// instance counts; very high-volume deployments should prefer a query-capable
-// backend.
+// window.
+//
+// # Recoverable index
+//
+// Live instances are listed in a recoverable index in the same bucket, one
+// "=rec.<key>" entry each ('=' before a non-hex digit never starts an instance
+// key). The entry is written before the instance record on Create and on every
+// non-terminal Update, and removed after the terminal write, so a crash between
+// the two writes leaves at worst a dangling entry (dropped by the scan), never a
+// live instance without an entry. FetchRecoverable reads only the index and the
+// instances it lists, never the terminal backlog. DeleteTerminal has no index and
+// walks the whole bucket, so run retention at a modest cadence.
 //
 // # Usage
 //

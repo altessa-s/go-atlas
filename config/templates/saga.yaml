@@ -48,11 +48,13 @@
 #    # <object> Redis storage configuration (reliability/saga/storages/redis).
 #    # Used when type is set to 'redis'.
 #    redis:
-#      # <string> Prefix prepended to every Redis key.
+#      # <string> Prefix prepended to every Redis key. On Redis Cluster it must
+#      # contain a hash tag such as "{saga}:".
 #      # Default value: saga:
 #      keysPrefix: "saga:"
 #
-#      # <duration> Per-key expiry applied on every write; zero persists forever.
+#      # <duration> Expiry of a terminal instance, applied on its terminal write;
+#      # a live instance never expires. Zero persists forever.
 #      # Default value: 0s (persist)
 #      ttl: "0s"
 #
@@ -129,6 +131,20 @@
 #  # Default value: 100
 #  recoveryBatchSize: 100
 #
-#  # <string> Scheduler task ID for the background recovery cycle.
-#  # Default value: saga-recovery
-#  recoveryTaskID: "saga-recovery"
+#  # <string> Scheduler task ID for the background recovery cycle. Empty derives
+#  # saga-recovery-<definition>, so definitions never share a task.
+#  # Default value: ""
+#  recoveryTaskID: ""
+#
+#  # <duration> How long a terminal instance is kept after its last update
+#  # before the retention cycle deletes it. Zero keeps instances forever.
+#  # Default value: 0s (keep)
+#  retention: "0s"
+#
+#  # <string> Cron expression for the retention cycle.
+#  # Default value: @every 1h
+#  retentionSchedule: "@every 1h"
+#
+#  # <int> Terminal instances one storage call deletes per retention batch.
+#  # Default value: 500
+#  retentionBatchSize: 500

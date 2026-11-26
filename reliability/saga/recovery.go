@@ -29,15 +29,28 @@ var ErrSchedulerManaged = cycle.ErrManaged
 func (o *Orchestrator[T]) RegisterRecovery(ctx context.Context) error {
 	o.registrationMu.Lock()
 	defer o.registrationMu.Unlock()
+	if err := o.validateRetention(); err != nil {
+		return err
+	}
+	return o.registerRecovery(ctx)
+}
+
+// registerRecovery is RegisterRecovery with registrationMu held.
+func (o *Orchestrator[T]) registerRecovery(ctx context.Context) error {
 	if o.recoveryTask.IsManaged() || nilcheck.IsNil(o.scheduler) || o.recoverySchedule == "" {
 		return nil
 	}
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, o.storageTimeout)
 	defer cancel()
 	if err := o.scheduler.Register(ctx, schedtask.Config{
-		ID:             o.recoveryTaskID,
-		Description:    "Resume or roll back stalled and timed-out saga instances",
-		Func:           func(ctx context.Context) error { return o.recoveryTask.TryRun(ctx) },
+		ID:          o.recoveryTaskID,
+		Description: "Resume or roll back stalled and timed-out saga instances",
+		Func: func(ctx context.Context) error {
+			if o.deactivated.Load() {
+				return nil
+			}
+			return o.recoveryTask.TryRun(ctx)
+		},
 		Schedule:       o.recoverySchedule,
 		Priority:       schedtask.PriorityNormal,
 		DisableHistory: true,
@@ -83,7 +96,7 @@ func (o *Orchestrator[T]) runRecoveryCycleInternal(ctx context.Context) error {
 		if err := cycleCtx.Err(); err != nil {
 			return err
 		}
-		if inst.Definition != o.def.name {
+		if !inst.Corrupt && inst.Definition != o.def.name {
 			continue // Belongs to another saga type sharing the store.
 		}
 		o.metrics.recovered.Inc()
@@ -100,7 +113,13 @@ func (o *Orchestrator[T]) runRecoveryCycleInternal(ctx context.Context) error {
 }
 
 // recoverInstance reloads and acquires execution before considering rollback.
+// An instance whose lease is live is another executor's and is left alone before
+// any decode, validation or quarantine, so a node running it with a newer
+// definition is never failed by an older one.
 func (o *Orchestrator[T]) recoverInstance(ctx context.Context, candidate *Instance, _ time.Time) error {
+	if candidate.Corrupt {
+		return o.quarantineCorrupt(ctx, candidate)
+	}
 	inst, err := o.store.Get(ctx, candidate.ID)
 	if err != nil {
 		return err
@@ -108,17 +127,93 @@ func (o *Orchestrator[T]) recoverInstance(ctx context.Context, candidate *Instan
 	if inst.Status.IsTerminal() || inst.Definition != o.def.name {
 		return nil
 	}
+	if inst.LeaseUntil.After(time.Now().UTC()) {
+		return nil // Busy: another executor holds the lease.
+	}
+	observed := inst.Clone()
 	var data T
 	if len(inst.Data) > 0 {
-		if decodeErr := o.serializer.Deserialize(inst.Data, &data); decodeErr != nil {
-			return decodeErr
+		if o.serializer.Deserialize(inst.Data, &data) != nil {
+			return o.quarantine(ctx, inst, "undecodable payload")
 		}
+	}
+	if verr := o.validate(inst); verr != nil {
+		return o.quarantine(ctx, inst, verr.Error())
 	}
 	_, err = o.execute(ctx, inst, &data, true)
 	switch {
 	case err == nil, errors.Is(err, ErrAlreadyTerminal), errors.Is(err, ErrVersionConflict), errors.Is(err, ErrInstanceBusy):
 		return nil
 	default:
+		if _, ok := errors.AsType[*leaseAcquireError](err); ok {
+			o.deferScan(ctx, observed)
+		}
 		return err
 	}
+}
+
+// quarantine moves an instance the orchestrator can never run (undecodable
+// payload, cursor outside the definition) to Failed so it leaves the recovery
+// scan, then fires the dead-letter hook. The write is version-checked against
+// the version recovery read: a concurrent healthy writer wins and the instance
+// is left alone. class is a bounded description; it never carries payload text.
+//
+// Quarantine is destructive: committed stages are not compensated. A fleet that
+// changes a definition or its payload type must roll the change out compatibly,
+// because a node on the old version quarantines instances written by the new
+// one once their lease expires.
+func (o *Orchestrator[T]) quarantine(ctx context.Context, inst *Instance, class string) error {
+	inst.Status = StatusFailed
+	inst.LastError = "saga: quarantined: " + class
+	inst.LeaseOwner = ""
+	inst.LeaseUntil = time.Time{}
+	inst.UpdatedAt = time.Now().UTC()
+	if err := o.store.Update(ctx, inst); err != nil {
+		if errors.Is(err, ErrVersionConflict) {
+			return nil
+		}
+		return err
+	}
+	o.metrics.failed.Inc()
+	o.logger.WarnContext(ctx, "saga: instance quarantined", slog.String("id", inst.ID), slog.String("class", class))
+	o.fireDeadLetter(inst)
+	return nil
+}
+
+// quarantineCorrupt replaces a stored record the backend could not decode, known
+// only by its ID and version, with a Failed instance under a version-checked
+// write, then fires the dead-letter hook. The record's real definition is
+// unknown; it is attributed to this orchestrator's definition.
+func (o *Orchestrator[T]) quarantineCorrupt(ctx context.Context, stub *Instance) error {
+	now := time.Now().UTC()
+	inst := &Instance{
+		ID:         stub.ID,
+		Definition: o.def.name,
+		Status:     StatusFailed,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Version:    stub.Version,
+		LastError:  "saga: quarantined: undecodable storage record",
+	}
+	if err := o.store.Update(ctx, inst); err != nil {
+		if errors.Is(err, ErrVersionConflict) || errors.Is(err, ErrInstanceNotFound) {
+			return nil
+		}
+		return err
+	}
+	o.metrics.failed.Inc()
+	o.logger.WarnContext(ctx, "saga: instance quarantined", slog.String("id", inst.ID), slog.String("class", "undecodable storage record"))
+	o.fireDeadLetter(inst)
+	return nil
+}
+
+// deferScan pushes the lease of an instance whose first lease write failed one
+// grace period forward, so a persistently failing instance leaves the head of
+// the scan instead of starving the instances behind it. observed is the instance
+// as recovery read it before the failed write; the write is checked against its
+// version, so an executor that acquired the instance meanwhile keeps its lease.
+// It is best effort.
+func (o *Orchestrator[T]) deferScan(ctx context.Context, observed *Instance) {
+	observed.LeaseUntil = time.Now().UTC().Add(o.leaseGrace)
+	_ = o.store.Update(ctx, observed)
 }

@@ -71,8 +71,41 @@ func TestBuild_InjectedDependenciesAreWired(t *testing.T) {
 
 	tasks := reg.Tasks()
 	require.Len(t, tasks, 1)
-	require.Equal(t, cfg.RecoveryTaskID, tasks[0].ID)
+	require.Equal(t, saga.RecoveryTaskIDPrefix+"pivot", tasks[0].ID)
 	require.Equal(t, cfg.RecoverySchedule, tasks[0].Schedule)
+}
+
+// Retention registers its own per-definition task only when it is enabled.
+func TestBuild_RetentionRegistration(t *testing.T) {
+	t.Parallel()
+	def := saga.NewDefinition[order]("pivot").
+		Step("a", func(context.Context, *order) error { return nil }).ReadOnly().
+		MustBuild()
+
+	for _, tc := range []struct {
+		name      string
+		retention time.Duration
+		tasks     int
+	}{
+		{"off", 0, 1},
+		{"on", time.Hour, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := sagaconfig.Default()
+			cfg.Retention = tc.retention
+			reg := &testhelpers.MockTaskRegistrar{}
+			_, err := sagafactory.New(&cfg, def).UseScheduler(reg).Build(t.Context())
+			require.NoError(t, err)
+
+			tasks := reg.Tasks()
+			require.Len(t, tasks, tc.tasks)
+			if tc.retention > 0 {
+				_, ok := reg.Task(saga.RetentionTaskIDPrefix + "pivot")
+				require.True(t, ok)
+			}
+		})
+	}
 }
 
 func TestBuild_RecoveryRegistrationFailure(t *testing.T) {

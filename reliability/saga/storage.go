@@ -125,6 +125,12 @@ type Instance struct {
 	Version int64 `json:"version"`
 	// LastError holds the most recent error string for diagnostics.
 	LastError string `json:"last_error,omitempty"`
+
+	// Corrupt is set only on a stub returned by [Storage.FetchRecoverable] for
+	// a stored record the backend could not decode. Only ID and Version are
+	// meaningful; the orchestrator quarantines the record with a version-checked
+	// [Storage.Update] so it leaves the recovery index. It is never persisted.
+	Corrupt bool `json:"-"`
 }
 
 // Clone returns a deep copy of the instance. Storage backends use it to avoid
@@ -169,12 +175,17 @@ type Storage interface {
 	// interrupted compensation. Active leases exclude all candidates. See
 	// Instance.Recoverable. The recovery loop rechecks ownership with CAS.
 	//
+	// A record the backend cannot decode is returned as a stub with
+	// [Instance.Corrupt] set (ID and Version only), not as an error, so one bad
+	// record neither aborts the scan nor is read again after quarantine. A stub
+	// counts toward limit and is not filtered by definition.
+	//
 	// A non-empty definition restricts the result to instances of that saga
 	// definition; the restriction applies before the limit, so instances of
 	// other definitions sharing the store never occupy the batch. An empty
 	// definition returns instances of every definition.
 	//
-	// Durable backends (mongo, redis) persist the deadline as Unix seconds and
+	// Durable backends (mongo) persist the deadline as Unix seconds (redis: milliseconds) and
 	// so compare it at one-second granularity; the in-memory backend uses full
 	// time precision. This only affects sub-second deadlines, which the
 	// minute-scale recovery cadence makes immaterial in practice.
@@ -183,6 +194,15 @@ type Storage interface {
 	// Delete removes a (typically terminal) instance for retention. Deleting a
 	// missing instance is not an error.
 	Delete(ctx context.Context, id string) error
+
+	// DeleteTerminal removes up to limit terminal instances (Completed,
+	// Compensated or Failed) whose UpdatedAt is before olderThan, restricted to
+	// definition when it is non-empty, and returns how many it removed. A
+	// non-positive limit means no cap. Non-terminal instances are never
+	// removed. Durable backends compare UpdatedAt at their stored granularity
+	// (the Mongo backend keeps whole seconds, the Redis backend milliseconds);
+	// an instance within one granule of olderThan may stay for the next call.
+	DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error)
 }
 
 // Recoverable reports whether an instance is eligible for a recovery scan.

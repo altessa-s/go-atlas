@@ -312,7 +312,7 @@ func TestResumeAfterCrash(t *testing.T) {
 	}
 
 	mem := memory.New()
-	flaky := &flakyStore{Storage: mem, failAt: 5} // ownership, then intent/checkpoint per stage; fail checkpoint for b
+	flaky := &flakyStore{Storage: mem, failAt: 4} // intent/checkpoint per stage (the creator holds the lease from Create); fail checkpoint for b
 
 	orch1 := saga.New(flaky, build())
 	inst, err := orch1.Start(t.Context(), "o1", order{})

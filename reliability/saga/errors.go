@@ -55,6 +55,21 @@ var (
 	// added to the builder.
 	ErrEmptyDefinition = errors.New("saga: definition has no steps")
 
+	// ErrDuplicateStepName is reported by Definition.Build when two steps of one
+	// stage share a name. The step name is part of the idempotency key
+	// ([Execution.StepKey]), so same-named steps of a stage would collide.
+	ErrDuplicateStepName = errors.New("saga: duplicate step name in stage")
+
+	// ErrEmptyDefinitionName is returned by Orchestrator.RegisterRetention and
+	// RunRetentionCycle when retention is on for a definition without a name:
+	// stores read an empty definition as "every definition", so the retention
+	// window would apply to the whole shared store.
+	ErrEmptyDefinitionName = errors.New("saga: retention needs a named definition")
+
+	// ErrTaskIDCollision is returned by the Register methods when the recovery
+	// and retention tasks of one orchestrator would share a scheduler task ID.
+	ErrTaskIDCollision = errors.New("saga: recovery and retention task IDs must be distinct")
+
 	// ErrInvalidStorageKey means the store cannot represent this instance ID. Retrying the same ID cannot succeed.
 	ErrInvalidStorageKey = errors.New("saga: invalid storage key")
 

@@ -27,6 +27,7 @@ var contracts = []struct {
 	{"Update", Update},
 	{"ConcurrentUpdate", ConcurrentUpdate},
 	{"Delete", Delete},
+	{"DeleteTerminal", DeleteTerminal},
 	{"Identity", Identity},
 	{"ExactIdentity", ExactIdentity},
 	{"FetchRecoverable", FetchRecoverable},
@@ -329,6 +330,77 @@ func Delete(t *testing.T, store saga.Storage) {
 	require.NoError(t, store.Create(ctx, instance("a", saga.StatusRunning)))
 }
 
+// idCompensating names the live instance of the retention contract.
+const idCompensating = "compensating"
+
+// DeleteTerminal verifies that DeleteTerminal removes only terminal instances
+// last updated before the cutoff, of the requested definition, honors the
+// limit and reports the number removed, and that an empty definition covers
+// every definition.
+//
+//nolint:mnd // Fixed values describe the storage contract.
+func DeleteTerminal(t *testing.T, store saga.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	cutoff := base.Add(time.Hour)
+
+	create := func(id string, status saga.Status, definition string, updated time.Time) {
+		inst := instance(id, status)
+		inst.Definition = definition
+		inst.UpdatedAt = updated
+		require.NoError(t, store.Create(ctx, inst))
+	}
+	exists := func(id string) bool {
+		_, err := store.Get(ctx, id)
+		if err != nil {
+			require.ErrorIs(t, err, saga.ErrInstanceNotFound)
+		}
+		return err == nil
+	}
+
+	create("done", saga.StatusCompleted, "place-order", base)
+	create("undone", saga.StatusCompensated, "place-order", base)
+	create("dead", saga.StatusFailed, "place-order", base)
+	create("fresh", saga.StatusCompleted, "place-order", base.Add(2*time.Hour))
+	create("running", saga.StatusRunning, "place-order", base)
+	create(idCompensating, saga.StatusCompensating, "place-order", base)
+	create("other", saga.StatusCompleted, "ship-order", base)
+
+	n, err := store.DeleteTerminal(ctx, "place-order", cutoff, 0)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
+	for _, id := range []string{"done", "undone", "dead"} {
+		require.False(t, exists(id), id)
+	}
+	for _, id := range []string{"fresh", "running", idCompensating, "other"} {
+		require.True(t, exists(id), id)
+	}
+
+	rec, err := store.FetchRecoverable(ctx, "", base.Add(time.Hour), 0)
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{idCompensating: true}, ids(rec), "deleting terminal instances must not disturb recovery")
+
+	for _, id := range []string{"t1", "t2", "t3"} {
+		create(id, saga.StatusCompleted, "place-order", base)
+	}
+	n, err = store.DeleteTerminal(ctx, "place-order", cutoff, 2)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	n, err = store.DeleteTerminal(ctx, "place-order", cutoff, 2)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	n, err = store.DeleteTerminal(ctx, "place-order", cutoff, 2)
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	n, err = store.DeleteTerminal(ctx, "", cutoff, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.False(t, exists("other"))
+	require.True(t, exists("running"))
+	require.True(t, exists(idCompensating))
+}
+
 // Identity verifies that IDs differing only by case are distinct instances.
 func Identity(t *testing.T, store saga.Storage) {
 	t.Helper()
@@ -381,7 +453,7 @@ func FetchRecoverable(t *testing.T, store saga.Storage) {
 		require.NoError(t, store.Create(ctx, inst), id)
 	}
 
-	create("compensating", saga.StatusCompensating, time.Time{}, "", time.Time{})
+	create(idCompensating, saga.StatusCompensating, time.Time{}, "", time.Time{})
 	create("timed-out", saga.StatusRunning, past, "", time.Time{})
 	create("abandoned", saga.StatusRunning, future, "owner", past)
 	create("zero-lease", saga.StatusRunning, time.Time{}, "owner", time.Time{})
@@ -399,7 +471,7 @@ func FetchRecoverable(t *testing.T, store saga.Storage) {
 	rec, err := store.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 	require.Equal(t, map[string]bool{
-		"compensating": true, "timed-out": true, "abandoned": true, "zero-lease": true, "expired-lease-compensating": true,
+		idCompensating: true, "timed-out": true, "abandoned": true, "zero-lease": true, "expired-lease-compensating": true,
 	}, ids(rec))
 	for _, inst := range rec {
 		require.True(t, inst.Recoverable(now), inst.ID)

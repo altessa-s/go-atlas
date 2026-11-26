@@ -106,6 +106,27 @@ func (s *Store) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// DeleteTerminal removes up to limit terminal instances last updated before
+// olderThan, restricted to definition when it is non-empty. A non-positive
+// limit means no cap.
+func (s *Store) DeleteTerminal(_ context.Context, definition string, olderThan time.Time, limit int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n := 0
+	for id, inst := range s.instances {
+		if limit > 0 && n >= limit {
+			break
+		}
+		if !inst.Status.IsTerminal() || !inst.UpdatedAt.Before(olderThan) || (definition != "" && inst.Definition != definition) {
+			continue
+		}
+		delete(s.instances, id)
+		n++
+	}
+	return n, nil
+}
+
 // Len returns the number of stored instances. It is intended for tests and
 // metrics, not for control flow.
 func (s *Store) Len() int {

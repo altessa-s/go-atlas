@@ -17,6 +17,7 @@ import (
 var indexes = [...]struct{ suffix, columns string }{
 	{"lease", "status, lease_until"},
 	{"deadline", "status, deadline"},
+	{"terminal", "status, updated_at"},
 }
 
 // EnsureSchema creates the instances table and its recovery indexes if they do

@@ -26,7 +26,9 @@ var baseTime = time.Unix(1_700_000_000, 0).UTC()
 func newStore(tb testing.TB) *sagaredis.Store {
 	tb.Helper()
 	client, _ := redistest.RedisClient(tb)
-	return sagaredis.New(client)
+	s, err := sagaredis.New(client)
+	require.NoError(tb, err)
+	return s
 }
 
 func instance(id string, status saga.Status, deadline time.Time) *saga.Instance {
@@ -190,7 +192,8 @@ func (h *removeAfterFirstPipeline) ProcessPipelineHook(next goredis.ProcessPipel
 func TestFetchRecoverableStableUnderConcurrentRemoval(t *testing.T) {
 	t.Parallel()
 	client, mr := redistest.RedisClient(t)
-	s := sagaredis.New(client)
+	s, err := sagaredis.New(client)
+	require.NoError(t, err)
 	ctx := t.Context()
 
 	var first []string

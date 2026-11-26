@@ -19,6 +19,18 @@ checkpoint to a pluggable [`Storage`](./storage.go) after every stage, so an ins
 | `Orchestrator[T]` | Drives a definition over a `Storage`; `Start` runs a new instance, `Resume` continues a persisted one.           |
 | `Instance`        | The persisted state of one execution: status, stage cursor, serialized data, version, deadline.                |
 
+`Start` writes the execution lease in the same call that creates the instance, so a stored instance is always either owned or recoverable. Recovery
+marks an instance it can never run (undecodable payload, cursor outside the definition) `Failed` with a version-checked write and fires the dead-letter
+hook. A step that started but ended with a context error (canceled sibling, step timeout) has an unknown outcome and is compensated. Terminal instances
+stay until `WithRetention` is set; then `RunRetentionCycle` (or the scheduled task from `RegisterRetention`) deletes them via `Storage.DeleteTerminal`.
+
+Quarantine is destructive: a failed instance keeps its committed stages without compensation. Change a definition or its payload type compatibly across
+a rolling deploy, because a node on the old version quarantines instances the new one wrote once their lease expires. A stored record a backend cannot
+decode at all (Redis, NATS) is reported by `FetchRecoverable` as a `Corrupt` stub and replaced by a `Failed` instance with a version-checked `Update`.
+Retention deletes the instance and with it the idempotency record of its ID: a later `Start` with a retained-and-deleted ID runs the saga again. It needs
+a named definition (`ErrEmptyDefinitionName`), and its task ID must differ from the recovery task ID (`ErrTaskIDCollision`); `RegisterTasks` installs both
+all or nothing.
+
 Storage implementations can return `ErrInvalidStorageKey` when they cannot represent an instance ID. Command consumers can then stop retrying that ID.
 
 ## Status lifecycle
@@ -43,7 +55,10 @@ Storage implementations can return `ErrInvalidStorageKey` when they cannot repre
 | `WithScheduler`               | none           | Registers the recovery cycle with a `schedtask.Registrar`.               |
 | `WithRecoverySchedule`        | `@every 1m`    | Cron expression for the scheduled recovery cycle.                                 |
 | `WithRecoveryBatchSize`       | 100            | Max instances processed per recovery cycle.                                       |
-| `WithRecoveryTaskID`          | `saga-recovery` | Scheduler task ID of the recovery cycle.                                         |
+| `WithRecoveryTaskID`          | `saga-recovery-<definition>` | Scheduler task ID of the recovery cycle.                           |
+| `WithRetention`               | 0 (off)        | Keep terminal instances this long after their last update; a positive value enables the retention cycle (`RunRetentionCycle`, `RegisterRetention`). |
+| `WithRetentionSchedule`       | `@every 1h`    | Cron expression for the scheduled retention cycle (task `saga-retention-<definition>`). |
+| `WithRetentionBatchSize`      | 500            | Terminal instances one storage call deletes per retention batch.                  |
 | `WithRecoveryTimeout`         | 5m             | Bounds an entire recovery pass.                                                   |
 | `WithLeaderElector`           | none           | Gates the recovery cycle to the elected leader (e.g. a `*leadelect.Leader`).      |
 | `WithMeter`                   | no-op          | Prometheus metrics collector.                                                     |

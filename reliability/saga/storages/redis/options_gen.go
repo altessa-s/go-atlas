@@ -4,6 +4,7 @@
 package redis
 
 import (
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -33,9 +34,19 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithLogger sets the logger option.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
+
 // WithTTL sets the ttl option.
 //
-// 0 → persist (no expiry); >0 → PEXPIRE applied on every write
+// 0 → persist (no expiry); >0 → a terminal instance expires after ttl, a live one never does
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -49,6 +60,7 @@ func WithTTL(v time.Duration) Option {
 func defaultOptions() *options {
 	return &options{
 		keyPrefix: DefaultKeyPrefix,
+		logger:    slog.New(slog.DiscardHandler),
 	}
 }
 

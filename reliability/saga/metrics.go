@@ -27,6 +27,8 @@ type sagaMetrics struct {
 	recoveryCycles metrics.Counter
 	recovered      metrics.Counter
 
+	retained metrics.Counter
+
 	stageDuration metrics.Timer
 }
 
@@ -85,6 +87,10 @@ func newSagaMetrics(c metrics.Meter) *sagaMetrics {
 		recovered: scoped.MustCounter(metrics.MetricOpts{
 			Name: "recovered_total",
 			Help: "Total number of stalled or timed-out instances picked up by recovery.",
+		}),
+		retained: scoped.MustCounter(metrics.MetricOpts{
+			Name: "retention_deleted_total",
+			Help: "Total number of terminal instances deleted by the retention cycle.",
 		}),
 		stageDuration: scoped.MustTimer(metrics.HistogramOpts{
 			Name: "stage_duration_seconds",

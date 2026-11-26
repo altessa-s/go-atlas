@@ -38,16 +38,17 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	inst := &saga.Instance{ID: "o1", Definition: "d", Status: saga.StatusRunning, Data: []byte(`{"n":1}`)}
 	require.NoError(t, s.Create(ctx, inst))
-	require.Equal(t, int64(1), inst.Version) // first revision
+	require.Positive(t, inst.Version) // the stream sequence of the record
 
 	got, err := s.Get(ctx, "o1")
 	require.NoError(t, err)
 	require.Equal(t, saga.StatusRunning, got.Status)
-	require.Equal(t, int64(1), got.Version)
+	require.Equal(t, inst.Version, got.Version)
 
+	created := got.Version
 	got.Status = saga.StatusCompleted
 	require.NoError(t, s.Update(ctx, got))
-	require.Equal(t, int64(2), got.Version) // revision bumped
+	require.Greater(t, got.Version, created) // revision bumped
 
 	require.NoError(t, s.Delete(ctx, "o1"))
 	_, err = s.Get(ctx, "o1")

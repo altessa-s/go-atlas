@@ -147,6 +147,8 @@ func WithRecoverySchedule[T interface{ string | *string }](v T) Option {
 }
 
 // WithRecoveryTaskID sets the recoveryTaskID option.
+//
+// "" → RecoveryTaskIDPrefix + definition name
 func WithRecoveryTaskID[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		var value string
@@ -175,6 +177,51 @@ func WithRecoveryTimeout(v time.Duration) Option {
 			return
 		}
 		o.recoveryTimeout = v
+	}
+}
+
+// WithRetention sets the retention option.
+//
+// retention is how long a terminal instance is kept after its last update
+// before the retention cycle deletes it; 0 disables retention.
+func WithRetention(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.retention = v
+	}
+}
+
+// WithRetentionBatchSize sets the retentionBatchSize option.
+func WithRetentionBatchSize(v int) Option {
+	return func(o *options) {
+		if v < (1) {
+			return
+		}
+		o.retentionBatchSize = v
+	}
+}
+
+// WithRetentionSchedule sets the retentionSchedule option.
+func WithRetentionSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.retentionSchedule = transformedValue
 	}
 }
 
@@ -290,8 +337,9 @@ func defaultOptions() *options {
 		maxStepAttempts:         DefaultMaxStepAttempts,
 		recoveryBatchSize:       DefaultRecoveryBatchSize,
 		recoverySchedule:        DefaultRecoverySchedule,
-		recoveryTaskID:          DefaultRecoveryTaskID,
 		recoveryTimeout:         DefaultRecoveryTimeout,
+		retentionBatchSize:      DefaultRetentionBatchSize,
+		retentionSchedule:       DefaultRetentionSchedule,
 		serializer:              &serializer.JSON{},
 		stepRetryBaseDelay:      DefaultStepRetryBaseDelay,
 		stepRetryMaxDelay:       DefaultStepRetryMaxDelay,

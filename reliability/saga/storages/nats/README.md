@@ -23,7 +23,9 @@ and state survives process restarts for crash recovery.
 | `Create`           | `KV.Create`; `errs.ErrInstanceExists` on a duplicate ID. Writes the new revision into `Version`. |
 | `Get`              | `errs.ErrInstanceNotFound` when absent; `Version` reflects the current revision.               |
 | `Update`           | Revision-checked `KV.Update`; `errs.ErrVersionConflict` on a stale `Version`, `errs.ErrInstanceNotFound` when gone. |
-| `FetchRecoverable` | Scans every key (NATS KV has no queries) and returns non-terminal instances mid-compensation, past their deadline, or with an expired execution lease. |
+| `FetchRecoverable` | Lists the recoverable index (`=rec.<key>`, one entry per live instance) and returns non-terminal instances mid-compensation, past their deadline, or with an expired execution lease. Terminal and dangling index entries are dropped (revision-checked); an undecodable record is skipped. |
+| `FetchRecoverable` (corrupt) | A record that cannot be decoded is returned as a `Corrupt` stub (ID, revision) for the orchestrator to quarantine with a revision-checked `Update`. |
+| `DeleteTerminal`   | Walks every instance key (NATS KV has no queries) and deletes terminal instances last updated before the cutoff, each with a revision-checked delete. |
 | `Delete`           | Idempotent.                                                                                     |
 
 ## Keys

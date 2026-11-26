@@ -18,6 +18,7 @@ on insert-if-absent creation, the version compare-and-swap of `Update` and the r
 | `Update`                     | Version CAS: success persists and writes the version back; stale → `ErrVersionConflict`, missing → `ErrInstanceNotFound` |
 | `ConcurrentUpdate`           | Exactly one of many concurrent updates from the same version wins                                                        |
 | `Delete`                     | Removes the instance from `Get` and `FetchRecoverable`; a missing ID is not an error                                     |
+| `DeleteTerminal`             | Removes only terminal instances older than the cutoff, of the definition (empty = all), up to the limit; reports the count |
 | `Identity`                   | IDs differing only by case are distinct                                                                                  |
 | `ExactIdentity`              | IDs compare byte for byte: trailing spaces, non-ASCII characters and quotes                                              |
 | `FetchRecoverable`           | The predicate of `Instance.Recoverable`: active leases and terminal instances are excluded                               |

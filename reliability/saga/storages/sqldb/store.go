@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -41,6 +43,7 @@ type statements struct {
 	get, exists, create, update, remove string
 	recoverable, recoverableLimit       string
 	recoverableDef, recoverableDefLimit string
+	terminalIDs, terminalIDsDef         string
 }
 
 var _ saga.Storage = (*Store)(nil)
@@ -103,10 +106,13 @@ func (s *Store) buildStatements() statements {
 		" AND (status = ? OR lease_owner <> '' OR (deadline <> 0 AND deadline <= ?))"
 	const order = " ORDER BY status, lease_until"
 	recoverableDef := recoverable + " AND definition = ?"
+	terminal := "SELECT id, version FROM " + t + " WHERE status IN (?, ?, ?) AND updated_at < ?"
 	return statements{
-		get:    b("SELECT "+columns+" FROM "+t+" WHERE id = ?", 1),
-		exists: b("SELECT 1 FROM "+t+" WHERE id = ?", 1),
-		create: b(create, 1),
+		terminalIDs:    b(terminal+" LIMIT ?", 1),
+		terminalIDsDef: b(terminal+" AND definition = ? LIMIT ?", 1),
+		get:            b("SELECT "+columns+" FROM "+t+" WHERE id = ?", 1),
+		exists:         b("SELECT 1 FROM "+t+" WHERE id = ?", 1),
+		create:         b(create, 1),
 		update: b("UPDATE "+t+" SET definition = ?, status = ?, stage = ?, pending_steps = ?, lease_owner = ?, lease_until = ?,"+
 			" data = ?, steps = ?, created_at = ?, updated_at = ?, deadline = ?, last_error = ?, version = ?"+
 			" WHERE id = ? AND version = ?", 1),
@@ -244,6 +250,92 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return coreerrs.WrapOperation(err, "delete saga instance from SQL")
 	}
 	return nil
+}
+
+// deleteTerminalBatch bounds the ids selected and deleted per round trip.
+const deleteTerminalBatch = 500
+
+// DeleteTerminal removes up to limit terminal instances last updated before
+// olderThan, restricted to definition when it is non-empty, and returns how
+// many it removed. A non-positive limit means no cap. The ids are selected in
+// batches and deleted by id, so no statement depends on DELETE ... LIMIT.
+func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error) {
+	terminal := []any{
+		s.dialect.textArg(string(saga.StatusCompleted)),
+		s.dialect.textArg(string(saga.StatusCompensated)),
+		s.dialect.textArg(string(saga.StatusFailed)),
+	}
+	deleted := 0
+	for limit <= 0 || deleted < limit {
+		batch := deleteTerminalBatch
+		if limit > 0 {
+			batch = min(batch, limit-deleted)
+		}
+		query, args := s.stmts.terminalIDs, append(slices.Clone(terminal), unixNano(olderThan))
+		if definition != "" {
+			query, args = s.stmts.terminalIDsDef, append(args, s.dialect.textArg(definition))
+		}
+		rows, err := s.selectTerminal(ctx, query, append(args, batch))
+		if err != nil {
+			return deleted, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		// The delete rechecks every eligibility predicate and the observed version,
+		// so a row replaced since the select (same id, new record) is kept.
+		cond := strings.TrimSuffix(strings.Repeat("(id = ? AND version = ?) OR ", len(rows)), " OR ")
+		delQuery := "DELETE FROM " + s.table + " WHERE status IN (?, ?, ?) AND updated_at < ?"
+		delArgs := append(slices.Clone(terminal), unixNano(olderThan))
+		if definition != "" {
+			delQuery += " AND definition = ?"
+			delArgs = append(delArgs, s.dialect.textArg(definition))
+		}
+		delQuery += " AND (" + cond + ")"
+		for _, r := range rows {
+			delArgs = append(delArgs, s.dialect.textArg(r.id), r.version)
+		}
+		res, err := s.db.ExecContext(ctx, s.dialect.Bind(delQuery, 1), delArgs...)
+		if err != nil {
+			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from SQL")
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from SQL")
+		}
+		deleted += int(n)
+		if len(rows) < batch || n == 0 {
+			break
+		}
+	}
+	return deleted, nil
+}
+
+// terminalRow is a candidate of a retention batch: the row as it was read.
+type terminalRow struct {
+	id      string
+	version int64
+}
+
+// selectTerminal runs a query selecting id and version of terminal rows.
+func (s *Store) selectTerminal(ctx context.Context, query string, args []any) ([]terminalRow, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "select terminal saga instances from SQL")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []terminalRow
+	for rows.Next() {
+		var r terminalRow
+		if err := rows.Scan(&r.id, &r.version); err != nil {
+			return nil, coreerrs.WrapOperation(err, "decode terminal saga instance from SQL")
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, coreerrs.WrapOperation(err, "select terminal saga instances from SQL")
+	}
+	return out, nil
 }
 
 // exists reports whether a row with the given ID is stored.

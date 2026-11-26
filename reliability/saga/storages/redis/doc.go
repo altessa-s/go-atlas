@@ -15,13 +15,25 @@
 // Redis is not query-capable, so recoverable instances are tracked in a sorted
 // set scored by recover-eligibility time: a timed-out RUNNING instance scores
 // its deadline, a COMPENSATING instance scores 0, and any other instance is
-// absent. FetchRecoverable reads the due ids with one ZRANGEBYSCORE over that
-// set up to the current time and loads them page by page, keeping only
-// entries of the requested definition that are recoverable. All writes keep the index consistent with the instance hash
-// atomically.
+// absent. FetchRecoverable reads the due ids page by page after a cursor
+// (a script over ZRANGEBYSCORE ... LIMIT) and keeps only entries of the
+// requested definition that are recoverable, so the transfer is bounded by the
+// pages needed to fill the limit, not by the backlog. A terminal instance is
+// listed in a second sorted set scored by its last update, which DeleteTerminal
+// pages the same way. All writes keep both indexes consistent with the instance
+// hash atomically.
+//
+// Scores are Unix milliseconds. With a TTL, every terminal write also drops the
+// terminal-index entries older than the TTL, whose hashes have expired.
+//
+// # Cluster
+//
+// Every write is one script over the instance hash and both indexes, so on Redis
+// Cluster the keys must share a hash slot. New rejects a cluster client whose
+// key prefix has no hash tag; use a prefix such as "{saga}:".
 //
 // # Usage
 //
-//	store := redis.New(rdb, redis.WithKeyPrefix("saga:"))
+//	store, err := redis.New(rdb, redis.WithKeyPrefix("saga:"))
 //	orch := saga.New(store, def, saga.WithSagaTimeout(5*time.Minute))
 package redis

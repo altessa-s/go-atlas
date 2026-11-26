@@ -328,12 +328,13 @@ func TestEnsureSchemaPostgres(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(t.Context()))
 
 	calls := fake.Calls()
-	require.Len(t, calls, 4)
+	require.Len(t, calls, 5)
 	require.Contains(t, calls[0].Query, "pg_advisory_xact_lock")
 	require.Contains(t, calls[1].Query, `CREATE TABLE IF NOT EXISTS "saga_instances"`)
 	require.Contains(t, calls[1].Query, `VARCHAR(255) COLLATE "C" PRIMARY KEY`)
 	require.Contains(t, calls[2].Query, `"saga_instances_lease_idx" ON "saga_instances" (status, lease_until)`)
 	require.Contains(t, calls[3].Query, `"saga_instances_deadline_idx" ON "saga_instances" (status, deadline)`)
+	require.Contains(t, calls[4].Query, `"saga_instances_terminal_idx" ON "saga_instances" (status, updated_at)`)
 	for _, c := range calls {
 		require.True(t, c.InTx, c.Query)
 	}
@@ -362,3 +363,40 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 type mysqlError struct{ Number uint16 }
 
 func (*mysqlError) Error() string { return "MySQL server error" }
+
+// TestDeleteTerminal pins the two statements of a retention batch: the select
+// of terminal ids older than the cutoff and the delete by id that re-checks the
+// status, for both dialects.
+func TestDeleteTerminal(t *testing.T) {
+	t.Parallel()
+	for _, d := range dialects {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			cutoff := base.Add(time.Hour)
+			store, fake := newStore(t, d, func(query string, _ []any) testhelpers.FakeSQLReply {
+				if strings.HasPrefix(query, "SELECT id") {
+					return testhelpers.FakeSQLReply{Columns: []string{"id", "version"}, Rows: [][]driver.Value{{"a", int64(3)}, {"b", int64(4)}}}
+				}
+				return testhelpers.FakeSQLReply{Affected: 2}
+			})
+
+			n, err := store.DeleteTerminal(t.Context(), "place-order", cutoff, 2)
+			require.NoError(t, err)
+			require.Equal(t, 2, n)
+
+			calls := fake.Calls()
+			require.Len(t, calls, 2, "a full batch reaching the limit stops without another select")
+			require.Contains(t, calls[0].Query, "status IN (")
+			require.Contains(t, calls[0].Query, "updated_at <")
+			require.Contains(t, calls[0].Query, "definition =")
+			require.Contains(t, calls[0].Query, "LIMIT")
+			require.Contains(t, calls[1].Query, "DELETE FROM")
+			require.Contains(t, calls[1].Query, "status IN (")
+			require.Contains(t, calls[1].Query, "updated_at <")
+			require.Contains(t, calls[1].Query, "definition =")
+			require.Contains(t, calls[1].Query, "id = ")
+			require.Contains(t, calls[1].Query, "version = ")
+			require.Len(t, calls[1].Args, 9, "three statuses, the cutoff, the definition and two id and version pairs")
+		})
+	}
+}

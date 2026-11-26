@@ -24,6 +24,7 @@ to single-node deployments and tests. State is lost on process exit, so it provi
 | `Update`           | Compare-and-swap on `Version`; returns `errs.ErrVersionConflict` on a stale write and writes the new version back into the argument. |
 | `FetchRecoverable` | Returns non-terminal instances that are mid-compensation, past their deadline, or hold an expired execution lease; an active lease excludes them. |
 | `Delete`           | Idempotent; deleting a missing instance is not an error.                       |
+| `DeleteTerminal`   | Removes up to `limit` terminal instances last updated before the cutoff.      |
 
 ## Usage
 
