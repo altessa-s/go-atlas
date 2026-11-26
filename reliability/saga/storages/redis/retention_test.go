@@ -310,3 +310,27 @@ func TestNewRejectsUntaggedClusterPrefix(t *testing.T) {
 	_, err = sagaredis.New(client)
 	require.NoError(t, err, "a standalone client needs no hash tag")
 }
+
+// The index is a coarse filter at millisecond precision; Instance.Recoverable
+// decides exactly. A lease expiring inside a millisecond must be returned by a
+// query at that same instant or later in the same millisecond, never hidden
+// until the next one.
+func TestLeaseReleasedAtQueryInstantIsRecoverable(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+
+	released := instance("released", saga.StatusRunning, time.Time{})
+	released.LeaseOwner = "owner"
+	released.LeaseUntil = baseTime.Add(500*time.Millisecond + 300*time.Microsecond)
+	require.NoError(t, s.Create(ctx, released))
+
+	for _, now := range []time.Time{released.LeaseUntil, released.LeaseUntil.Add(time.Nanosecond), baseTime.Add(500*time.Millisecond + 900*time.Microsecond)} {
+		rec, err := s.FetchRecoverable(ctx, "", now, 0)
+		require.NoError(t, err)
+		require.Equal(t, []string{"released"}, ids(rec), now.String())
+	}
+	rec, err := s.FetchRecoverable(ctx, "", released.LeaseUntil.Add(-time.Nanosecond), 0)
+	require.NoError(t, err)
+	require.Empty(t, rec, "a lease still active at the query instant excludes the instance")
+}
