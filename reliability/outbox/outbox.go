@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -217,7 +218,9 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) (err error) {
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
 
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(context.Context, any) {
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
+		o.logger.ErrorContext(ctx, "outbox handler panicked",
+			slog.String("event_id", event.Id), slog.String("stack", string(debug.Stack())))
 		o.metrics.eventsDispatchFail.Inc()
 		err = ErrHandlerPanicked
 	})

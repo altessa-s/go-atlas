@@ -5,8 +5,10 @@
 package outbox_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"testing"
@@ -184,12 +186,13 @@ func TestDispatchCycleRecoversHandlerPanic(t *testing.T) {
 	}
 
 	store := &batchStore{batch: []outbox.Event{{Id: "panic", Key: "test"}, {Id: "sent", Key: "test"}}}
+	var logs bytes.Buffer
 	out := outbox.New(store, func(_ context.Context, event outbox.Event) error {
 		if event.Id == "panic" {
 			panic(payload)
 		}
 		return nil
-	})
+	}, outbox.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 	require.NoError(t, out.RunDispatchCycle(t.Context()))
 	require.Len(t, store.updated, 2)
 	require.Equal(t, outbox.StatusFailed, store.updated[0].Status)
@@ -197,4 +200,7 @@ func TestDispatchCycleRecoversHandlerPanic(t *testing.T) {
 	require.NotNil(t, store.updated[0].LastError)
 	require.NotContains(t, *store.updated[0].LastError, payload)
 	require.Equal(t, outbox.StatusSent, store.updated[1].Status)
+	require.Contains(t, logs.String(), "stack=")
+	require.Contains(t, logs.String(), "dispatch_outcome_test.go")
+	require.NotContains(t, logs.String(), payload)
 }
