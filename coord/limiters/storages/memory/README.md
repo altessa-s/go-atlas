@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 ```
 
-Package `memory` provides an in-memory sliding-window rate limit storage backend for the tokenbucket limiter. Suitable for single-instance
-deployments,
-tests, and local development. Idle buckets whose windows have expired are removed by `RunCleanup`, called manually or scheduled via `WithScheduler` and `WithCleanupSchedule`.
+Package `memory` provides an in-memory sliding-window rate limit storage backend for single-instance deployments, tests, and local development.
+`RunCleanup` removes idle buckets whose windows have expired. Call it manually or schedule it via `WithScheduler` and `WithCleanupSchedule`.
 
 ## Options
 
@@ -46,8 +45,8 @@ and inserts no bucket.
 ## Choosing `WithShards`
 
 The cap and least-recently-used eviction are exact and global for every shard count. Sharding lets `Allow` calls on keys in different shards run in
-parallel, for existing keys and for new keys while the provider is below `MaxBuckets`; keys in the same shard still contend, and a new key at the cap
-locks every shard to find the global victim. Values below 1 mean 1.
+parallel, for existing keys and for new keys while the provider is below `MaxBuckets`. Reclaiming an expired window or evicting a live window at
+the cap can lock every shard. Values below 1 mean 1.
 
 | Workload                                                         | Shards |
 |------------------------------------------------------------------|--------|

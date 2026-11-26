@@ -116,8 +116,8 @@ func WithScheduler(v schedtask.Registrar) Option {
 //
 // Shards splits the keys over independently locked shards so Allow
 // calls on existing keys and new keys below MaxBuckets do not contend.
-// Capacity and least-recently-used eviction stay exact and global, so a
-// new key at the cap locks every shard: raise Shards (e.g. 8–16) when
+// Reclamation and eviction at the cap can lock every shard.
+// Raise Shards (e.g. 8–16) when
 // the provider usually runs below MaxBuckets, and keep 1 when it is
 // usually full with new keys arriving. Values below 1 mean 1.
 func WithShards(v int) Option {

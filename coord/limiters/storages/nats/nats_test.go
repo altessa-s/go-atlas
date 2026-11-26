@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 )

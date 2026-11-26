@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
 	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
@@ -20,9 +22,7 @@ func benchSetup(b *testing.B) *limitnats.Provider {
 	_, js := natstest.ConnectJetStream(b, ns)
 
 	provider, err := limitnats.New(b.Context(), js, limitnats.WithBucket(fmt.Sprintf("bench-%d", b.N)))
-	if err != nil {
-		b.Fatalf("failed to create provider: %v", err)
-	}
+	require.NoError(b, err)
 	return provider
 }
 
@@ -30,7 +30,7 @@ func BenchmarkProvider_Allow(b *testing.B) {
 	provider := benchSetup(b)
 	ctx := b.Context()
 	for b.Loop() {
-		_, _ = provider.Allow(ctx, "bench-key", 1000000, time.Minute)
+		_, _ = provider.Allow(ctx, "bench-key", 10_000, 50*time.Millisecond)
 	}
 }
 
@@ -44,7 +44,7 @@ func BenchmarkProvider_Allow_Contended(b *testing.B) {
 	b.SetParallelism(4)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := provider.Allow(ctx, "contended-key", 1<<40, 50*time.Millisecond); err != nil {
+			if _, err := provider.Allow(ctx, "contended-key", 10_000, 50*time.Millisecond); err != nil {
 				b.Error(err)
 				return
 			}

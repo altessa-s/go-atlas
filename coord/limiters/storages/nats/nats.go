@@ -49,11 +49,22 @@ type bucketData struct {
 	LastUsed int64   `json:"lastUsed"` // Last access time in milliseconds
 }
 
+const (
+	// Reserve the complete CAS header with the longest uint64 revision.
+	casHeaderBytes = len("NATS/1.0\r\n" + jetstream.ExpectedLastSubjSeqHeader + ": 18446744073709551615\r\n\r\n")
+	// A signed int64 fits in 20 decimal characters. Reserve a comma per
+	// timestamp and the three numeric metadata fields at their widest.
+	decimalInt64Bytes   = len("-9223372036854775808")
+	bucketMetadataBytes = len(`{"requests":[],"limit":,"window":,"lastUsed":}`) + 3*decimalInt64Bytes
+	bytesPerRequest     = int64(decimalInt64Bytes + 1)
+)
+
 // Provider implements a NATS JetStream KeyValue-based rate limiting provider using sliding window algorithm.
 type Provider struct {
 	natsbase.Base
-	options   *options
-	casPolicy *retry.Policy
+	options    *options
+	casPolicy  *retry.Policy
+	maxPayload func() int64
 }
 
 // Ensure Provider implements Storage interface
@@ -89,6 +100,8 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 		Base:      base,
 		options:   config,
 		casPolicy: newCASPolicy(config.maxCASAttempts, config.maxCASBackoff),
+		// The connected server's limit can change on reconnect.
+		maxPayload: func() int64 { return js.Conn().MaxPayload() },
 	}, nil
 }
 
@@ -153,7 +166,7 @@ func (p *Provider) ValidatePeriod(period time.Duration) error {
 // never dropped — that would let a burst slip past the limit — but re-read,
 // recomputed and retried after a randomized backoff, up to
 // [WithMaxCASAttempts] attempts and as long as ctx allows. Rejections write
-// nothing, so retrying can never admit more than limit requests. A call that
+// nothing, and each successful call records one admission. A call that
 // exhausts its attempts returns [ErrContention].
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
@@ -167,6 +180,11 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	key, err := physicalKey(key)
 	if err != nil {
 		return nil, err
+	}
+
+	maxRequests := max(p.maxPayload()-int64(casHeaderBytes+bucketMetadataBytes), 0) / bytesPerRequest
+	if limit > maxRequests {
+		return nil, fmt.Errorf("%w: rate limit %d exceeds NATS payload capacity of %d requests", coreerrs.ErrInvalidArgument, limit, maxRequests)
 	}
 
 	// Windows are tracked in whole milliseconds; a sub-millisecond period

@@ -11,15 +11,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
-	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
-
 	"github.com/altessa-s/go-atlas/coord/limiters"
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
 )
 

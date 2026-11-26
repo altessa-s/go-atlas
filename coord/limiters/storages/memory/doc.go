@@ -26,8 +26,8 @@
 // [WithShards] spreads keys over independently locked shards (default
 // [DefaultShards]; values below 1 mean 1). Allow calls on keys in different
 // shards then run in parallel, both for existing keys and for new keys while
-// the provider is below its cap. The cap and LRU eviction stay exact and
-// global, so a new key at the cap locks every shard. Use 8–16 shards when
+// the provider is below its cap. Reclaiming or evicting a window at the cap
+// can lock every shard. Use 8–16 shards when
 // the provider usually runs below its cap on a many-core host, and keep 1
 // when it is usually full with new keys arriving.
 //

@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package nats provides NATS JetStream KeyValue rate limit storage for distributed tokenbucket deployments.
-// Windows must fit within the automatic bucket-level TTL set by [WithMaxAge]. Limiter replicas need synchronized clocks for window decisions.
+// Windows must fit within the automatic bucket-level TTL set by [WithMaxAge].
+// Limits must fit within the connected server's maximum payload. Limiter replicas need synchronized clocks for window decisions.
 //
 // KeyValue cannot update several keys atomically, so the provider does not
 // implement storages.MultiStorage, and storages.AllowAll returns

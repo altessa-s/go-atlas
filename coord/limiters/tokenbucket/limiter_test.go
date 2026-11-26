@@ -12,12 +12,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
-
 	"github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 )
 

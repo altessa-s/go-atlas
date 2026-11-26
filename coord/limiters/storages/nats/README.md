@@ -44,6 +44,12 @@ and the caller decides whether to fail open or closed. Through the budget and to
 | `WithMaxCASAttempts` | `64`    | Read-modify-write attempts per `Allow` call               |
 | `WithMaxCASBackoff`  | `20ms`  | Ceiling of the randomized pause after a revision conflict |
 
+## Payload limit
+
+`Allow` rejects a limit above the connected NATS server's `max_payload` budget with `ErrInvalidArgument` before reading or writing the key.
+The bound reserves space for JSON metadata, a worst-case decimal timestamp per request and the JetStream revision header. Serialization work
+grows with the number of recorded requests.
+
 ## Bucket TTL
 
 `Allow` returns `ErrInvalidArgument` if its period exceeds `WithMaxAge`. The budget and token-bucket factories reject such configured windows
