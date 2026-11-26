@@ -189,6 +189,14 @@ func (s *SpanData) LinksIter() iter.Seq[SpanLink] {
 	return slices.Values(s.Links)
 }
 
+// ExportResult reports span-level acceptance for a completed export call.
+// Adapters without partial-rejection visibility set Accepted = len(spans) on
+// nil error.
+type ExportResult struct {
+	Accepted int
+	Rejected int
+}
+
 // Adapter is the interface that tracing backends must implement.
 // It exports [SpanData] to specific backend formats.
 // Implementations must be safe for concurrent use and honor cancellation
@@ -199,7 +207,7 @@ type Adapter interface {
 
 	// ExportSpans exports a batch of spans to the backend.
 	// The context may be used for cancellation and deadlines.
-	ExportSpans(ctx context.Context, spans []SpanData) error
+	ExportSpans(ctx context.Context, spans []SpanData) (ExportResult, error)
 
 	// Shutdown shuts down the adapter, flushing any remaining data.
 	// After Shutdown is called, ExportSpans should not be called.
@@ -221,6 +229,14 @@ func NewMultiAdapter(adapters ...Adapter) *MultiAdapter {
 	return &MultiAdapter{adapters: adapters}
 }
 
+// Adapters returns a snapshot of the wrapped child adapters.
+func (m *MultiAdapter) Adapters() []Adapter {
+	if m == nil {
+		return nil
+	}
+	return slices.Clone(m.adapters)
+}
+
 // Name implements Adapter.
 func (m *MultiAdapter) Name() string {
 	return "multi"
@@ -228,13 +244,32 @@ func (m *MultiAdapter) Name() string {
 
 // ExportSpans implements Adapter.
 // Broadcasts span export to every adapter, even after one fails, and returns
-// the failures joined with [errors.Join].
-func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) error {
-	errs := make([]error, 0, len(m.adapters))
-	for _, a := range m.adapters {
-		errs = append(errs, a.ExportSpans(ctx, spans))
+// the aggregate acceptance and failures joined with [errors.Join].
+func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) (ExportResult, error) {
+	if m == nil || len(m.adapters) == 0 {
+		return ExportResult{Accepted: len(spans)}, nil
 	}
-	return errors.Join(errs...)
+	errs := make([]error, 0, len(m.adapters))
+	var maxRejected, maxUnaccepted int
+	for _, a := range m.adapters {
+		res, err := a.ExportSpans(ctx, spans)
+		if err != nil {
+			errs = append(errs, err)
+			maxUnaccepted = len(spans)
+			continue
+		}
+		rej := min(max(res.Rejected, 0), len(spans))
+		if rej > maxRejected {
+			maxRejected = rej
+		}
+		if rej > maxUnaccepted {
+			maxUnaccepted = rej
+		}
+	}
+	return ExportResult{
+		Accepted: len(spans) - maxUnaccepted,
+		Rejected: maxRejected,
+	}, errors.Join(errs...)
 }
 
 // Shutdown implements Adapter.

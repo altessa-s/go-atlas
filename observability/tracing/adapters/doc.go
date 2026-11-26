@@ -14,7 +14,9 @@
 //	type MyAdapter struct{}
 //
 //	func (a *MyAdapter) Name() string { return "myadapter" }
-//	func (a *MyAdapter) ExportSpans(ctx context.Context, spans []SpanData) error { return nil }
+//	func (a *MyAdapter) ExportSpans(ctx context.Context, spans []SpanData) (ExportResult, error) {
+//	    return ExportResult{Accepted: len(spans)}, nil
+//	}
 //	func (a *MyAdapter) Shutdown(ctx context.Context) error { return nil }
 //	func (a *MyAdapter) ForceFlush(ctx context.Context) error { return nil }
 package adapters

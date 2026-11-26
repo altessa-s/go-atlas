@@ -25,11 +25,11 @@ type captureAdapter struct {
 	spans []adapters.SpanData
 }
 
-func (a *captureAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a *captureAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.spans = append(a.spans, spans...)
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func hexID(t *testing.T, s string) []byte {

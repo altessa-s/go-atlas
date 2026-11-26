@@ -55,11 +55,11 @@ type spanCapture struct {
 	spans chan adapters.SpanData
 }
 
-func (a spanCapture) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a spanCapture) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	for _, span := range spans {
 		a.spans <- span
 	}
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func TestClientObservability(t *testing.T) {

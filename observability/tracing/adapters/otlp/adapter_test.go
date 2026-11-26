@@ -6,6 +6,7 @@ package otlp_test
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
+	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/otlp"
 
 	"google.golang.org/grpc"
@@ -37,12 +41,21 @@ const unreachableEndpoint = "127.0.0.1:1"
 // metadata of every Export call.
 type traceCollector struct {
 	coltracepb.UnimplementedTraceServiceServer
-	got chan metadata.MD
+	got      chan metadata.MD
+	rejected int64
 }
 
 func (c *traceCollector) Export(ctx context.Context, _ *coltracepb.ExportTraceServiceRequest) (*coltracepb.ExportTraceServiceResponse, error) {
 	md, _ := metadata.FromIncomingContext(ctx)
 	c.got <- md
+	if c.rejected > 0 {
+		return &coltracepb.ExportTraceServiceResponse{
+			PartialSuccess: &coltracepb.ExportTracePartialSuccess{
+				RejectedSpans: c.rejected,
+				ErrorMessage:  "dropped invalid span",
+			},
+		}, nil
+	}
 	return &coltracepb.ExportTraceServiceResponse{}, nil
 }
 
@@ -96,7 +109,9 @@ func TestNew_UsesInjectedGRPCConn(t *testing.T) {
 		otlp.WithHeaders(map[string]string{"X-Api-Key": "secret"}),
 	)
 	require.NoError(t, err)
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	res, err := a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 1}, res)
 
 	md := receive(t, col.got)
 	require.Equal(t, []string{"secret"}, md.Get("x-api-key"))
@@ -112,7 +127,9 @@ func TestNew_DefaultGRPCClient(t *testing.T) {
 
 	a, err := otlp.New(t.Context(), otlp.WithEndpoint(addr), otlp.WithInsecure())
 	require.NoError(t, err)
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	res, err := a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 1}, res)
 	receive(t, col.got)
 	require.NoError(t, a.Shutdown(t.Context()))
 }
@@ -144,9 +161,116 @@ func TestNew_UsesInjectedHTTPClient(t *testing.T) {
 		otlp.WithHTTPClient(hc),
 	)
 	require.NoError(t, err)
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	res, err := a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 1}, res)
 
 	require.Equal(t, "/v1/traces", receive(t, paths))
 	require.Positive(t, calls.Load())
 	require.NoError(t, a.Shutdown(t.Context()))
+}
+
+func TestForceFlush_StripsCallerOutgoingMetadata(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+	}{
+		{name: "with exporter headers", headers: map[string]string{"X-Api-Key": "exporter-secret"}},
+		{name: "without exporter headers", headers: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			addr, col := startCollector(t)
+			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+
+			opts := []otlp.Option{otlp.WithGRPCConn(conn)}
+			if len(tc.headers) > 0 {
+				opts = append(opts, otlp.WithHeaders(tc.headers))
+			}
+			a, err := otlp.New(t.Context(), opts...)
+			require.NoError(t, err)
+			tr := tracing.New(tracing.WithAdapter(a), tracing.WithScheduledDelay(time.Hour))
+			defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+			_, span := tr.Recorder("svc").Start(t.Context(), "op")
+			span.End()
+
+			flushCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer caller-secret"))
+			flushCtx = metadata.AppendToOutgoingContext(flushCtx, "x-session-token", "session-secret")
+			require.NoError(t, tr.ForceFlush(flushCtx))
+
+			md := receive(t, col.got)
+			require.Empty(t, md.Get("authorization"))
+			require.Empty(t, md.Get("x-session-token"))
+			if len(tc.headers) > 0 {
+				require.Equal(t, []string{"exporter-secret"}, md.Get("x-api-key"))
+			}
+		})
+	}
+}
+
+func TestTracer_PartialSuccessCountsRejectedSpans(t *testing.T) {
+	t.Parallel()
+	addr, col := startCollector(t)
+	col.rejected = 1
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	a, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn))
+	require.NoError(t, err)
+
+	meter := metricstest.NewTestCollector()
+	tr := tracing.New(tracing.WithAdapter(a), tracing.WithMeter(meter), tracing.WithScheduledDelay(time.Hour))
+	defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+	rec := tr.Recorder("svc")
+	for range 2 {
+		_, span := rec.Start(t.Context(), "op")
+		span.End()
+	}
+	require.NoError(t, tr.ForceFlush(t.Context()))
+	receive(t, col.got)
+
+	require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, meter, "test_tracing_spans_rejected_total", "exporter", "otlp"))
+}
+
+func TestTracer_MultiExporterPartialSuccessCounters(t *testing.T) {
+	t.Parallel()
+	addr, col := startCollector(t)
+	col.rejected = 1
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	otlpExp, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn))
+	require.NoError(t, err)
+	consoleExp := console.New(console.WithWriter(io.Discard))
+
+	meter := metricstest.NewTestCollector()
+	tr := tracing.New(
+		tracing.WithAdapter(adapters.NewMultiAdapter(consoleExp, otlpExp)),
+		tracing.WithMeter(meter),
+		tracing.WithScheduledDelay(time.Hour),
+	)
+	defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+	rec := tr.Recorder("svc")
+	for range 2 {
+		_, span := rec.Start(t.Context(), "op")
+		span.End()
+	}
+	require.NoError(t, tr.ForceFlush(t.Context()))
+	receive(t, col.got)
+
+	require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, meter, "test_tracing_spans_rejected_total", "exporter", "otlp"))
+	require.Equal(t, 0.0, metricstest.GetCounterValue(t, meter, "test_tracing_spans_rejected_total", "exporter", "console"))
 }

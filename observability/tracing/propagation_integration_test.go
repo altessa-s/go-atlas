@@ -61,9 +61,9 @@ type countingAdapter struct {
 	count int
 }
 
-func (a *countingAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a *countingAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	a.count += len(spans)
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 func TestRecordOnlyDoesNotExport(t *testing.T) {
 	t.Parallel()

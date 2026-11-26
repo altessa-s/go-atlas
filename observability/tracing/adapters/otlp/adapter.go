@@ -21,9 +21,24 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
+// traceClient abstracts gRPC and HTTP OTLP clients while surfacing partial-rejection counts.
+type traceClient interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+	UploadTraces(ctx context.Context, protoSpans []*tracepb.ResourceSpans) (int64, error)
+}
+
+type httpTraceClient struct {
+	otlptrace.Client
+}
+
+func (c httpTraceClient) UploadTraces(ctx context.Context, protoSpans []*tracepb.ResourceSpans) (int64, error) {
+	return 0, c.Client.UploadTraces(ctx, protoSpans)
+}
+
 // Adapter implements adapters.Adapter for OTLP export.
 type Adapter struct {
-	client   otlptrace.Client
+	client   traceClient
 	mu       sync.RWMutex
 	resource *resourcepb.Resource
 	stopped  bool
@@ -37,11 +52,11 @@ func New(ctx context.Context, opts ...Option) (*Adapter, error) {
 	}
 
 	// Create client based on protocol
-	var client otlptrace.Client
+	var client traceClient
 
 	switch cfg.protocol {
 	case ProtocolHTTP:
-		client = createHTTPClient(cfg)
+		client = httpTraceClient{Client: createHTTPClient(cfg)}
 	default:
 		client = newGRPCClient(cfg)
 	}
@@ -126,23 +141,31 @@ func (a *Adapter) Name() string {
 }
 
 // ExportSpans implements adapters.Adapter.
-func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) error {
+func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	a.mu.RLock()
 	if a.stopped {
 		a.mu.RUnlock()
-		return fmt.Errorf("adapter is stopped")
+		return adapters.ExportResult{}, fmt.Errorf("adapter is stopped")
 	}
 	a.mu.RUnlock()
 
 	if len(spans) == 0 {
-		return nil
+		return adapters.ExportResult{}, nil
 	}
 
 	// Convert spans to OTLP protobuf format
 	resourceSpans := a.convertToResourceSpans(spans)
 
 	// Upload traces
-	return a.client.UploadTraces(ctx, resourceSpans)
+	rejected, err := a.client.UploadTraces(ctx, resourceSpans)
+	if err != nil {
+		return adapters.ExportResult{}, err
+	}
+	rej := int(min(max(rejected, 0), int64(len(spans))))
+	return adapters.ExportResult{
+		Accepted: len(spans) - rej,
+		Rejected: rej,
+	}, nil
 }
 
 // convertToResourceSpans converts spans to OTLP protobuf format, one

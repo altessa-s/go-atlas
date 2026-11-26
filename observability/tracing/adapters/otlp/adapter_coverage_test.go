@@ -128,7 +128,8 @@ func TestExportSpans_ConvertsFullSpan(t *testing.T) {
 		DroppedEventCount:     2,
 		DroppedLinkCount:      3,
 	}
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{span}))
+	_, err = a.ExportSpans(t.Context(), []adapters.SpanData{span})
+	require.NoError(t, err)
 
 	req := receive(t, col.got)
 	require.Len(t, req.GetResourceSpans(), 1)
@@ -224,7 +225,8 @@ func TestExportSpans_KindsStatusesAndScopes(t *testing.T) {
 		}
 		spans = append(spans, s)
 	}
-	require.NoError(t, a.ExportSpans(t.Context(), spans))
+	_, err = a.ExportSpans(t.Context(), spans)
+	require.NoError(t, err)
 
 	req := receive(t, col.got)
 	scopes := req.GetResourceSpans()[0].GetScopeSpans()
@@ -258,7 +260,8 @@ func TestExportSpans_DistinctScopes(t *testing.T) {
 		{Name: "second", InstrumentationScope: &adapters.InstrumentationScope{Name: "lib", Version: "v@1"}},
 		{Name: "third", InstrumentationScope: &adapters.InstrumentationScope{Name: "lib", Version: "v@1", SchemaURL: "https://schema.example/v2"}},
 	}
-	require.NoError(t, a.ExportSpans(t.Context(), spans))
+	_, err = a.ExportSpans(t.Context(), spans)
+	require.NoError(t, err)
 	scopes := receive(t, col.got).GetResourceSpans()[0].GetScopeSpans()
 	require.Len(t, scopes, len(spans))
 	for i, group := range scopes {
@@ -276,7 +279,9 @@ func TestExportSpans_EmptyBatchSkipsUpload(t *testing.T) {
 
 	a, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn))
 	require.NoError(t, err)
-	require.NoError(t, a.ExportSpans(t.Context(), nil))
+	res, err := a.ExportSpans(t.Context(), nil)
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{}, res)
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.Empty(t, col.got)
 }
@@ -290,7 +295,8 @@ func TestExportSpans_AfterShutdownFails(t *testing.T) {
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.NoError(t, a.Shutdown(t.Context()), "second Shutdown is a no-op")
 	require.NoError(t, a.ForceFlush(t.Context()), "ForceFlush after Shutdown is a no-op")
-	require.Error(t, a.ExportSpans(t.Context(), testSpans()))
+	_, err = a.ExportSpans(t.Context(), testSpans())
+	require.Error(t, err)
 }
 
 func TestExportSpans_CollectorErrorPropagates(t *testing.T) {
@@ -301,7 +307,7 @@ func TestExportSpans_CollectorErrorPropagates(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
 
-	err = a.ExportSpans(t.Context(), testSpans())
+	_, err = a.ExportSpans(t.Context(), testSpans())
 	require.Error(t, err)
 	require.Equal(t, codes.Unavailable, status.Code(errors.Unwrap(err)))
 }
@@ -327,7 +333,8 @@ func TestNew_HTTPProtocolExportsWithHeadersAndCompression(t *testing.T) {
 		otlp.WithCompression(true),
 	)
 	require.NoError(t, err)
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	_, err = a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
 
 	r := receive(t, reqs)
 	require.Equal(t, "/v1/traces", r.path)
@@ -359,7 +366,8 @@ func TestStringOptions_IgnoreBlankAndNil(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	_, err = a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
 
 	res := attrMap(receive(t, col.got).GetResourceSpans()[0].GetResource().GetAttributes())
 	require.Equal(t, otlp.DefaultServiceName, res["service.name"].GetStringValue())
@@ -379,7 +387,8 @@ func TestPointerStringOptions_Apply(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	require.NoError(t, a.ExportSpans(t.Context(), testSpans()))
+	_, err = a.ExportSpans(t.Context(), testSpans())
+	require.NoError(t, err)
 
 	res := attrMap(receive(t, col.got).GetResourceSpans()[0].GetResource().GetAttributes())
 	require.Equal(t, "psvc", res["service.name"].GetStringValue())
@@ -403,12 +412,13 @@ func TestExportSpans_UsesTheTracerResourceOfEachSpan(t *testing.T) {
 		{Key: "deployment.environment", Value: ""},
 	}}
 	second := &adapters.Resource{Attributes: []adapters.Attribute{{Key: "service.name", Value: "second"}}}
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{
+	_, err = a.ExportSpans(t.Context(), []adapters.SpanData{
 		{Name: "first-1", SpanID: adapters.SpanID{1}, Resource: first},
 		{Name: "second-1", SpanID: adapters.SpanID{2}, Resource: second},
 		{Name: "first-2", SpanID: adapters.SpanID{3}, Resource: first},
 		{Name: "bare", SpanID: adapters.SpanID{4}},
-	}))
+	})
+	require.NoError(t, err)
 
 	req := receive(t, col.got)
 	require.Len(t, req.GetResourceSpans(), 3, "spans are grouped by their resource")

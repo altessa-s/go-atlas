@@ -13,7 +13,8 @@ fails, and the failures are returned joined with `errors.Join`.
 | Type            | Description                                                  |
 |-----------------|--------------------------------------------------------------|
 | `Adapter`       | Interface: `Name`, `ExportSpans`, `Shutdown`, `ForceFlush`   |
-| `MultiAdapter`  | Calls every adapter in order; joins their errors             |
+| `ExportResult`  | Span-level `Accepted` and `Rejected` counts returned by `ExportSpans` |
+| `MultiAdapter`  | Calls every adapter in order; aggregates `ExportResult` and joins errors |
 | `SpanData`      | Exported span information passed to adapters                 |
 
 ## Subpackages

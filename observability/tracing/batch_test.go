@@ -23,8 +23,11 @@ type batchAdapter struct {
 	export func(context.Context, []adapters.SpanData) error
 }
 
-func (a batchAdapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) error {
-	return a.export(ctx, spans)
+func (a batchAdapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
+	if err := a.export(ctx, spans); err != nil {
+		return adapters.ExportResult{}, err
+	}
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func endSpan(rec tracing.Recorder, ctx context.Context) {
@@ -360,5 +363,93 @@ func TestCompletedShutdownWithCanceledContext(t *testing.T) {
 	// consistently return the completed operation's result.
 	for range 100 {
 		require.NoError(t, tr.Shutdown(ctx))
+	}
+}
+
+func TestShutdownDeadlineCountsDroppedSpans(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const total = 100
+		started := make(chan struct{})
+		var once sync.Once
+		a := batchAdapter{adapters.NewMultiAdapter(), func(ctx context.Context, _ []adapters.SpanData) error {
+			once.Do(func() { close(started) })
+			<-ctx.Done()
+			return ctx.Err()
+		}}
+		meter := metricstest.NewTestCollector()
+		tr := tracing.New(
+			tracing.WithAdapter(a),
+			tracing.WithMaxExportBatchSize(10),
+			tracing.WithMaxQueueSize(200),
+			tracing.WithScheduledDelay(time.Hour),
+			tracing.WithExportTimeout(time.Hour),
+			tracing.WithMeter(meter),
+		)
+		rec := tr.Recorder("test")
+		for range total {
+			endSpan(rec, t.Context())
+		}
+		<-started
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+		defer cancel()
+		require.ErrorIs(t, tr.Shutdown(ctx), context.DeadlineExceeded)
+		synctest.Wait()
+
+		exported := meter.CounterValue("test_tracing_spans_exported_total", nil)
+		dropped := meter.CounterValue("test_tracing_spans_dropped_total", nil)
+		require.Equal(t, float64(total)-exported, dropped)
+	})
+}
+
+func TestShutdownDeadlineGateNoDoubleCount(t *testing.T) {
+	t.Parallel()
+	const total = 100
+	for range 20 {
+		synctest.Test(t, func(t *testing.T) {
+			started := make(chan struct{})
+			gate := make(chan struct{})
+			var once sync.Once
+			a := batchAdapter{adapters.NewMultiAdapter(), func(ctx context.Context, _ []adapters.SpanData) error {
+				isFirst := false
+				once.Do(func() {
+					isFirst = true
+					close(started)
+				})
+				if isFirst {
+					<-gate
+					return nil
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			}}
+			meter := metricstest.NewTestCollector()
+			tr := tracing.New(
+				tracing.WithAdapter(a),
+				tracing.WithMaxExportBatchSize(25),
+				tracing.WithMaxQueueSize(200),
+				tracing.WithScheduledDelay(time.Hour),
+				tracing.WithExportTimeout(time.Hour),
+				tracing.WithMeter(meter),
+			)
+			rec := tr.Recorder("test")
+			for range total {
+				endSpan(rec, t.Context())
+			}
+			<-started
+
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+			defer cancel()
+			stopGate := context.AfterFunc(ctx, func() { close(gate) })
+			defer stopGate()
+
+			_ = tr.Shutdown(ctx)
+			synctest.Wait()
+
+			exported := meter.CounterValue("test_tracing_spans_exported_total", nil)
+			dropped := meter.CounterValue("test_tracing_spans_dropped_total", nil)
+			require.Equal(t, float64(total), exported+dropped)
+		})
 	}
 }

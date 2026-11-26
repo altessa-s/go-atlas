@@ -18,7 +18,9 @@ type discardAdapter struct {
 	*adapters.MultiAdapter
 }
 
-func (discardAdapter) ExportSpans(context.Context, []adapters.SpanData) error { return nil }
+func (discardAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
+	return adapters.ExportResult{Accepted: len(spans)}, nil
+}
 
 func newBenchRecorder(b *testing.B) tracing.Recorder {
 	tr := tracing.New(

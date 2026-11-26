@@ -62,7 +62,8 @@ func TestWriteJSON_FullSpan(t *testing.T) {
 	var buf bytes.Buffer
 	a := New(WithWriter(&buf), WithPrettyPrint(false))
 	span := fullSpan()
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{span}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{span})
+	require.NoError(t, err)
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
@@ -95,7 +96,8 @@ func TestWriteJSON_MinimalSpanOmitsOptionalFields(t *testing.T) {
 
 	var buf bytes.Buffer
 	a := New(WithWriter(&buf), WithPrettyPrint(false))
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{{Name: "min"}}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{{Name: "min"}})
+	require.NoError(t, err)
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
@@ -112,7 +114,8 @@ func TestWriteJSON_MarshalError(t *testing.T) {
 	var buf bytes.Buffer
 	a := New(WithWriter(&buf), WithPrettyPrint(false))
 	span := adapters.SpanData{Attributes: []adapters.Attribute{{Key: "ch", Value: make(chan int)}}}
-	require.Error(t, a.ExportSpans(t.Context(), []adapters.SpanData{span}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{span})
+	require.Error(t, err)
 	require.Zero(t, buf.Len())
 }
 
@@ -120,7 +123,8 @@ func TestWriteJSON_WriterError(t *testing.T) {
 	t.Parallel()
 
 	a := New(WithWriter(&failingWriter{}), WithPrettyPrint(false))
-	require.ErrorIs(t, a.ExportSpans(t.Context(), []adapters.SpanData{{Name: "x"}}), errWrite)
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{{Name: "x"}})
+	require.ErrorIs(t, err, errWrite)
 }
 
 func TestWritePretty_WithoutTimestampsIncludesEvents(t *testing.T) {
@@ -128,7 +132,8 @@ func TestWritePretty_WithoutTimestampsIncludesEvents(t *testing.T) {
 
 	var buf bytes.Buffer
 	a := New(WithWriter(&buf), WithTimestamps(false))
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{fullSpan()}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{fullSpan()})
+	require.NoError(t, err)
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	require.Len(t, lines, 4)
@@ -144,7 +149,8 @@ func TestWritePretty_WriterErrors(t *testing.T) {
 	// after=0 fails the header, 1 fails the attribute line, 2 fails the first event line.
 	for after := range 3 {
 		a := New(WithWriter(&failingWriter{after: after}), WithTimestamps(false))
-		require.ErrorIs(t, a.ExportSpans(t.Context(), []adapters.SpanData{fullSpan()}), errWrite, "after=%d", after)
+		_, err := a.ExportSpans(t.Context(), []adapters.SpanData{fullSpan()})
+		require.ErrorIs(t, err, errWrite, "after=%d", after)
 	}
 }
 

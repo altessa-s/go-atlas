@@ -85,18 +85,32 @@ func TestSpanDataAccessors(t *testing.T) {
 }
 
 type recordingAdapter struct {
+	name                             string
 	exportErr, shutdownErr, flushErr error
+	rejected                         int
 
 	exported  int
 	shutdowns int
 	flushes   int
 }
 
-func (r *recordingAdapter) Name() string { return "recording" }
+func (r *recordingAdapter) Name() string {
+	if r.name != "" {
+		return r.name
+	}
+	return "recording"
+}
 
-func (r *recordingAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (r *recordingAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	r.exported += len(spans)
-	return r.exportErr
+	if r.exportErr != nil {
+		return adapters.ExportResult{}, r.exportErr
+	}
+	rej := min(max(r.rejected, 0), len(spans))
+	return adapters.ExportResult{
+		Accepted: len(spans) - rej,
+		Rejected: rej,
+	}, nil
 }
 
 func (r *recordingAdapter) Shutdown(context.Context) error {
@@ -117,7 +131,9 @@ func TestMultiAdapterBroadcasts(t *testing.T) {
 	require.Equal(t, "multi", m.Name())
 
 	spans := []adapters.SpanData{{Name: "one"}, {Name: "two"}}
-	require.NoError(t, m.ExportSpans(t.Context(), spans))
+	res, err := m.ExportSpans(t.Context(), spans)
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 2, Rejected: 0}, res)
 	require.NoError(t, m.ForceFlush(t.Context()))
 	require.NoError(t, m.Shutdown(t.Context()))
 
@@ -137,7 +153,9 @@ func TestMultiAdapterPropagatesErrors(t *testing.T) {
 	failing := &recordingAdapter{exportErr: errExport, shutdownErr: errShutdown, flushErr: errFlush}
 	m := adapters.NewMultiAdapter(&recordingAdapter{}, failing)
 
-	require.ErrorIs(t, m.ExportSpans(t.Context(), []adapters.SpanData{{}}), errExport)
+	res, err := m.ExportSpans(t.Context(), []adapters.SpanData{{}})
+	require.ErrorIs(t, err, errExport)
+	require.Equal(t, adapters.ExportResult{Accepted: 0, Rejected: 0}, res)
 	require.ErrorIs(t, m.ForceFlush(t.Context()), errFlush)
 	require.ErrorIs(t, m.Shutdown(t.Context()), errShutdown)
 }
@@ -153,7 +171,7 @@ func TestMultiAdapterContinuesPastFailuresAndJoinsErrors(t *testing.T) {
 	healthy := &recordingAdapter{}
 	m := adapters.NewMultiAdapter(first, second, healthy)
 
-	err := m.ExportSpans(t.Context(), []adapters.SpanData{{}})
+	_, err := m.ExportSpans(t.Context(), []adapters.SpanData{{}})
 	require.ErrorIs(t, err, errExport1)
 	require.ErrorIs(t, err, errExport2)
 
@@ -173,11 +191,27 @@ func TestMultiAdapterContinuesPastFailuresAndJoinsErrors(t *testing.T) {
 	}
 }
 
+func TestMultiAdapterPartialRejection(t *testing.T) {
+	t.Parallel()
+
+	first := &recordingAdapter{name: "first", rejected: 1}
+	second := &recordingAdapter{name: "second", rejected: 2}
+	m := adapters.NewMultiAdapter(first, second)
+
+	spans := []adapters.SpanData{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	res, err := m.ExportSpans(t.Context(), spans)
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 1, Rejected: 2}, res)
+	require.Len(t, m.Adapters(), 2)
+}
+
 func TestMultiAdapterEmpty(t *testing.T) {
 	t.Parallel()
 
 	m := adapters.NewMultiAdapter()
-	require.NoError(t, m.ExportSpans(t.Context(), nil))
+	res, err := m.ExportSpans(t.Context(), nil)
+	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{}, res)
 	require.NoError(t, m.ForceFlush(t.Context()))
 	require.NoError(t, m.Shutdown(t.Context()))
 }

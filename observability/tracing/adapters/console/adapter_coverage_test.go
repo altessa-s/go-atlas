@@ -42,8 +42,9 @@ func TestNew_DefaultsToStdoutPrettyWithTimestamps(t *testing.T) {
 
 	require.Equal(t, "console", a.Name())
 
-	err := a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()})
+	res, err := a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()})
 	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 1}, res)
 
 	out := buf.String()
 	require.Contains(t, out, "[SPAN] req-handler")
@@ -67,8 +68,9 @@ func TestExportSpans_MultipleSpansWriteSeparateLines(t *testing.T) {
 	a := console.New(console.WithWriter(&buf))
 	span := testSpan()
 
-	err := a.ExportSpans(t.Context(), []adapters.SpanData{span, span})
+	res, err := a.ExportSpans(t.Context(), []adapters.SpanData{span, span})
 	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{Accepted: 2}, res)
 
 	// Each span emits exactly one "[SPAN]" header line.
 	require.Equal(t, 2, strings.Count(buf.String(), "[SPAN]"))
@@ -80,8 +82,9 @@ func TestExportSpans_EmptyBatchProducesNoOutput(t *testing.T) {
 	var buf bytes.Buffer
 	a := console.New(console.WithWriter(&buf))
 
-	err := a.ExportSpans(t.Context(), nil)
+	res, err := a.ExportSpans(t.Context(), nil)
 	require.NoError(t, err)
+	require.Equal(t, adapters.ExportResult{}, res)
 	require.Empty(t, buf.String())
 }
 
@@ -92,10 +95,12 @@ func TestNew_WithPrettyPrintAndWithTimestamps_TrueMatchesDefaults(t *testing.T) 
 	span := testSpan()
 
 	a1 := console.New(console.WithWriter(&withOpts), console.WithPrettyPrint(true), console.WithTimestamps(true))
-	require.NoError(t, a1.ExportSpans(t.Context(), []adapters.SpanData{span}))
+	_, err := a1.ExportSpans(t.Context(), []adapters.SpanData{span})
+	require.NoError(t, err)
 
 	a2 := console.New(console.WithWriter(&withoutOpts))
-	require.NoError(t, a2.ExportSpans(t.Context(), []adapters.SpanData{span}))
+	_, err = a2.ExportSpans(t.Context(), []adapters.SpanData{span})
+	require.NoError(t, err)
 
 	// Strip each line's timestamp prefix (it is wall-clock based and
 	// legitimately differs between the two calls) before comparing.
@@ -109,7 +114,8 @@ func TestNew_WithPrettyPrintFalse_EmitsJSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	a := console.New(console.WithWriter(&buf), console.WithPrettyPrint(false))
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()})
+	require.NoError(t, err)
 
 	line := strings.TrimSpace(buf.String())
 	require.NotContains(t, line, "[SPAN]")
@@ -123,7 +129,8 @@ func TestNew_WithTimestampsFalse_OmitsTimestampPrefix(t *testing.T) {
 
 	var buf bytes.Buffer
 	a := console.New(console.WithWriter(&buf), console.WithTimestamps(false))
-	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()}))
+	_, err := a.ExportSpans(t.Context(), []adapters.SpanData{testSpan()})
+	require.NoError(t, err)
 
 	out := buf.String()
 	require.Contains(t, out, "[SPAN] req-handler")
@@ -146,7 +153,10 @@ func TestExportSpans_CancelWhileAnotherExportWrites(t *testing.T) {
 	a := console.New(console.WithWriter(writer), console.WithPrettyPrint(false))
 	spans := []adapters.SpanData{testSpan()}
 	first := make(chan error, 1)
-	go func() { first <- a.ExportSpans(t.Context(), spans) }()
+	go func() {
+		_, err := a.ExportSpans(t.Context(), spans)
+		first <- err
+	}()
 	// Read only the first byte so the writer still owns the adapter.
 	var firstByte [1]byte
 	_, err := io.ReadFull(reader, firstByte[:])
@@ -154,7 +164,10 @@ func TestExportSpans_CancelWhileAnotherExportWrites(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	second := make(chan error, 1)
-	go func() { second <- a.ExportSpans(ctx, spans) }()
+	go func() {
+		_, err := a.ExportSpans(ctx, spans)
+		second <- err
+	}()
 	cancel()
 	select {
 	case err := <-second:

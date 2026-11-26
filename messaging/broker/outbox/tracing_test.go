@@ -33,11 +33,11 @@ type spanSink struct {
 	spans []adapters.SpanData
 }
 
-func (s *spanSink) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (s *spanSink) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.spans = append(s.spans, spans...)
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 func (s *spanSink) recorded() []adapters.SpanData {
 	s.mu.Lock()

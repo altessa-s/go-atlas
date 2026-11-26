@@ -39,7 +39,7 @@ type grpcClient struct {
 	trace coltracepb.TraceServiceClient
 
 	endpoint      string
-	headers       map[string]string
+	md            metadata.MD
 	exportTimeout time.Duration
 
 	insecure    bool
@@ -54,21 +54,20 @@ func newGRPCClient(cfg *options) *grpcClient {
 		injected:      cfg.grpcConn,
 		endpoint:      cfg.endpoint,
 		insecure:      cfg.insecure,
-		headers:       copyAndNormalizeHeaders(cfg.headers),
+		md:            buildExporterMetadata(cfg.headers),
 		compression:   cfg.compression,
 		exportTimeout: cfg.exportTimeout,
 	}
 }
 
-// copyAndNormalizeHeaders returns a defensive copy of the headers map with
-// keys lowercased, as required by gRPC metadata conventions.
-func copyAndNormalizeHeaders(src map[string]string) map[string]string {
+// buildExporterMetadata builds an immutable gRPC metadata map with lowercased keys.
+func buildExporterMetadata(src map[string]string) metadata.MD {
 	if len(src) == 0 {
 		return nil
 	}
-	dst := make(map[string]string, len(src))
+	dst := make(metadata.MD, len(src))
 	for k, v := range src {
-		dst[strings.ToLower(k)] = v
+		dst[strings.ToLower(k)] = []string{v}
 	}
 	return dst
 }
@@ -127,13 +126,12 @@ func (c *grpcClient) Stop(_ context.Context) error {
 	return nil
 }
 
-// UploadTraces sends trace data to the OTLP collector.
-// This implements the otlptrace.Client interface.
-func (c *grpcClient) UploadTraces(ctx context.Context, protoSpans []*tracepb.ResourceSpans) error {
+// UploadTraces sends trace data to the OTLP collector and returns any rejected span count.
+func (c *grpcClient) UploadTraces(ctx context.Context, protoSpans []*tracepb.ResourceSpans) (int64, error) {
 	c.mu.RLock()
 	if !c.started {
 		c.mu.RUnlock()
-		return fmt.Errorf("client not started")
+		return 0, fmt.Errorf("client not started")
 	}
 	trace := c.trace
 	c.mu.RUnlock()
@@ -149,11 +147,16 @@ func (c *grpcClient) UploadTraces(ctx context.Context, protoSpans []*tracepb.Res
 		ResourceSpans: protoSpans,
 	}
 
-	if _, err := trace.Export(c.injectHeaders(ctx), req, c.buildCallOptions()...); err != nil {
-		return coreerrs.WrapOperation(err, "export traces")
+	resp, err := trace.Export(c.injectHeaders(ctx), req, c.buildCallOptions()...)
+	if err != nil {
+		return 0, coreerrs.WrapOperation(err, "export traces")
 	}
 
-	return nil
+	var rejected int64
+	if ps := resp.GetPartialSuccess(); ps != nil && ps.GetRejectedSpans() > 0 {
+		rejected = ps.GetRejectedSpans()
+	}
+	return rejected, nil
 }
 
 // buildCallOptions builds gRPC call options based on configuration.
@@ -165,24 +168,8 @@ func (c *grpcClient) buildCallOptions() []grpc.CallOption {
 	return opts
 }
 
-// injectHeaders injects configured headers into the context as gRPC metadata.
+// injectHeaders builds a fresh outgoing metadata context containing only the
+// configured exporter headers, keeping ctx's deadline and cancellation.
 func (c *grpcClient) injectHeaders(ctx context.Context) context.Context {
-	if len(c.headers) == 0 {
-		return ctx
-	}
-
-	// Get existing metadata or create new
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		md = metadata.New(nil)
-	} else {
-		md = md.Copy()
-	}
-
-	// Add headers
-	for key, value := range c.headers {
-		md.Set(key, value)
-	}
-
-	return metadata.NewOutgoingContext(ctx, md)
+	return metadata.NewOutgoingContext(ctx, c.md)
 }
