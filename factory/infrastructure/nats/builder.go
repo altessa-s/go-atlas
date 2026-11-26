@@ -30,11 +30,6 @@ const (
 	// indefinitely. Passed to [nats.MaxReconnects] when no explicit limit is
 	// configured.
 	UnlimitedReconnects = -1
-
-	// UnlimitedReconnectBuffer indicates that the reconnect buffer size is
-	// unlimited, allowing messages to be buffered during reconnection without
-	// dropping. Passed to [nats.ReconnectBufSize].
-	UnlimitedReconnectBuffer = -1
 )
 
 // Policy conversion maps translate [config] policy constants to their
@@ -179,7 +174,7 @@ func (b *ConnectionBuilder) NATSOptions() ([]nats.Option, error) {
 	maxReconnect := cmp.Or(b.cfg.MaxReconnect, UnlimitedReconnects)
 
 	natsOptions := []nats.Option{
-		nats.ReconnectBufSize(UnlimitedReconnectBuffer),
+		nats.ReconnectBufSize(nats.DefaultReconnectBufSize),
 		nats.Compression(true),
 		nats.RetryOnFailedConnect(true),
 		nats.Name(b.cfg.ClientName),

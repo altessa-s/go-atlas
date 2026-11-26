@@ -64,7 +64,6 @@ fields are ignored because credentials are embedded in the URI.
 
 ## Constants
 
-| Constant                   | Value | Description                                          |
-|----------------------------|-------|------------------------------------------------------|
-| `UnlimitedReconnects`      | -1    | Reconnect indefinitely after connection loss         |
-| `UnlimitedReconnectBuffer` | -1    | Buffer messages without limit during reconnection    |
+| Constant              | Value | Description                                   |
+|-----------------------|-------|-----------------------------------------------|
+| `UnlimitedReconnects` | -1    | Reconnect indefinitely after connection loss  |

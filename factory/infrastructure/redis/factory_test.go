@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 )
 
@@ -123,6 +125,34 @@ func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
 	opts, err := b.UniversalOptions()
 	require.NoError(t, err)
 	require.NotNil(t, opts.TLSConfig, "expected TLSConfig to be set for rediss:// URI")
+}
+
+func TestUniversalOptions_ConnectionURI_InjectedTLS(t *testing.T) {
+	t.Parallel()
+
+	injected := &tls.Config{
+		ServerName: "custom.redis.internal",
+		MinVersion: tls.VersionTLS13,
+	}
+
+	t.Run("non-TLS scheme rejected", func(t *testing.T) {
+		t.Parallel()
+		opts, err := New(&redisconfig.Config{
+			ConnectionURI: "redis://user:Secret@h:6379",
+		}).WithTLSConfig(injected).UniversalOptions()
+		require.Nil(t, opts)
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+		require.NotContains(t, err.Error(), "Secret")
+	})
+
+	t.Run("rediss scheme applies injected TLS config", func(t *testing.T) {
+		t.Parallel()
+		opts, err := New(&redisconfig.Config{
+			ConnectionURI: "rediss://h:6379/0",
+		}).WithTLSConfig(injected).UniversalOptions()
+		require.NoError(t, err)
+		require.Same(t, injected, opts.TLSConfig)
+	})
 }
 
 func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {

@@ -50,7 +50,7 @@ Mode is detected automatically from configuration — no explicit mode field is 
 | `UseDefaultLogger`       | Shorthand for `UseLogger(slog.Default())`                       |
 | `UseHealthCoordinator`   | Registers a health checker for the created client               |
 | `UseHealthServiceName`   | Name to register the checker under (default `"redis"`)          |
-| `WithTLSConfig`          | TLS for the field-based path; a URI takes TLS from `rediss://`  |
+| `WithTLSConfig`          | Applies custom `*tls.Config` on field-based and `rediss://` URI configs; rejected on non-TLS URIs |
 
 ### Startup behavior
 

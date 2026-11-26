@@ -8,14 +8,18 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 	"github.com/altessa-s/go-atlas/observability/health"
 
@@ -144,4 +148,79 @@ func TestConnectionHandlersLog(t *testing.T) {
 	msg, lvl = h.last()
 	require.Equal(t, "NATS connection re-established", msg)
 	require.Equal(t, slog.LevelDebug, lvl)
+}
+
+func TestBuild_BuffersPublishDuringReconnect(t *testing.T) {
+	t.Parallel()
+
+	storeDir := t.TempDir()
+	startOn := func(port int) *server.Server {
+		ns, err := server.NewServer(&server.Options{
+			Host:      "127.0.0.1",
+			Port:      port,
+			NoLog:     true,
+			NoSigs:    true,
+			JetStream: true,
+			StoreDir:  storeDir,
+		})
+		require.NoError(t, err)
+		ns.Start()
+		require.True(t, ns.ReadyForConnections(5*time.Second))
+		return ns
+	}
+
+	ns1 := startOn(-1)
+	stoppedFirst := false
+	t.Cleanup(func() {
+		if !stoppedFirst {
+			ns1.Shutdown()
+			ns1.WaitForShutdown()
+		}
+	})
+
+	port := ns1.Addr().(*net.TCPAddr).Port
+	url := ns1.ClientURL()
+
+	_, js1 := natstest.ConnectJetStream(t, ns1)
+	_, err := js1.CreateStream(t.Context(), jetstream.StreamConfig{
+		Name:     "ORDERS",
+		Subjects: []string{"orders.>"},
+		Storage:  jetstream.FileStorage,
+	})
+	require.NoError(t, err)
+
+	conn, err := New(&natsconfig.Config{
+		Hosts:          []string{url},
+		ClientName:     "reconnect-buf-test",
+		ConnectTimeout: time.Second,
+		ReconnectWait:  20 * time.Millisecond,
+	}).Build()
+	require.NoError(t, err)
+	t.Cleanup(conn.Close)
+
+	ns1.Shutdown()
+	ns1.WaitForShutdown()
+	stoppedFirst = true
+
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		return !conn.IsConnected()
+	}, "client disconnected")
+
+	require.NoError(t, conn.Publish("orders.created", []byte("buffered-during-outage")))
+
+	ns2 := startOn(port)
+	t.Cleanup(func() {
+		ns2.Shutdown()
+		ns2.WaitForShutdown()
+	})
+
+	testhelpers.WaitFor(t, 5*time.Second, conn.IsConnected, "client reconnected")
+	require.NoError(t, conn.FlushTimeout(2*time.Second))
+
+	_, js2 := natstest.ConnectJetStream(t, ns2)
+	stream, err := js2.Stream(t.Context(), "ORDERS")
+	require.NoError(t, err)
+	raw, err := stream.GetMsg(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, []byte("buffered-during-outage"), raw.Data)
 }
