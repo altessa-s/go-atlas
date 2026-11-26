@@ -5,8 +5,8 @@
 package outbox
 
 import (
-	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,23 +16,19 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-type partialRegistrar struct {
-	testhelpers.MockTaskRegistrar
-	failure error
-}
-
-func (r *partialRegistrar) Register(ctx context.Context, task schedtask.Config) error {
-	err := r.MockTaskRegistrar.Register(ctx, task)
-	if r.Count() == 2 {
-		return r.failure
-	}
-	return err
-}
-
 func TestPartialRegistrationGatesCallbacksAndRetriesMissingTasks(t *testing.T) {
 	t.Parallel()
 	boom := errors.New("registration failed")
-	reg := &partialRegistrar{failure: boom}
+	var failure atomic.Pointer[error]
+	failure.Store(&boom)
+	var calls int
+	reg := &testhelpers.MockTaskRegistrar{ErrFor: func(schedtask.Config) error {
+		calls++
+		if calls == 2 {
+			return *failure.Load()
+		}
+		return nil
+	}}
 	ob := New(&recordingStore{}, noopHandler, WithScheduler(reg),
 		WithDispatchSchedule("@every 1m"), WithUnlockSchedule("@every 2m"), WithStatsSchedule("@every 3m"))
 	require.Zero(t, reg.Count())
@@ -42,7 +38,7 @@ func TestPartialRegistrationGatesCallbacksAndRetriesMissingTasks(t *testing.T) {
 	require.True(t, ok)
 	require.ErrorIs(t, first.Func(t.Context()), ErrRegistrationIncomplete)
 	require.NoError(t, ob.RunUnlockCycle(t.Context()), "the failed task remains available manually")
-	reg.failure = nil
+	failure.Store(new(error))
 	require.NoError(t, ob.RegisterTasks(t.Context()))
 	require.Equal(t, 4, reg.Count(), "retry must not register dispatch twice")
 	require.NoError(t, first.Func(t.Context()))
