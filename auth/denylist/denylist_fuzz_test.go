@@ -73,7 +73,7 @@ func FuzzRevocationIsNeverForgottenEarly(f *testing.F) {
 				expiry, revoked := want[key]
 				expected := revoked && (expiry.IsZero() || now.Before(expiry))
 
-				require.Equal(t, expected, list.IsRevoked(key),
+				require.Equal(t, expected, isRevoked(t, list, key),
 					"step %d (op %d): key %q", i, op, key)
 			}
 		}
@@ -103,9 +103,9 @@ func FuzzSweepDoesNotChangeAnswers(f *testing.F) {
 
 		now = now.Add(time.Duration(advanceSeconds%(1<<20)) * time.Second)
 
-		before := list.IsRevoked(key)
+		before := isRevoked(t, list, key)
 		list.Sweep()
-		require.Equal(t, before, list.IsRevoked(key),
+		require.Equal(t, before, isRevoked(t, list, key),
 			"Sweep changed the verdict for %q", key)
 	})
 }
@@ -134,6 +134,6 @@ func FuzzRestoreAlwaysWins(f *testing.F) {
 		}
 
 		list.Restore(key)
-		require.False(t, list.IsRevoked(key), "a restored key stayed revoked: %q", key)
+		require.False(t, isRevoked(t, list, key), "a restored key stayed revoked: %q", key)
 	})
 }

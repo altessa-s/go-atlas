@@ -8,8 +8,8 @@
 //
 // # Why
 //
-// jwt.RevocationChecker is a hot-path, synchronous IsRevoked(id) bool — no
-// context, no error — so it cannot make a network call on every verification.
+// jwt.RevocationChecker is a hot-path, synchronous IsRevoked(id) (bool, error)
+// — no context — so it cannot make a network call on every verification.
 // The distributed denylist store
 // ([github.com/altessa-s/go-atlas/auth/denylist/storages/redis.Store]) is
 // asynchronous (IsRevoked(ctx, key) (bool, error)) and therefore does not fit.
@@ -23,6 +23,17 @@
 // [Cache.IsRevoked] reads that snapshot lock-free, so the verifier hot path
 // never touches the network and never blocks.
 //
+// # Fail closed
+//
+// A mirror that has never refreshed knows nothing, so it does not answer "not
+// revoked": until [Cache.Prime] (or the first [Cache.Refresh]) succeeds,
+// [Cache.IsRevoked] returns jwt.ErrRevocationUnavailable and the verifier
+// rejects the token with that sentinel, distinct from jwt.ErrTokenRevoked.
+// [WithMaxStaleness] extends this to a snapshot that stopped refreshing, and
+// [Cache.Ready] and [Cache.Age] expose the state for health checks. Each refused
+// lookup is counted (unavailable_total) and the change of state is logged once.
+// [WithInsecureServeUnprimed] opts out of the unprimed refusal.
+//
 // # Staleness
 //
 // A snapshot lags the authoritative store by up to one refresh interval: a key
@@ -35,7 +46,7 @@
 // # Usage
 //
 //	m := mirror.New(store.RawSource())
-//	if err := m.Refresh(ctx); err != nil { // prime before serving
+//	if err := m.Prime(ctx); err != nil { // prime before serving
 //	    return err
 //	}
 //	v := jwt.NewVerifier(resolver, jwt.WithRevocation(m))

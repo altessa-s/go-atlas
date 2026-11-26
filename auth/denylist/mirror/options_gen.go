@@ -3,8 +3,53 @@
 
 package mirror
 
+import (
+	"log/slog"
+	"time"
+)
+
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithClock sets the clock option.
+//
+// clock is the time source for snapshot age. Set via the generated
+// WithClock; a nil clock is ignored.
+func WithClock(v func() time.Time) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.clock = v
+	}
+}
+
+// WithLogger sets the logger option.
+//
+// logger reports a change between serving and refusing to answer. Nil keeps
+// the default, which discards. Set via the generated WithLogger.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
+
+// WithMaxStaleness sets the maxStaleness option.
+//
+// maxStaleness is the oldest snapshot [Cache.IsRevoked] still trusts; an
+// older one answers [github.com/altessa-s/go-atlas/auth/jwt.ErrRevocationUnavailable].
+// Zero disables the bound. Set via the generated WithMaxStaleness.
+func WithMaxStaleness(v time.Duration) Option {
+	return func(o *options) {
+		if v < (0) {
+			return
+		}
+		o.maxStaleness = v
+	}
+}
 
 // WithMetrics sets the metrics option.
 //
@@ -21,7 +66,10 @@ func WithMetrics(v *Metrics) Option {
 
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
-	return &options{}
+	return &options{
+		clock:  time.Now,
+		logger: slog.New(slog.DiscardHandler),
+	}
 }
 
 // newOptions creates a new options with the given options.

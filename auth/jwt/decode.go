@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/altessa-s/go-atlas/auth/internal/claimnum"
 	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
 )
 
 // decodeClaims decodes the single JSON value supplied by UnmarshalJSON.
-// Only registered dates retain their signed number spelling.
+// Registered dates retain their signed number spelling; other numbers are
+// normalized by [claimnum.Value].
 func decodeClaims(data []byte) (map[string]any, error) {
 	var claims map[string]any
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -28,7 +30,7 @@ func decodeClaims(data []byte) (map[string]any, error) {
 				return nil, errors.New("invalid registered date: " + key)
 			}
 		default:
-			v, err := customValue(value)
+			v, err := claimnum.Value(value)
 			if err != nil {
 				return nil, err
 			}
@@ -36,33 +38,4 @@ func decodeClaims(data []byte) (map[string]any, error) {
 		}
 	}
 	return claims, nil
-}
-
-// customValue restores the encoding/json representation of private claims.
-func customValue(value any) (any, error) {
-	switch v := value.(type) {
-	case json.Number:
-		f, err := v.Float64()
-		if err != nil {
-			return nil, errors.New("custom numeric claim outside float64 range")
-		}
-		return f, nil
-	case map[string]any:
-		for k, item := range v {
-			decoded, err := customValue(item)
-			if err != nil {
-				return nil, err
-			}
-			v[k] = decoded
-		}
-	case []any:
-		for i, item := range v {
-			decoded, err := customValue(item)
-			if err != nil {
-				return nil, err
-			}
-			v[i] = decoded
-		}
-	}
-	return value, nil
 }

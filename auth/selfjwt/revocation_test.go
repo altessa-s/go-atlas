@@ -5,13 +5,16 @@
 package selfjwt_test
 
 import (
+	"context"
 	"encoding/json"
+	"iter"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/denylist"
+	"github.com/altessa-s/go-atlas/auth/denylist/mirror"
 	"github.com/altessa-s/go-atlas/auth/jwt"
 	"github.com/altessa-s/go-atlas/auth/selfjwt"
 )
@@ -52,6 +55,35 @@ func TestFractionalExpiryRetention(t *testing.T) {
 		lastTick := now.Add(time.Second + jwt.DefaultLeeway)
 		dl := denylist.New(denylist.WithClock(func() time.Time { return lastTick }))
 		dl.RevokeUntil(tok.ID, tok.Expiry.Add(jwt.DefaultLeeway))
-		require.True(t, dl.IsRevoked(tok.ID))
+		got, err := dl.IsRevoked(tok.ID)
+		require.NoError(t, err)
+		require.True(t, got)
 	}
+}
+
+// An unprimed mirror makes the verifier reject with the jwt sentinel, distinct
+// from "revoked", instead of accepting the token unchecked.
+func TestVerifyRejectsWhenRevocationUnavailable(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, jwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+	mir := mirror.New(emptyDenylistSource{})
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}), selfjwt.WithRevocation(mir))
+
+	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
+	require.NoError(t, err)
+
+	_, err = v.Verify(t.Context(), res.Token)
+	require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+	require.NotErrorIs(t, err, jwt.ErrTokenRevoked)
+
+	require.NoError(t, mir.Prime(t.Context()))
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+}
+
+type emptyDenylistSource struct{}
+
+func (emptyDenylistSource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(func(string, error) bool) {}
 }

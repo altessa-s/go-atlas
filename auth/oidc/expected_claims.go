@@ -11,8 +11,6 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
-
-	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
 )
 
 // claimMatches reports whether a decoded claim value satisfies an expected
@@ -84,50 +82,55 @@ func isNumeric(v any) bool {
 	return (kind >= reflect.Int && kind <= reflect.Uint64) || kind == reflect.Float32 || kind == reflect.Float64
 }
 
-// numbersEqual compares a float claim in its native precision. For an exact
-// claim, compare the JSON spellings of both operands, including a configured
-// Go float's shortest round-trippable decimal.
+// numbersEqual compares two Go floats in their native precision. Any other
+// pair, a json.Number or an integer on either side, is compared by exact
+// decimal value, so an integer is never rounded to a float and a json.Number
+// is never equated with a float it merely rounds to.
 func numbersEqual(a, b any) bool {
 	if !isNumeric(a) || !isNumeric(b) {
 		return false
 	}
-	if reflect.ValueOf(a).CanFloat() {
+	if reflect.ValueOf(a).CanFloat() && reflect.ValueOf(b).CanFloat() {
 		x, ok := floatNumber(a)
 		y, valid := floatNumber(b)
 		return ok && valid && x == y
 	}
-	return numericdate.EqualNumbers(exactNumber(a), exactNumber(b))
+	x, ok := exactNumber(a)
+	y, valid := exactNumber(b)
+	return ok && valid && x.Cmp(y) == 0
 }
 
-func exactNumber(v any) json.Number {
+// exactNumber returns the exact value of a numeric operand. A float that holds
+// an integer is that integer exactly; any other float stands for its shortest
+// round-trip decimal, as it does when it is decoded from a token.
+func exactNumber(v any) (*big.Rat, bool) {
 	if n, ok := v.(json.Number); ok {
-		return n
-	}
-	r := reflect.ValueOf(v)
-	if r.CanFloat() {
-		return json.Number(strconv.FormatFloat(r.Float(), 'g', -1, r.Type().Bits()))
-	}
-	if r.CanInt() {
-		return json.Number(strconv.FormatInt(r.Int(), 10))
-	}
-	return json.Number(strconv.FormatUint(r.Uint(), 10))
-}
-
-func floatNumber(v any) (float64, bool) {
-	if n, ok := v.(json.Number); ok {
-		f, err := n.Float64()
-		return f, err == nil && !math.IsInf(f, 0)
+		if !json.Valid([]byte(n)) {
+			return nil, false
+		}
+		return new(big.Rat).SetString(string(n))
 	}
 	r := reflect.ValueOf(v)
 	switch {
-	case r.CanInt():
-		return float64(r.Int()), true
-	case r.CanUint():
-		return float64(r.Uint()), true
-	default:
+	case r.CanFloat():
 		f := r.Float()
-		return f, !math.IsInf(f, 0)
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			return nil, false
+		}
+		if f == math.Trunc(f) {
+			return new(big.Rat).SetFloat64(f), true
+		}
+		return new(big.Rat).SetString(strconv.FormatFloat(f, 'g', -1, r.Type().Bits()))
+	case r.CanInt():
+		return new(big.Rat).SetInt64(r.Int()), true
+	default:
+		return new(big.Rat).SetUint64(r.Uint()), true
 	}
+}
+
+func floatNumber(v any) (float64, bool) {
+	f := reflect.ValueOf(v).Float()
+	return f, !math.IsInf(f, 0)
 }
 
 func claimArray(v any) ([]any, bool) {

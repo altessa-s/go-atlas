@@ -42,7 +42,7 @@ Use `MinterOption` with `NewMinter` and `VerifierOption` with `NewVerifier`. For
 | `WithMaxTokenLifetime`                                          | 30 days           | Ceiling a requested TTL is clamped to                                                                     |
 | `WithLeeway`                                                    | 30s               | Leeway applied to `exp` / `nbf` to tolerate clock drift; clamped to `jwt.MaxLeeway` (5m)                  |
 | `WithCacheTTL`                                                  | 5m                | How long a resolved verification key is cached before reload                                              |
-| `WithCacheMaxEntries`                                           | 10000             | Hard cap on cached verification keys, bounding memory under subject churn                                 |
+| `WithCacheMaxEntries`                                           | 10000             | Cap on cached verification keys (LRU), bounding memory under subject churn; a tenth of it caps cached provider misses separately; non-positive selects the default (was: unbounded) |
 | `WithKeyLookupTimeout`                                          | 10s               | Deadline for a shared key-provider lookup on a cache miss (must be > 0)                                   |
 | `WithNegativeCacheTTL`                                          | 30s               | How long `ErrSubjectUnknown` / `ErrKeyRotated` from the provider is cached; `0` disables                  |
 | `WithMaxConcurrentLookups`                                      | 64                | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded` |
@@ -118,3 +118,4 @@ minter, verifier := selfjwt.New(provider, "billing", "billing-api")
 | `ErrIssuerRequired`      | The minter or verifier was built with an empty issuer                                                          |
 | `ErrAudienceRequired`    | The minter or verifier was built with an empty audience                                                        |
 | `jwt.ErrTokenRevoked`    | The token's `jti` is revoked per `WithRevocation` (propagated unwrapped)                                       |
+| `jwt.ErrRevocationUnavailable` | The `WithRevocation` checker could not answer (for example an unprimed `denylist/mirror`); propagated unwrapped |

@@ -15,6 +15,7 @@ and JWT-free, keyed by a plain string, so `auth/jwt`, `auth/oidc`, and `selfjwt`
   - [In-process denylist](#in-process-denylist)
   - [Distributed store (Redis)](#distributed-store-redis)
   - [Negative cache in front of a distributed store](#negative-cache-in-front-of-a-distributed-store)
+  - [Local mirror for jwt and selfjwt verifiers](#local-mirror-for-jwt-and-selfjwt-verifiers)
 - [Correctness and Staleness](#correctness-and-staleness)
 - [Observability](#observability)
 - [API Reference](#api-reference)
@@ -24,7 +25,7 @@ and JWT-free, keyed by a plain string, so `auth/jwt`, `auth/oidc`, and `selfjwt`
 ## Overview
 
 `auth/denylist` is the core: a concurrency-safe set of revoked identifiers — a JWT ID (`jti`) for a single token, or a subject for a blanket
-ban. A verifier accepts the read-only `Checker` seam (`IsRevoked(key) bool`) so the backing store can start in-memory and later become
+ban. A verifier accepts the read-only `Checker` seam (`IsRevoked(key) (bool, error)`) so the backing store can start in-memory and later become
 distributed without touching the verifier.
 
 ```go
@@ -48,7 +49,7 @@ rotates keys. `denylist` is the small explicit seam any of them can share.
 | Concept       | Type / signature                                               | Role                                                                             |
 |---------------|----------------------------------------------------------------|----------------------------------------------------------------------------------|
 | Denylist      | `*denylist.Denylist`                                           | The in-memory revoked-identifier set, with permanent and expiry-bounded entries. |
-| Checker       | `denylist.Checker` — `IsRevoked(key) bool`                     | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.            |
+| Checker       | `denylist.Checker` — `IsRevoked(key) (bool, error)`           | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.            |
 | Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.                                      |
 
 The core distinguishes two entry kinds: **permanent** (`Revoke`, cleared only by `Restore`) and **expiry-bounded** (`RevokeUntil`, forgotten
@@ -75,7 +76,7 @@ dl := denylist.New()
 // Keep the entry past exp by the verifiers' leeway (and any extra clock difference between instances).
 dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 
-if dl.IsRevoked(claims.ID()) {
+if revoked, err := dl.IsRevoked(claims.ID()); err != nil || revoked { // err is always nil in memory
     return ErrRevoked
 }
 ```
@@ -143,6 +144,40 @@ committed. `authconfig.Denylist.RebuildInterval` (`rebuildInterval`) is for call
 `filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.RawSource()` is complete only on a single Redis server; with a
 Cluster or Ring client it fails with `ErrUnsupportedClient` — inject an exact loader with `UseDataLoader` there.
 
+### Local mirror for jwt and selfjwt verifiers
+
+`jwt.RevocationChecker` is synchronous (`IsRevoked(id) (bool, error)`), so a distributed store cannot sit behind it directly. `mirror` keeps a local
+snapshot of the revoked set, refreshed on a schedule, and answers every lookup from memory. It **fails closed**: a mirror that never refreshed knows
+nothing, so it does not answer "not revoked".
+
+```go
+cache, err := mirrorfactory.NewBuilder(store.RawSource()).
+    UseScheduler(scheduler).           // runs the refresh task; each mirror needs its own UseName on one scheduler
+    UseHealthCoordinator(coordinator). // NotServing while unprimed or stale
+    UseRefreshSchedule("@every 15s").
+    UseMaxStaleness(time.Minute).      // not shorter than the refresh interval
+    Build(ctx)                         // primes with ctx (bounded by the prime timeout); a source error fails Build
+if err != nil {
+    return err
+}
+verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
+```
+
+Without the factory: `m := mirror.New(src, mirror.WithMaxStaleness(d)); err := m.Prime(ctx)` before serving, then `m.Refresh` on a schedule.
+
+| Symbol                                      | Description                                                                                                         |
+|---------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `Cache.Prime(ctx)`                          | First synchronous refresh; returns the source error (reported by type only, never its text).                         |
+| `Cache.IsRevoked(id) (bool, error)`         | Lock-free lookup; `jwt.ErrRevocationUnavailable` while unprimed or older than the maximum staleness.                 |
+| `Cache.Ready()` / `Cache.Age()`             | Primed and fresh enough to answer / time since the scan that produced the snapshot started (for health checks).     |
+| `WithMaxStaleness(d)` / `WithClock(fn)`     | Oldest snapshot still trusted; **zero (the default) disables the bound**; time source.                              |
+| `WithInsecureServeUnprimed()`               | Answer "not revoked" before the first refresh instead of refusing. Factory: `UseInsecureServeUnprimed`.             |
+
+Verifiers reject with `jwt.ErrRevocationUnavailable` (distinct from `jwt.ErrTokenRevoked`) and a verifier with a revocation checker also
+requires every token to carry a string `jti`; `jwt.WithInsecureRevocationAllowMissingID()` opts out. **Release note:** the staleness bound is off by
+default, so after a successful prime a source that stays down keeps serving the last snapshot indefinitely; set `WithMaxStaleness` (a few refresh
+intervals) to bound it.
+
 ## Correctness and Staleness
 
 `negcache` is **eventually consistent** with revocations recorded on other nodes: it is correct only while the filter contains **every** key the
@@ -171,7 +206,9 @@ filter. A nil collector or `*Metrics` makes every recording a zero-cost no-op. T
 their own.
 
 `mirror.WithMetrics(mirror.NewMetrics(collector, ""))` records, under subsystem `auth_denylist_mirror`, `refreshes_total{result}`
-(`ok`/`error`) and the `snapshot_size` gauge — watch a climbing `result="error"` rate for a source going stale.
+(`ok`/`error`), the `snapshot_size` gauge and `unavailable_total{reason}` (`unprimed`/`stale`: lookups refused). Watch a climbing
+`result="error"` rate for a source going stale, and any `unavailable_total` as an outage of revocation checks (each change of state is also logged
+once).
 
 ## API Reference
 
@@ -181,9 +218,9 @@ their own.
 | `Denylist.Revoke(key)`                                                 | Deny `key` permanently, until a matching `Restore`.                          |
 | `Denylist.RevokeUntil(key, expiry)`                                    | Deny `key` until `expiry`; an expiry at or before now is a no-op.            |
 | `Denylist.Restore(key)`                                                | Re-allow `key`.                                                              |
-| `Denylist.IsRevoked(key) bool`                                         | Whether `key` is currently revoked (expired entries report false).           |
+| `Denylist.IsRevoked(key) (bool, error)`                                | Whether `key` is currently revoked (expired entries report false); the error is always nil in memory. |
 | `Denylist.Sweep() int` / `Len() int`                                   | Drop expired entries / tracked-entry count, for observability and tests.     |
-| `denylist.Checker`                                                     | Read seam `IsRevoked(key) bool` a verifier accepts.                          |
+| `denylist.Checker`                                                     | Read seam `IsRevoked(key) (bool, error)` a verifier accepts; an error means "cannot answer", never "not revoked". |
 | `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets namespace, `WithStrictExactReads` enforces primary reads. |
 | `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods (`ErrReplicaReadNotAllowed` on replica).      |
 | `Store.RawSource()` / `Store.DataLoader()`                               | Stream bare revoked keys for the mirror or filter rebuild (`ErrUnsupportedClient` outside standalone).   |

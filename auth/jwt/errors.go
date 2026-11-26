@@ -39,4 +39,11 @@ var (
 	// ErrTokenRevoked is returned when the token's jti has been revoked through
 	// the [RevocationChecker] configured with [WithRevocation].
 	ErrTokenRevoked = errors.New("auth/jwt: token revoked")
+
+	// ErrRevocationUnavailable is returned when the [RevocationChecker] cannot
+	// answer — an unprimed or stale denylist mirror, an unreachable store — so
+	// the token is rejected rather than accepted unchecked. It is distinct from
+	// [ErrTokenRevoked]: the token may well be valid, the outage is the
+	// operator's to fix.
+	ErrRevocationUnavailable = errors.New("auth/jwt: revocation status unavailable")
 )

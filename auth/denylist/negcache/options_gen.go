@@ -10,6 +10,20 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithClock sets the clock option.
+//
+// clock is the time source of the shared-rebuild throttle; the cache
+// measures elapsed time on it. A nil clock is ignored. Set via the
+// generated WithClock.
+func WithClock(v func() time.Time) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.clock = v
+	}
+}
+
 // WithMetrics sets the metrics option.
 //
 // metrics records lookup outcomes. Nil disables metrics — every recording
@@ -43,6 +57,7 @@ func WithSharedRebuildCheckInterval(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		clock:                      time.Now,
 		sharedRebuildCheckInterval: DefaultSharedRebuildCheckInterval,
 	}
 }

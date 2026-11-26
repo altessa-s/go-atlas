@@ -32,16 +32,24 @@ func clockAt(base time.Time) (now func() time.Time, advance func(time.Duration))
 	return now, advance
 }
 
+// isRevoked reports the in-memory denylist's answer, which never errors.
+func isRevoked(tb testing.TB, c interface{ IsRevoked(string) (bool, error) }, key string) bool {
+	tb.Helper()
+	got, err := c.IsRevoked(key)
+	require.NoError(tb, err)
+	return got
+}
+
 func TestRevokePermanent(t *testing.T) {
 	t.Parallel()
 	dl := denylist.New()
-	require.False(t, dl.IsRevoked("a"))
+	require.False(t, isRevoked(t, dl, "a"))
 
 	dl.Revoke("a")
-	require.True(t, dl.IsRevoked("a"))
+	require.True(t, isRevoked(t, dl, "a"))
 
 	dl.Restore("a")
-	require.False(t, dl.IsRevoked("a"))
+	require.False(t, isRevoked(t, dl, "a"))
 }
 
 func TestRevokeUntilFutureThenExpires(t *testing.T) {
@@ -51,10 +59,10 @@ func TestRevokeUntilFutureThenExpires(t *testing.T) {
 	dl := denylist.New(denylist.WithClock(now))
 
 	dl.RevokeUntil("a", base.Add(time.Hour))
-	require.True(t, dl.IsRevoked("a"))
+	require.True(t, isRevoked(t, dl, "a"))
 
 	advance(2 * time.Hour)
-	require.False(t, dl.IsRevoked("a")) // past expiry → not revoked
+	require.False(t, isRevoked(t, dl, "a")) // past expiry → not revoked
 }
 
 func TestRevokeUntilPastIsNoOp(t *testing.T) {
@@ -64,7 +72,7 @@ func TestRevokeUntilPastIsNoOp(t *testing.T) {
 	dl := denylist.New(denylist.WithClock(now))
 
 	dl.RevokeUntil("a", base.Add(-time.Second))
-	require.False(t, dl.IsRevoked("a"))
+	require.False(t, isRevoked(t, dl, "a"))
 	require.Zero(t, dl.Len()) // nothing stored
 }
 
@@ -81,8 +89,8 @@ func TestExpiredSweptOnWrite(t *testing.T) {
 	require.Equal(t, 1, dl.Len())
 
 	dl.Revoke("perm") // a write after the sweep interval sweeps expired entries first
-	require.False(t, dl.IsRevoked("short"))
-	require.True(t, dl.IsRevoked("perm"))
+	require.False(t, isRevoked(t, dl, "short"))
+	require.True(t, isRevoked(t, dl, "perm"))
 	require.Equal(t, 1, dl.Len()) // "short" swept, only "perm" remains
 }
 
@@ -96,12 +104,12 @@ func TestWriteSweepsAtMostOncePerInterval(t *testing.T) {
 	advance(30 * time.Second)                         // "short" expired, interval not yet passed
 
 	dl.Revoke("a")
-	require.False(t, dl.IsRevoked("short")) // expiry still enforced on read
-	require.Equal(t, 2, dl.Len())           // but not swept yet
+	require.False(t, isRevoked(t, dl, "short")) // expiry still enforced on read
+	require.Equal(t, 2, dl.Len())               // but not swept yet
 
 	advance(time.Minute)
 	dl.Revoke("b")
-	require.False(t, dl.IsRevoked("short"))
+	require.False(t, isRevoked(t, dl, "short"))
 	require.Equal(t, 2, dl.Len()) // "short" swept; "a" and "b" remain
 }
 
@@ -117,7 +125,7 @@ func TestSweepReclaims(t *testing.T) {
 
 	require.Equal(t, 1, dl.Sweep()) // only "a" dropped
 	require.Equal(t, 1, dl.Len())
-	require.True(t, dl.IsRevoked("b"))
+	require.True(t, isRevoked(t, dl, "b"))
 }
 
 func TestCheckerSeam(t *testing.T) {
@@ -126,8 +134,8 @@ func TestCheckerSeam(t *testing.T) {
 	dl.Revoke("a")
 
 	var c denylist.Checker = dl
-	require.True(t, c.IsRevoked("a"))
-	require.False(t, c.IsRevoked("b"))
+	require.True(t, isRevoked(t, c, "a"))
+	require.False(t, isRevoked(t, c, "b"))
 }
 
 func TestConcurrentRevokeAndCheck(t *testing.T) {
@@ -136,10 +144,10 @@ func TestConcurrentRevokeAndCheck(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 50 {
 		wg.Go(func() { dl.Revoke(string(rune('a' + i%26))) })
-		wg.Go(func() { _ = dl.IsRevoked("a") })
+		wg.Go(func() { _, _ = dl.IsRevoked("a") })
 	}
 	wg.Wait()
-	require.True(t, dl.IsRevoked("a"))
+	require.True(t, isRevoked(t, dl, "a"))
 }
 
 // TestWithClockNilIgnored pins that a nil clock keeps the default time source.
@@ -147,7 +155,7 @@ func TestWithClockNilIgnored(t *testing.T) {
 	t.Parallel()
 	dl := denylist.New(denylist.WithClock(nil))
 	dl.RevokeUntil("a", time.Now().Add(time.Hour))
-	require.True(t, dl.IsRevoked("a"))
+	require.True(t, isRevoked(t, dl, "a"))
 }
 
 func TestRevocationsOnlyExtend(t *testing.T) {
@@ -167,14 +175,14 @@ func TestRevocationsOnlyExtend(t *testing.T) {
 	list.RevokeUntil("concurrent", epoch.Add(time.Hour))
 	writes.Wait()
 	advance(time.Minute)
-	require.True(t, list.IsRevoked("long-short"))
-	require.True(t, list.IsRevoked("short-long"))
+	require.True(t, isRevoked(t, list, "long-short"))
+	require.True(t, isRevoked(t, list, "short-long"))
 	advance(time.Hour)
-	require.False(t, list.IsRevoked("long-short"))
-	require.False(t, list.IsRevoked("short-long"))
+	require.False(t, isRevoked(t, list, "long-short"))
+	require.False(t, isRevoked(t, list, "short-long"))
 	for _, key := range []string{"bounded-permanent", "permanent-bounded", "concurrent"} {
-		require.True(t, list.IsRevoked(key), key)
+		require.True(t, isRevoked(t, list, key), key)
 		list.Restore(key)
-		require.False(t, list.IsRevoked(key))
+		require.False(t, isRevoked(t, list, key))
 	}
 }

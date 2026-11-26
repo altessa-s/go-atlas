@@ -110,9 +110,11 @@ func WithRequiredClaims(v ...string) VerifierOption {
 //
 // revocation, when set, rejects a verified token whose jti has been revoked,
 // after its signature and registered claims validate, with [ErrTokenRevoked].
-// A token with an empty jti is never matched. Nil leaves revocation
-// unchecked. Back it with auth/denylist or any [RevocationChecker]. Set via
-// the generated WithRevocation.
+// A token without a string jti is rejected with [ErrClaimMissing], because it
+// could never be revoked; a checker that cannot answer rejects it with
+// [ErrRevocationUnavailable]. Nil leaves revocation unchecked. Back it with
+// auth/denylist or any [RevocationChecker]. Set via the generated
+// WithRevocation.
 func WithRevocation(v RevocationChecker) VerifierOption {
 	return func(o *verifierOptions) {
 		switch rv := reflect.ValueOf(v); rv.Kind() {

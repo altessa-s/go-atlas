@@ -37,8 +37,8 @@ func BenchmarkIsRevoked(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = m.IsRevoked("9999") // present
-		_ = m.IsRevoked("absent")
+		_, _ = m.IsRevoked("9999") // present
+		_, _ = m.IsRevoked("absent")
 	}
 }
 
@@ -56,4 +56,22 @@ func BenchmarkRefresh(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkIsRevokedParallel(b *testing.B) {
+	keys := make(sliceSource, 10_000)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+	}
+	m := mirror.New(keys)
+	if err := m.Refresh(b.Context()); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = m.IsRevoked("9999")
+		}
+	})
 }

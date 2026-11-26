@@ -243,13 +243,13 @@ Use `MinterOption` with `NewMinter` and `VerifierOption` with `NewVerifier`. For
 | `WithMaxTokenLifetime`                                          | 30 days                            | mint          | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum                                           |
 | `WithLeeway`                                                    | 30s (`DefaultLeeway`)              | verify        | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier; clamped to `jwt.MaxLeeway` (5m) |
 | `WithCacheTTL`                                                  | 5m                                 | verify        | How long a resolved verification key is cached before reload                                                         |
-| `WithCacheMaxEntries`                                           | 10000                              | verify        | Hard cap on cached verification keys; non-positive disables the cap                                                  |
+| `WithCacheMaxEntries`                                           | 10000                              | verify        | Cap on cached verification keys (LRU); a tenth of it caps cached provider misses separately; non-positive selects the default (10000) |
 | `WithKeyLookupTimeout`                                          | 10s                                | verify        | Deadline for a shared key-provider lookup on a cache miss                                                            |
 | `WithNegativeCacheTTL`                                          | 30s (`DefaultNegativeCacheTTL`)    | verify        | How long a provider `ErrSubjectUnknown` / `ErrKeyRotated` is cached; `0` disables it                                 |
 | `WithMaxConcurrentLookups`                                      | 64 (`DefaultMaxConcurrentLookups`) | verify        | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded`            |
 | `WithMinterAllowedAlgorithms` / `WithVerifierAllowedAlgorithms` | `EdDSA, ES256, RS256`              | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored                                                    |
 | `WithMinterMetrics` / `WithVerifierMetrics`                     | nil (no-op)                        | mint + verify | Attaches a `*Metrics` for counters and latency                                                                       |
-| `WithRevocation`                                                | nil (unchecked)                    | verify        | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`)                    |
+| `WithRevocation`                                                | nil (unchecked)                    | verify        | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`); a checker that cannot answer (an unprimed or stale `denylist/mirror`) rejects with `jwt.ErrRevocationUnavailable` |
 | `WithMinterClock` / `WithVerifierClock`                         | system UTC                         | mint + verify | Injectable clock for deterministic tests                                                                             |
 | `WithRand`                                                      | `crypto/rand`                      | mint          | Injectable randomness for the `jti`                                                                                  |
 
@@ -334,10 +334,14 @@ Verification is fail-closed:
 ## Verification-Key Cache
 
 `Verifier` caches resolved verification keys per `(subject, kid)` with a TTL (`WithCacheTTL`) so it avoids a provider lookup on every
-request. The cache is safe for concurrent use. An expired entry reads as a miss; entries are physically removed only when a capacity-bound
-`put` triggers eviction. A hard `WithCacheMaxEntries` cap bounds memory so a churn of short-lived subjects or rotated-away `kid`s cannot
-grow the map without bound. Eviction first drops every expired entry and, if that frees nothing, removes entries in map-iteration order
-until a slot is free. A non-positive cap leaves the cache unbounded.
+request. The cache is safe for concurrent use. An expired entry reads as a miss. Verified keys and key-provider misses live in two separate LRU caches (`cache/lru`):
+the miss cache is a tenth of the `WithCacheMaxEntries` cap, so unauthenticated tokens with random subjects can only evict other misses, never a
+verified key, and a full cache evicts the least recently used entry in constant time. A non-positive cap selects the default (10000): the cache is
+always bounded.
+
+Revocation: `WithRevocation` needs every token to carry a string `jti` (the minter always sets one); a token without it is rejected, because it
+could never be revoked. A checker that cannot answer, such as a `denylist/mirror` that is unprimed or stale, rejects the token with
+`jwt.ErrRevocationUnavailable`, distinct from `jwt.ErrTokenRevoked`. Prime the mirror before serving (see [denylist.md](denylist.md)).
 
 `InvalidateKey` and `InvalidateSubject` advance a cache-wide invalidation generation. A lookup records the generation before consulting the provider,
 uses it in its `singleflight` key, and caches its result only if no invalidation happened meanwhile — so an invalidation fences lookups already in

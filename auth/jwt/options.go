@@ -98,10 +98,27 @@ type verifierOptions struct {
 	requiredClaims []string `opt:"RequiredClaims" optval:"clone,notrim,nodup"`
 	// revocation, when set, rejects a verified token whose jti has been revoked,
 	// after its signature and registered claims validate, with [ErrTokenRevoked].
-	// A token with an empty jti is never matched. Nil leaves revocation
-	// unchecked. Back it with auth/denylist or any [RevocationChecker]. Set via
-	// the generated WithRevocation.
+	// A token without a string jti is rejected with [ErrClaimMissing], because it
+	// could never be revoked; a checker that cannot answer rejects it with
+	// [ErrRevocationUnavailable]. Nil leaves revocation unchecked. Back it with
+	// auth/denylist or any [RevocationChecker]. Set via the generated
+	// WithRevocation.
 	revocation RevocationChecker `optgen:"notnil"`
+	// revocationAllowMissingID accepts a token without a jti even though a
+	// revocation checker is configured; such a token can never be revoked. It
+	// is written by the hand-written [WithInsecureRevocationAllowMissingID],
+	// whose name states the risk and which takes no argument.
+	revocationAllowMissingID bool `optgen:"manual"`
+}
+
+// WithInsecureRevocationAllowMissingID lets the verifier accept a token that
+// carries no jti although [WithRevocation] is configured. Such a token can never
+// be revoked, so leave this off unless every token source is trusted to omit
+// the jti and revocation is not meant to cover it.
+func WithInsecureRevocationAllowMissingID() VerifierOption {
+	return func(o *verifierOptions) {
+		o.revocationAllowMissingID = true
+	}
 }
 
 // WithExpirationOptional makes the exp claim optional, reversing the

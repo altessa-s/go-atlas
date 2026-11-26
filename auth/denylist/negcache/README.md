@@ -43,6 +43,7 @@ authoritative store makes the final call.
 | `FromChecker(checker)`              | Adapt a synchronous [`denylist.Checker`](../README.md) to `Authoritative`, so any Checker (in-process or distributed) can be the exact tier.                                                                                  |
 | `WithMetrics(m)`                    | Option enabling lookup telemetry via a `*Metrics` (see [Metrics](#metrics)).                                                                                                                                                  |
 | `WithSharedRebuildCheckInterval(d)` | How often, at most, an unpopulated cache asks a shared filter whether any process committed a rebuild (default `DefaultSharedRebuildCheckInterval`, 1s; `0` checks on every unpopulated lookup).                              |
+| `WithClock(fn)` | Time source of that throttle, measured as elapsed time; a clock stepped backward does not park the check. |
 | `NewMetrics(collector, subsystem)`  | Build a `*Metrics` over an [`observability/metrics`](../../../observability/metrics) collector; a nil collector or `*Metrics` is a no-op.                                                                                     |
 
 ## Invariant & staleness

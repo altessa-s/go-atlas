@@ -17,6 +17,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/altessa-s/go-atlas/auth/internal/claimnum"
+
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
@@ -77,6 +79,34 @@ type cachedToken struct {
 	// provider's current JWKS still resolves the same key for the header, so
 	// a key removed or replaced by a JWKS refresh invalidates the entry.
 	KeyFingerprint string `json:"key_fingerprint"`
+}
+
+// UnmarshalJSON decodes an entry with number spelling preserved, so a cache
+// hit yields the same claim values as a fresh verification: exact numbers stay
+// float64 and the rest stay json.Number instead of collapsing through float64.
+func (t *cachedToken) UnmarshalJSON(data []byte) error {
+	type plain cachedToken
+	var raw struct {
+		plain
+		Claims json.RawMessage `json:"claims"`
+		Header json.RawMessage `json:"header"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*t = cachedToken(raw.plain)
+	for _, field := range []struct {
+		src json.RawMessage
+		dst *map[string]any
+	}{{raw.Claims, &t.Claims}, {raw.Header, &t.Header}} {
+		if len(field.src) == 0 || string(field.src) == "null" {
+			continue
+		}
+		if err := claimnum.Decode(field.src, field.dst); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newCachedToken(verified map[string]any, header map[string]any, fingerprint string) cachedToken {

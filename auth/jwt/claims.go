@@ -144,9 +144,11 @@ func (c Claims) Decode(target any) error {
 
 // Get returns the named claim asserted to T. The bool is false when the claim
 // is absent or not of type T. It is a free function because Go methods cannot
-// take type parameters. Verified registered dates use json.Number. Read a
-// numeric custom claim with Get[float64], a flag with Get[bool], or a set of
-// fields with [Claims.Decode].
+// take type parameters. Verified registered dates use json.Number. A numeric
+// custom claim is a float64 when that holds it exactly and a json.Number
+// otherwise (for example an integer above 2^53); read it with Get[float64] or
+// Get[json.Number], a flag with Get[bool], or a set of fields with
+// [Claims.Decode], which keeps every digit.
 func Get[T any](c Claims, name string) (T, bool) {
 	v, ok := c[name].(T)
 	return v, ok

@@ -16,12 +16,19 @@ const (
 	resultError = "error" // the source errored; the previous snapshot was kept.
 )
 
+// Refusal reasons, used as the "reason" label value.
+const (
+	reasonUnprimed = "unprimed" // no refresh has succeeded yet.
+	reasonStale    = "stale"    // the snapshot is older than the maximum staleness.
+)
+
 // Metrics collects refresh telemetry for a [Cache].
 //
 // A nil *Metrics is a valid receiver — every recording method becomes a no-op,
 // so wiring metrics is entirely optional.
 type Metrics struct {
 	refreshes    metrics.Counter
+	unavailable  metrics.Counter
 	snapshotSize metrics.Gauge
 }
 
@@ -43,6 +50,11 @@ func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 			Help:       "Snapshot refreshes by outcome (ok swaps in a new snapshot, error keeps the previous one).",
 			LabelNames: []string{"result"},
 		}),
+		unavailable: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "unavailable_total",
+			Help:       "Lookups refused because the mirror was unprimed or stale, by reason.",
+			LabelNames: []string{"reason"},
+		}),
 		snapshotSize: scoped.MustGauge(metrics.MetricOpts{
 			Name: "snapshot_size",
 			Help: "Number of revoked keys in the current snapshot after the last successful refresh.",
@@ -60,4 +72,13 @@ func (m *Metrics) recordRefresh(result string, size int) {
 	if result == resultOK {
 		m.snapshotSize.Set(float64(size))
 	}
+}
+
+// recordUnavailable records one lookup refused for reason. Safe to call on a
+// nil receiver.
+func (m *Metrics) recordUnavailable(reason string) {
+	if m == nil {
+		return
+	}
+	m.unavailable.WithLabels(metrics.Labels{"reason": reason}).Inc()
 }

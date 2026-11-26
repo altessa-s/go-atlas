@@ -5,6 +5,7 @@
 package rules_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,30 @@ func TestCompileCEL(t *testing.T) {
 			}
 			require.Error(t, err)
 			require.Nil(t, program)
+		})
+	}
+}
+
+func TestCELNumericClaims(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, expression string
+		claims           map[string]any
+		want             bool
+	}{
+		{"float level", "claims.level == 3", map[string]any{"level": float64(3)}, true},
+		{"json.Number level", "claims.level == 3", map[string]any{"level": json.Number("3")}, true},
+		{"float differs", "claims.level == 4", map[string]any{"level": float64(3)}, false},
+		{"big number matches itself", "claims.tenant == 9007199254740993", map[string]any{"tenant": json.Number("9007199254740993")}, true},
+		{"big number not its neighbor", "claims.tenant == 9007199254740992", map[string]any{"tenant": json.Number("9007199254740993")}, false},
+		{"big uint64", "claims.tenant == 18446744073709551615u", map[string]any{"tenant": json.Number("18446744073709551615")}, true},
+		{"nested big number", "claims.org.id == 9007199254740993", map[string]any{"org": map[string]any{"id": json.Number("9007199254740993")}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			eval, err := rules.CompileCEL(tc.expression)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, eval(tc.claims))
 		})
 	}
 }
