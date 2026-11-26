@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"math/big"
 	"strconv"
 
 	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
@@ -24,10 +25,25 @@ func Number(n json.Number) (any, error) {
 	if err != nil || math.IsInf(f, 0) {
 		return nil, ErrOutOfRange
 	}
-	if numericdate.EqualNumbers(json.Number(strconv.FormatFloat(f, 'g', -1, 64)), n) {
+	if exact(f, n) {
 		return f, nil
 	}
 	return n, nil
+}
+
+// exact reports whether f stands for the decimal n: an integer-valued n must
+// be the float's exact integer value (the shortest spelling of a large float
+// can name a different integer); any other n must equal the float's shortest
+// round-trip spelling, so ordinary decimals such as 0.1 keep float64.
+func exact(f float64, n json.Number) bool {
+	want, ok := new(big.Rat).SetString(string(n))
+	if !ok {
+		return false
+	}
+	if want.IsInt() {
+		return new(big.Rat).SetFloat64(f).Cmp(want) == 0
+	}
+	return numericdate.EqualNumbers(json.Number(strconv.FormatFloat(f, 'g', -1, 64)), n)
 }
 
 // Value normalizes every number inside v, in place for maps and slices.
