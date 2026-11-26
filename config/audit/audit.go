@@ -218,12 +218,13 @@ type StorageMongo struct {
 	TTL time.Duration `yaml:"ttl"`
 }
 
+// maxMongoTTL mirrors [github.com/altessa-s/go-atlas/audit/storages/mongo.MaxTTL].
+// Schema packages stay driver-free and do not import storage backends; keep both values in sync.
 const maxMongoTTL = time.Duration(math.MaxInt32) * time.Second
 
 // Validate performs validation of the MongoDB storage configuration.
 func (c *StorageMongo) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.IndexTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&c.TTL, validation.By(validateMongoTTL)),
 	)
 }

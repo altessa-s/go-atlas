@@ -5,7 +5,10 @@
 package auditconfig_test
 
 import (
+	"errors"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +20,7 @@ import (
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 func key(n int) redacted.RedactedString {
@@ -152,6 +156,13 @@ func TestStorageMongo_ValidateTTL(t *testing.T) {
 			err := cfg.Validate()
 			if tc.wantErr {
 				require.Error(t, err)
+				verrs, ok := errors.AsType[validation.Errors](err)
+				require.True(t, ok, "want validation.Errors, got %T: %v", err, err)
+				storageErrs, ok := errors.AsType[validation.Errors](verrs["Storage"])
+				require.True(t, ok, "want Storage validation.Errors, got %v", verrs)
+				mongoErrs, ok := errors.AsType[validation.Errors](storageErrs["Mongo"])
+				require.True(t, ok, "want Mongo validation.Errors, got %v", storageErrs)
+				require.Equal(t, []string{"TTL"}, slices.Collect(maps.Keys(mongoErrs)))
 				return
 			}
 			require.NoError(t, err)
