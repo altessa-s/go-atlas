@@ -10,7 +10,9 @@ Executes aggregation explain commands and logs query statistics. Used by the opt
 
 | Symbol | Purpose |
 |--------|---------|
-| `Run` | Execute an explain command with execution statistics; requires a non-nil logger |
+| `Run` | Execute an aggregation explain command (`queryPlanner` by default); accepts `Option` values |
+| `WithVerbosity` | Select `VerbosityQueryPlanner` (default) or `VerbosityExecutionStats` |
+| `WithInsecureLogRawExplain` | Log the raw MongoDB explain document (including `parsedQuery` filter literals) at Debug |
 | `Stats` | Index usage, examined and returned document counts, and execution time |
 | `HighExaminationRatio` | Warning threshold for examined/returned ratio |
 

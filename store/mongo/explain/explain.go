@@ -6,341 +6,295 @@ package explain
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 )
 
 // HighExaminationRatio is the warning threshold for examined versus returned documents.
 const HighExaminationRatio = 10
 
+const (
+	stageUnknown  = "UNKNOWN"
+	stageCollscan = "COLLSCAN"
+)
+
 // Stats contains key performance metrics from MongoDB explain output.
 type Stats struct {
-	// IndexName is the name of the index used, empty if no index used
+	// IndexName is the name of the index used, empty if no index used.
 	IndexName string `json:"index_name,omitempty"`
-	// Stage is the winning execution plan stage (e.g., "IXSCAN", "COLLSCAN")
+	// Stage is the winning execution plan stage (e.g., "IXSCAN", "COLLSCAN").
 	Stage string `json:"stage"`
-	// DocsExamined is the number of documents examined during execution
+	// DocsExamined is the number of documents examined during execution.
 	DocsExamined int64 `json:"docs_examined"`
-	// DocsReturned is the number of documents returned by the query
+	// DocsReturned is the number of documents returned by the query.
 	DocsReturned int64 `json:"docs_returned"`
-	// ExecutionTimeMillis is the total execution time in milliseconds
+	// ExecutionTimeMillis is the total execution time in milliseconds.
 	ExecutionTimeMillis int64 `json:"execution_time_millis"`
-	// KeysExamined is the number of index keys examined
+	// KeysExamined is the number of index keys examined.
 	KeysExamined int64 `json:"keys_examined,omitempty"`
-	// IndexUsed indicates whether an index was used (true) or collection scan was performed (false)
+	// IndexUsed indicates whether an index was used (true) or not (false).
 	IndexUsed bool `json:"index_used"`
-	// IsMultiKey indicates if the index used is multikey (can impact performance)
+	// IsMultiKey indicates if the index used is multikey (can impact performance).
 	IsMultiKey bool `json:"is_multi_key,omitempty"`
 }
 
-// Run runs an aggregation pipeline with MongoDB's explain command for performance analysis.
-// This function executes the query plan analysis to understand how MongoDB will execute the query,
-// including index usage, execution time, and documents examined.
-//
-// The explain output provides crucial performance insights:
-//   - Whether indexes are being used (IXSCAN vs COLLSCAN)
-//   - Query execution time in milliseconds
-//   - Number of documents examined vs returned (selectivity ratio)
-//   - Index names and multikey status
-//
-// Parameters:
-//   - ctx: Context for cancellation and timeout
-//   - collection: The MongoDB collection to analyze
-//   - pipeline: Aggregation pipeline to explain
-//   - hint: Index hint to include in the explain command (nil if none)
-//   - logger: Logger for debug output and errors
-//
-// Returns:
-//   - *Stats: Parsed performance metrics from explain output
-//   - error: If the explain command fails or explain result cannot be decoded
-//
-// The function:
-//  1. Constructs explain command with "executionStats" verbosity
-//  2. Executes via database.RunCommand (correct method for aggregation explains)
-//  3. Logs raw explain result at debug level
-//  4. Parses explain output into structured Stats
-//  5. Logs performance analysis with recommendations
-//
-// Use case: Performance troubleshooting, query optimization validation, regression testing.
-// Enable explain during development to catch performance issues before production.
-func Run(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hint any, logger *slog.Logger) (*Stats, error) {
-	// Use the database RunCommand with explain for aggregation
-	// This is the correct way to get explain output for aggregation pipelines in v2
-	innerCmd := bson.M{
-		"aggregate": collection.Name(),
-		"pipeline":  pipeline,
+// Run executes an aggregation pipeline explain command for query plan analysis.
+// By default it uses [VerbosityQueryPlanner] so the pipeline is not executed a
+// second time; pass [WithVerbosity] with [VerbosityExecutionStats] to collect
+// runtime counters. Filter literals and raw explain documents are omitted from
+// logs unless [WithInsecureLogRawExplain] is explicitly set.
+func Run(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hint any, logger *slog.Logger, opts ...Option) (*Stats, error) {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	o := newOptions(opts...)
+
+	innerCmd := bson.D{
+		{Key: "aggregate", Value: collection.Name()},
+		{Key: "pipeline", Value: pipeline},
+		{Key: "cursor", Value: bson.D{}},
 	}
 	if hint != nil {
-		innerCmd["hint"] = hint
+		innerCmd = append(innerCmd, bson.E{Key: "hint", Value: hint})
 	}
-	explainCmd := bson.M{
-		"explain":   innerCmd,
-		"verbosity": "executionStats",
+	explainCmd := bson.D{
+		{Key: "explain", Value: innerCmd},
+		{Key: "verbosity", Value: string(o.verbosity)},
 	}
+
+	stages, fields := summarizePipeline(pipeline)
 
 	var explainResult bson.M
 	err := collection.Database().RunCommand(ctx, explainCmd).Decode(&explainResult)
 	if err != nil {
-		// Log the error with more context for debugging
-		logger.Error("failed to execute explain command",
-			"error", err,
-			"collection", collection.Name(),
-			"command", explainCmd,
-		)
+		attrs := []any{
+			slog.String("collection", collection.Name()),
+			slog.Any("stages", stages),
+			slog.Any("fields", fields),
+			slog.String("error_class", diagnostics.ErrorClass(err)),
+		}
+		if cmdErr, ok := errors.AsType[mongo.CommandError](err); ok {
+			attrs = append(attrs,
+				slog.Int64("error_code", int64(cmdErr.Code)),
+				slog.String("error_name", cmdErr.Name),
+			)
+		}
+		logger.ErrorContext(ctx, "failed to execute explain command", attrs...)
 		return nil, err
 	}
 
-	// Log raw explain result for debugging (at debug level)
-	logger.Debug("raw explain result", "explain_output", explainResult)
+	if o.insecureLogRawExplain {
+		logger.DebugContext(ctx, "raw explain result", "explain_output", explainResult)
+	}
 
-	// Extract performance statistics from explain result
 	stats := parseExplainResult(explainResult)
-
-	// Log performance analysis
-	logStats(ctx, stats, logger)
+	logStats(ctx, stats, collection.Name(), stages, fields, logger)
 
 	return stats, nil
 }
 
-// parseExplainResult extracts performance metrics from MongoDB's explain command output.
-// MongoDB explain output structure varies by version and query type, so this function
-// handles multiple possible formats to reliably extract execution statistics.
-//
-// Supported explain output structures:
-//  1. Aggregation with stages: explainResult["stages"][0]["$cursor"]["executionStats"]
-//  2. Direct executionStats: explainResult["executionStats"]
-//  3. Query planner only: explainResult["queryPlanner"]["winningPlan"]
-//
-// Parameters:
-//   - explainResult: Raw explain output from MongoDB as bson.M
-//
-// Returns:
-//   - *Stats: Structured performance metrics with defaults for missing data
-//
-// Extracted metrics:
-//   - IndexUsed: Whether an index was used (IXSCAN) or collection scan (COLLSCAN)
-//   - IndexName: Name of the index used (if any)
-//   - Stage: Execution plan stage type
-//   - DocsExamined: Total documents examined during execution
-//   - DocsReturned: Documents returned by the query
-//   - ExecutionTimeMillis: Query execution time
-//   - KeysExamined: Number of index entries examined
-//   - IsMultiKey: Whether the index is multikey
-//
-// Default values (when data is unavailable):
-//   - Stage: "UNKNOWN"
-//   - IndexUsed: false
-//   - Other numeric fields: 0
-//
-// Use case: Converting MongoDB's complex, nested explain output into a simple,
-// structured format suitable for logging and performance analysis.
+func summarizePipeline(pipeline bson.A) ([]string, []string) {
+	var stages []string
+	var fields []string
+	for _, elem := range pipeline {
+		doc, ok := asDoc(elem)
+		if !ok {
+			continue
+		}
+		for k, v := range doc {
+			stages = append(stages, k)
+			if k == "$match" {
+				collectFilterFields(v, &fields)
+			}
+		}
+	}
+	return stages, fields
+}
+
+func collectFilterFields(v any, fields *[]string) {
+	if doc, ok := asDoc(v); ok {
+		for k, sub := range doc {
+			if strings.HasPrefix(k, "$") {
+				collectFilterFields(sub, fields)
+				continue
+			}
+			if !slices.Contains(*fields, k) {
+				*fields = append(*fields, k)
+			}
+		}
+		return
+	}
+	if arr, ok := v.(bson.A); ok {
+		for _, item := range arr {
+			collectFilterFields(item, fields)
+		}
+	}
+}
+
+func asDoc(v any) (bson.M, bool) {
+	switch d := v.(type) {
+	case bson.M:
+		return d, true
+	case map[string]any:
+		return bson.M(d), true
+	case bson.D:
+		m := make(bson.M, len(d))
+		for _, e := range d {
+			m[e.Key] = e.Value
+		}
+		return m, true
+	default:
+		return nil, false
+	}
+}
+
+func asInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int32:
+		return int64(n), true
+	case int:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
 func parseExplainResult(explainResult bson.M) *Stats {
 	stats := &Stats{
-		Stage:     "UNKNOWN",
+		Stage:     stageUnknown,
 		IndexUsed: false,
 	}
 
-	// Navigate through the explain structure to find execution stats
-	// The structure can vary depending on MongoDB version and explain method
+	parseExplainContainer(explainResult, stats)
 
-	// Try to find stages in the explain output
-	if stages, ok := explainResult["stages"].(bson.A); ok && len(stages) > 0 {
-		if firstStage, ok := stages[0].(bson.M); ok {
-			// Look for $cursor stage which contains execution stats
-			if cursor, ok := firstStage["$cursor"].(bson.M); ok {
-				if executionStats, ok := cursor["executionStats"].(bson.M); ok {
-					parseExecutionStats(executionStats, stats)
-				}
+	if stages, ok := explainResult["stages"].(bson.A); ok {
+		for _, item := range stages {
+			stageDoc, ok := asDoc(item)
+			if !ok {
+				continue
 			}
-		}
-	} else if executionStats, ok := explainResult["executionStats"].(bson.M); ok {
-		// Direct executionStats in the root (alternative structure)
-		parseExecutionStats(executionStats, stats)
-	} else if queryPlanner, ok := explainResult["queryPlanner"].(bson.M); ok {
-		// Parse from queryPlanner section if executionStats not available
-		if winningPlan, ok := queryPlanner["winningPlan"].(bson.M); ok {
-			parseWinningPlan(winningPlan, stats)
+			if cursor, ok := asDoc(stageDoc["$cursor"]); ok {
+				parseExplainContainer(cursor, stats)
+				break
+			}
 		}
 	}
 
 	return stats
 }
 
-// parseExecutionStats extracts detailed execution statistics from the executionStats section.
-// This function handles the core performance metrics from MongoDB's explain output,
-// including document counts, execution time, and winning plan details.
-//
-// MongoDB can return statistics in different numeric types (int32 or int64), so this
-// function safely handles both formats using type assertions with fallback.
-//
-// Parameters:
-//   - executionStats: The executionStats section from explain output
-//   - stats: Pointer to Stats struct to populate (modified in place)
-//
-// Extracted fields:
-//   - totalDocsExamined: Total documents scanned (int64 or int32)
-//   - nReturned: Number of documents returned (int64 or int32)
-//   - executionTimeMillis: Query execution time in milliseconds (int64 or int32)
-//   - winningPlan: Nested structure containing index usage details
-//
-// The function modifies the stats parameter by setting:
-//   - stats.DocsExamined
-//   - stats.DocsReturned
-//   - stats.ExecutionTimeMillis
-//   - stats.IndexUsed, stats.IndexName (via parseWinningPlan)
-//
-// Type handling: Tries int64 first, falls back to int32, leaves unchanged if neither matches.
-//
-// Use case: Core metrics extraction for query performance monitoring and optimization analysis.
+func parseExplainContainer(doc bson.M, stats *Stats) {
+	if queryPlanner, ok := asDoc(doc["queryPlanner"]); ok {
+		if winningPlan, ok := asDoc(queryPlanner["winningPlan"]); ok {
+			parseWinningPlan(winningPlan, stats)
+		}
+	}
+	if executionStats, ok := asDoc(doc["executionStats"]); ok {
+		parseExecutionStats(executionStats, stats)
+	}
+}
+
 func parseExecutionStats(executionStats bson.M, stats *Stats) {
-	// Extract basic execution metrics
-	if totalDocsExamined, ok := executionStats["totalDocsExamined"].(int64); ok {
-		stats.DocsExamined = totalDocsExamined
-	} else if totalDocsExamined, ok := executionStats["totalDocsExamined"].(int32); ok {
-		stats.DocsExamined = int64(totalDocsExamined)
+	if n, ok := asInt64(executionStats["totalDocsExamined"]); ok {
+		stats.DocsExamined = n
+	}
+	if n, ok := asInt64(executionStats["nReturned"]); ok {
+		stats.DocsReturned = n
+	}
+	if n, ok := asInt64(executionStats["executionTimeMillis"]); ok {
+		stats.ExecutionTimeMillis = n
+	}
+	if n, ok := asInt64(executionStats["totalKeysExamined"]); ok && stats.KeysExamined == 0 {
+		stats.KeysExamined = n
 	}
 
-	if nReturned, ok := executionStats["nReturned"].(int64); ok {
-		stats.DocsReturned = nReturned
-	} else if nReturned, ok := executionStats["nReturned"].(int32); ok {
-		stats.DocsReturned = int64(nReturned)
-	}
-
-	if executionTimeMillis, ok := executionStats["executionTimeMillis"].(int64); ok {
-		stats.ExecutionTimeMillis = executionTimeMillis
-	} else if executionTimeMillis, ok := executionStats["executionTimeMillis"].(int32); ok {
-		stats.ExecutionTimeMillis = int64(executionTimeMillis)
-	}
-
-	// Extract winning plan information
-	if winningPlan, ok := executionStats["winningPlan"].(bson.M); ok {
-		parseWinningPlan(winningPlan, stats)
+	if stats.Stage == stageUnknown {
+		if winningPlan, ok := asDoc(executionStats["winningPlan"]); ok {
+			parseWinningPlan(winningPlan, stats)
+		} else if executionStages, ok := asDoc(executionStats["executionStages"]); ok {
+			parseWinningPlan(executionStages, stats)
+		}
 	}
 }
 
-// parseWinningPlan extracts index usage information from MongoDB's winning execution plan.
-// The winning plan represents the query execution strategy MongoDB selected after
-// evaluating multiple alternatives. This function identifies the plan's stage type
-// and extracts index-related details.
-//
-// Plan stages and their meaning:
-//   - IXSCAN: Index scan - query uses an index (efficient)
-//   - COLLSCAN: Collection scan - full table scan (inefficient for large collections)
-//   - FETCH: Document retrieval stage, often follows IXSCAN
-//   - Others: Various stages that may have nested inputStage
-//
-// Parameters:
-//   - winningPlan: The winningPlan section from explain output (nested structure)
-//   - stats: Pointer to Stats struct to populate (modified in place)
-//
-// For IXSCAN stages, extracts:
-//   - indexName: Name of the index being used
-//   - keysExamined: Number of index entries scanned (int64 or int32)
-//   - isMultiKey: Whether this is a multikey index (affects performance)
-//
-// Recursive handling:
-//   - If stage is not IXSCAN/COLLSCAN, checks for nested inputStage
-//   - Recursively parses inputStage to find the actual scan operation
-//   - Handles complex plans like FETCH → IXSCAN
-//
-// The function modifies the stats parameter by setting:
-//   - stats.Stage
-//   - stats.IndexUsed (true for IXSCAN, false for COLLSCAN)
-//   - stats.IndexName (for IXSCAN only)
-//   - stats.KeysExamined (for IXSCAN only)
-//   - stats.IsMultiKey (for IXSCAN only)
-//
-// Use case: Determining whether queries are using indexes and identifying which
-// indexes are being used for query optimization and troubleshooting.
 func parseWinningPlan(winningPlan bson.M, stats *Stats) {
-	if stage, ok := winningPlan["stage"].(string); ok {
-		stats.Stage = stage
+	if queryPlan, ok := asDoc(winningPlan["queryPlan"]); ok {
+		parseWinningPlan(queryPlan, stats)
+		if stats.Stage != stageUnknown {
+			return
+		}
+	}
 
-		// Determine if index was used based on stage type
-		switch stage {
-		case "IXSCAN":
-			stats.IndexUsed = true
-			// Extract index name
-			if indexName, ok := winningPlan["indexName"].(string); ok {
-				stats.IndexName = indexName
-			}
-			// Extract keys examined
-			if keysExamined, ok := winningPlan["keysExamined"].(int64); ok {
-				stats.KeysExamined = keysExamined
-			} else if keysExamined, ok := winningPlan["keysExamined"].(int32); ok {
-				stats.KeysExamined = int64(keysExamined)
-			}
-			// Check if multikey index
-			if isMultiKey, ok := winningPlan["isMultiKey"].(bool); ok {
-				stats.IsMultiKey = isMultiKey
-			}
-		case "COLLSCAN":
-			stats.IndexUsed = false
-		default:
-			// Check for nested stages (e.g., FETCH -> IXSCAN)
-			if inputStage, ok := winningPlan["inputStage"].(bson.M); ok {
-				parseWinningPlan(inputStage, stats)
+	stage, hasStage := winningPlan["stage"].(string)
+	if hasStage {
+		stats.Stage = stage
+	}
+
+	switch stage {
+	case "IXSCAN", "EXPRESS_IXSCAN", "DISTINCT_SCAN", "COUNT_SCAN":
+		stats.IndexUsed = true
+		if indexName, ok := winningPlan["indexName"].(string); ok {
+			stats.IndexName = indexName
+		}
+		if keysExamined, ok := asInt64(winningPlan["keysExamined"]); ok {
+			stats.KeysExamined = keysExamined
+		}
+		if isMultiKey, ok := winningPlan["isMultiKey"].(bool); ok {
+			stats.IsMultiKey = isMultiKey
+		}
+		return
+	case "IDHACK":
+		stats.IndexUsed = true
+		if stats.IndexName == "" {
+			stats.IndexName = "_id_"
+		}
+		return
+	case stageCollscan:
+		stats.IndexUsed = false
+		return
+	}
+
+	if inputStage, ok := asDoc(winningPlan["inputStage"]); ok {
+		parseWinningPlan(inputStage, stats)
+		return
+	}
+	if inputStages, ok := winningPlan["inputStages"].(bson.A); ok {
+		for _, item := range inputStages {
+			if sub, ok := asDoc(item); ok {
+				parseWinningPlan(sub, stats)
+				if stats.IndexUsed || stats.Stage == stageCollscan {
+					return
+				}
 			}
 		}
 	}
 }
 
-// logStats logs query performance analysis with actionable optimization recommendations.
-// This function analyzes explain statistics to identify performance issues and suggests
-// improvements. Log level is automatically adjusted based on performance characteristics.
-//
-// Log level determination:
-//   - WARN: Collection scan detected (no index used)
-//   - WARN: High examination ratio (>10:1, poor selectivity)
-//   - INFO: Normal execution (index used with good selectivity)
-//
-// Logged metrics (always included):
-//   - index_used: Boolean indicating index usage
-//   - stage: Execution plan stage (IXSCAN, COLLSCAN, etc.)
-//   - index_name: Name of index used (if applicable)
-//   - docs_examined: Total documents examined
-//   - docs_returned: Documents returned to client
-//   - execution_time_ms: Query execution time in milliseconds
-//   - keys_examined: Index entries scanned (if applicable)
-//   - is_multi_key: Whether index is multikey (if applicable)
-//
-// Performance warnings and recommendations:
-//
-//  1. Collection scan (IndexUsed=false):
-//     - Warning: "performance alert: collection scan detected"
-//     - Recommendation: "consider adding an index for the query filter fields"
-//     - Impact: "high - query performance will degrade with collection size"
-//
-//  2. High examination ratio (>10:1):
-//     - Warning: "performance alert: low query selectivity"
-//     - Includes: docs_examined, docs_returned, selectivity_ratio
-//     - Recommendation: "consider optimizing query filters or index design"
-//
-// Parameters:
-//   - ctx: Context for logging
-//   - stats: Parsed explain statistics
-//   - logger: Logger for output
-//
-// Use case: Proactive performance monitoring and optimization guidance. Developers
-// can enable explain in staging/development to catch performance issues before production.
-func logStats(ctx context.Context, stats *Stats, logger *slog.Logger) {
+func logStats(ctx context.Context, stats *Stats, collection string, stages, fields []string, logger *slog.Logger) {
 	logLevel := slog.LevelInfo
-
-	// Determine log level based on performance characteristics
-	if !stats.IndexUsed {
+	collscan := stats.Stage == stageCollscan
+	var ratio float64
+	lowSelectivity := false
+	if stats.DocsExamined > 0 && stats.DocsReturned > 0 {
+		ratio = float64(stats.DocsExamined) / float64(stats.DocsReturned)
+		lowSelectivity = ratio > HighExaminationRatio
+	}
+	if collscan || lowSelectivity {
 		logLevel = slog.LevelWarn
-	} else if stats.DocsExamined > 0 && stats.DocsReturned > 0 {
-		// Check selectivity ratio - if we examine many more docs than we return, it might be inefficient
-		ratio := float64(stats.DocsExamined) / float64(stats.DocsReturned)
-		if ratio > HighExaminationRatio { // More than 10:1 examination ratio
-			logLevel = slog.LevelWarn
-		}
 	}
 
-	// Log the statistics
-	logger.Log(ctx, logLevel, "query execution plan analysis",
+	attrs := []any{
 		"index_used", stats.IndexUsed,
 		"stage", stats.Stage,
 		"index_name", stats.IndexName,
@@ -349,23 +303,32 @@ func logStats(ctx context.Context, stats *Stats, logger *slog.Logger) {
 		"execution_time_ms", stats.ExecutionTimeMillis,
 		"keys_examined", stats.KeysExamined,
 		"is_multi_key", stats.IsMultiKey,
-	)
+	}
+	if collection != "" {
+		attrs = append(attrs, "collection", collection)
+	}
+	if len(stages) > 0 {
+		attrs = append(attrs, "stages", stages)
+	}
+	if len(fields) > 0 {
+		attrs = append(attrs, "fields", fields)
+	}
+	logger.Log(ctx, logLevel, "query execution plan analysis", attrs...)
 
-	// Provide optimization recommendations
-	if !stats.IndexUsed {
-		logger.Warn("performance alert: collection scan detected",
+	if collscan {
+		logger.WarnContext(ctx, "performance alert: collection scan detected",
+			"collection", collection,
+			"fields", fields,
 			"recommendation", "consider adding an index for the query filter fields",
 			"impact", "high - query performance will degrade with collection size",
 		)
-	} else if stats.DocsExamined > 0 && stats.DocsReturned > 0 {
-		ratio := float64(stats.DocsExamined) / float64(stats.DocsReturned)
-		if ratio > HighExaminationRatio {
-			logger.Warn("performance alert: low query selectivity",
-				"docs_examined", stats.DocsExamined,
-				"docs_returned", stats.DocsReturned,
-				"selectivity_ratio", ratio,
-				"recommendation", "consider optimizing query filters or index design",
-			)
-		}
+	} else if lowSelectivity {
+		logger.WarnContext(ctx, "performance alert: low query selectivity",
+			"collection", collection,
+			"docs_examined", stats.DocsExamined,
+			"docs_returned", stats.DocsReturned,
+			"selectivity_ratio", ratio,
+			"recommendation", "consider optimizing query filters or index design",
+		)
 	}
 }

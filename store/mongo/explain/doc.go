@@ -3,6 +3,8 @@
 // the LICENSE file.
 
 // Package explain executes MongoDB aggregation explain commands and reports query statistics.
+// By default [Run] uses [VerbosityQueryPlanner] and omits filter values and raw explain
+// payloads from logs; pass [WithVerbosity] or [WithInsecureLogRawExplain] to opt in.
 //
 // # Usage
 //
