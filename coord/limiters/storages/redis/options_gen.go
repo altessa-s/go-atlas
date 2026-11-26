@@ -58,7 +58,8 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 }
 
 // WithTestClock overrides Redis TIME for window decisions in tests.
-// Key expiry still runs on the Redis server's clock.
+// It is unsafe with more than one limiter replica. Key expiry still runs
+// on the Redis server's clock.
 func WithTestClock(v clock.Clock) Option {
 	return func(o *options) {
 		switch rv := reflect.ValueOf(v); rv.Kind() {

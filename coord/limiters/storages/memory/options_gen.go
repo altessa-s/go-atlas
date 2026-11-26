@@ -63,7 +63,7 @@ func WithClock(v clock.Clock) Option {
 // window. Key churn can reset another key's quota before it expires.
 func WithInsecureEvictLRU() Option {
 	return func(o *options) {
-		o.eviction = insecureEviction()
+		o.insecureEvictLRU = enableInsecureEviction()
 	}
 }
 
@@ -130,7 +130,6 @@ func WithShards(v int) Option {
 func defaultOptions() *options {
 	return &options{
 		clock:       clock.Real(),
-		eviction:    DefaultEviction,
 		maxBuckets:  DefaultMaxBuckets,
 		maxIdleTime: DefaultMaxIdleTime,
 		shards:      DefaultShards,

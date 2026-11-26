@@ -23,12 +23,12 @@ import (
 
 // evictionPolicies covers both policies at the cap.
 var evictionPolicies = []struct {
-	name     string
-	eviction Eviction
-}{{"lru", EvictionLRU}, {"reject", EvictionReject}}
+	name             string
+	insecureEvictLRU bool
+}{{"lru", true}, {"reject", false}}
 
-func newWithEviction(eviction Eviction, opts ...Option) *Provider {
-	if eviction == EvictionLRU {
+func newWithEviction(insecureEvictLRU bool, opts ...Option) *Provider {
+	if insecureEvictLRU {
 		opts = append(opts, WithInsecureEvictLRU())
 	}
 	return New(opts...)
@@ -46,7 +46,7 @@ func TestProvider_AtCapacity_ReclaimsExpiredBeforeLive(t *testing.T) {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
 				fake := clock.NewFake(time.Now())
-				p := newWithEviction(pol.eviction, WithMaxBuckets(3), WithShards(shards), WithClock(fake))
+				p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(3), WithShards(shards), WithClock(fake))
 				ctx := t.Context()
 				_, err := p.Allow(ctx, "hot", 1, time.Hour)
 				require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestProvider_AllowAll_AtCapacity(t *testing.T) {
 		for _, pol := range evictionPolicies {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
-				p := newWithEviction(pol.eviction, WithMaxBuckets(3), WithShards(shards))
+				p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(3), WithShards(shards))
 				ctx := t.Context()
 				for _, k := range []string{"member", "bystander-1", "bystander-2"} {
 					_, err := p.Allow(ctx, k, 2, time.Hour)
@@ -169,7 +169,7 @@ func TestProvider_AllowAll_AtCapacity(t *testing.T) {
 					{Key: "new", Limit: 2, Period: time.Hour},
 				}
 				_, err := p.AllowAll(ctx, limits)
-				if pol.eviction == EvictionReject {
+				if !pol.insecureEvictLRU {
 					require.ErrorIs(t, err, ErrCapacityExceeded)
 					keyErr, ok := errors.AsType[*storages.KeyError](err)
 					require.True(t, ok, "%v", err)
@@ -224,7 +224,7 @@ func TestProvider_AllowAll_ConcurrentOverlappingAtCapacity(t *testing.T) {
 				goroutines = 16
 				calls      = 400
 			)
-			p := newWithEviction(pol.eviction, WithMaxBuckets(maxBuckets), WithShards(4), WithMaxIdleTime(time.Millisecond))
+			p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(maxBuckets), WithShards(4), WithMaxIdleTime(time.Millisecond))
 			ctx := t.Context()
 			var admitted [pool]atomic.Int64
 
@@ -422,7 +422,7 @@ func TestProvider_AllowAll_CapacityErrorNamesNewKey(t *testing.T) {
 			for _, tc := range tests {
 				t.Run(pol.name+"/shards="+strconv.Itoa(shards)+"/"+tc.name, func(t *testing.T) {
 					t.Parallel()
-					p := newWithEviction(pol.eviction, WithMaxBuckets(tc.maxBuckets), WithShards(shards))
+					p := newWithEviction(pol.insecureEvictLRU, WithMaxBuckets(tc.maxBuckets), WithShards(shards))
 					ctx := t.Context()
 					for _, k := range tc.existing {
 						_, err := p.Allow(ctx, k, 5, time.Hour)

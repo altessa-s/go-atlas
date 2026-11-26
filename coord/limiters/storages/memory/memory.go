@@ -25,9 +25,9 @@ import (
 )
 
 // ErrCapacityExceeded is returned for a new key when the provider holds
-// [WithMaxBuckets] keys, no tracked window has expired and the policy is
-// [EvictionReject]. It is not [limiters.ErrLimitExceeded]: the key itself is
-// within its limit, the provider has no room to track it.
+// [WithMaxBuckets] keys, no tracked window has expired and live eviction
+// is disabled. The key is within its limit, but the provider has no room
+// to track it.
 var ErrCapacityExceeded = errors.New("rate limit storage capacity exceeded")
 
 // bucket represents a sliding window bucket for rate limiting.
@@ -141,8 +141,8 @@ func (p *Provider) shardIndex(key string) int {
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // A new key at [WithMaxBuckets] first reclaims expired windows; when none
-// has expired, [EvictionReject] fails it with [ErrCapacityExceeded] and a nil
-// LimitInfo, and [EvictionLRU] evicts the least recently used bucket.
+// has expired, the default is to return [ErrCapacityExceeded] and a nil
+// LimitInfo. [WithInsecureEvictLRU] evicts the least recently used bucket.
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
@@ -162,7 +162,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 		sh.mu.Unlock()
 		return info, err
 	}
-	if p.options.eviction == EvictionReject && !p.purgeDue(p.options.clock.Now()) {
+	if !p.options.insecureEvictLRU && !p.purgeDue(p.options.clock.Now()) {
 		// Nothing to reclaim and nothing to evict: refuse without the
 		// all-shard lock, so a flood of new keys stays cheap.
 		sh.mu.Unlock()
@@ -192,8 +192,8 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 }
 
 // admitAtCapLocked inserts key into a full provider: it reclaims expired
-// windows when one may have expired, and otherwise refuses the key under
-// [EvictionReject] or evicts the least recently used bucket. The caller MUST
+// windows when one may have expired, and otherwise refuses the key unless
+// [WithInsecureEvictLRU] allows eviction. The caller MUST
 // hold every shard lock and have found no free slot.
 func (p *Provider) admitAtCapLocked(sh *shard, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	now := p.options.clock.Now()
@@ -201,7 +201,7 @@ func (p *Provider) admitAtCapLocked(sh *shard, key string, limit int64, period t
 		p.reclaimLocked(now, 1, nil)
 	}
 	if !p.reserveSlot() {
-		if p.options.eviction == EvictionReject {
+		if !p.options.insecureEvictLRU {
 			return nil, ErrCapacityExceeded
 		}
 		p.evictLRULocked()

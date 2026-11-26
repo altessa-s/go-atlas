@@ -35,24 +35,6 @@ const (
 	// DefaultShards keeps a single lock over all keys. Reclaiming or
 	// evicting windows at the cap locks every shard.
 	DefaultShards = 1
-
-	// DefaultEviction preserves live windows and rejects new keys at the cap.
-	DefaultEviction = EvictionReject
-)
-
-// Eviction selects what a new key gets once the provider holds MaxBuckets
-// keys and no tracked window has expired. Expired windows are reclaimed
-// first under every policy: dropping one loses no state.
-type Eviction int
-
-const (
-	// EvictionReject refuses the new key with [ErrCapacityExceeded] and
-	// keeps every live window. New keys are admitted once a window expires.
-	EvictionReject Eviction = iota
-
-	// EvictionLRU evicts the least recently used live window to make room.
-	// The evicted key starts with an empty window on its next request.
-	EvictionLRU
 )
 
 // options contains memory provider configuration.
@@ -79,9 +61,9 @@ type options struct {
 
 	// WithInsecureEvictLRU allows a new key at capacity to evict a live
 	// window. Key churn can reset another key's quota before it expires.
-	eviction        Eviction `optgen:"default=DefaultEviction" optfn:"InsecureEvictLRU=insecureEviction"`
-	cleanupSchedule string
-	scheduler       schedtask.Registrar `optgen:"notnil"`
+	insecureEvictLRU bool `optfn:"InsecureEvictLRU=enableInsecureEviction"`
+	cleanupSchedule  string
+	scheduler        schedtask.Registrar `optgen:"notnil"`
 
 	// Clock reads the time of every window, expiry and idle check. It must
 	// not go backwards: request timestamps of a window are kept in
@@ -90,4 +72,4 @@ type options struct {
 	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
 }
 
-func insecureEviction() Eviction { return EvictionLRU }
+func enableInsecureEviction() bool { return true }

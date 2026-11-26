@@ -23,6 +23,7 @@ type options struct {
 	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
 
 	// WithTestClock overrides Redis TIME for window decisions in tests.
-	// Key expiry still runs on the Redis server's clock.
+	// It is unsafe with more than one limiter replica. Key expiry still runs
+	// on the Redis server's clock.
 	testClock clock.Clock `optgen:"notnil"`
 }

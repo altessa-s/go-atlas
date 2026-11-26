@@ -9,7 +9,7 @@
 //
 // [WithMaxBuckets] caps the number of tracked keys. A new key at the cap
 // first tries to reclaim an expired window from the per-shard expiry indexes.
-// When all windows are live, [EvictionReject] refuses the new key with
+// When all windows are live, the provider refuses the new key by default with
 // [ErrCapacityExceeded]. [WithInsecureEvictLRU] allows eviction of live
 // windows, so key churn can reset another key's quota before it expires.
 // [Provider.RunCleanup] removes idle buckets whose windows have expired.

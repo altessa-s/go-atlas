@@ -24,11 +24,10 @@ const smallCall = 8
 // order, checks every window, and takes a slot on each only when all admit.
 //
 // New keys need a bucket each. When the free slots fall short the call locks
-// every shard and reclaims expired windows; if that is not enough,
-// [EvictionReject] fails the call with a [*storages.KeyError] for the first
-// new key left without a bucket that wraps [ErrCapacityExceeded], and
-// [EvictionLRU] evicts least recently used buckets other than the call's
-// own. A call with more limits than [WithMaxBuckets] cannot be tracked at
+// every shard and reclaims expired windows. If more slots are needed, the
+// default is to return a [*storages.KeyError] wrapping [ErrCapacityExceeded]
+// for the first new key left without a bucket.
+// [WithInsecureEvictLRU] evicts least recently used buckets outside the call. A call with more limits than [WithMaxBuckets] cannot be tracked at
 // once and fails the same way. The failure names the first new key left
 // without room. A refusal or a capacity failure takes no slot and inserts no
 // bucket. New keys reserve their slots in one step, so two calls racing for
@@ -75,7 +74,7 @@ func (p *Provider) AllowAll(ctx context.Context, limits []storages.Limit) ([]sto
 // allowAllLocked runs [Provider.AllowAll] with the shards in idx locked, or
 // every shard when all is set. Without every shard it cannot reclaim or
 // evict, so when new keys find too few free slots it reserves nothing and
-// reports retry, unless [EvictionReject] already knows the answer. buckets
+// reports retry if expired windows might free slots or eviction is enabled. buckets
 // is scratch space of len(limits).
 func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []*bucket, all bool) (
 	infos []storages.LimitInfo, retry bool, err error,
@@ -173,7 +172,7 @@ func (p *Provider) reserveForNewKeys(limits []storages.Limit, buckets []*bucket,
 	if reserved >= missing {
 		return reserved, false, nil
 	}
-	reject := p.options.eviction == EvictionReject
+	reject := !p.options.insecureEvictLRU
 	switch {
 	case !all && (!reject || p.purgeDue(now)):
 		return 0, true, nil
