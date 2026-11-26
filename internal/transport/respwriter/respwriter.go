@@ -7,6 +7,7 @@ package respwriter
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"net"
 	"net/http"
 	"sync"
@@ -62,6 +63,7 @@ type Recorder struct {
 	// captured or not.
 	written  int64
 	writeErr error
+	hijacked bool
 }
 
 var recorderPool = sync.Pool{New: func() any { return &Recorder{} }}
@@ -91,6 +93,7 @@ func (r *Recorder) Reset(w http.ResponseWriter, capture bool, limit int) {
 	r.body.Reset()
 	r.written = 0
 	r.writeErr = nil
+	r.hijacked = false
 }
 
 // Clear drops the references r holds. A body buffer that grew past
@@ -146,20 +149,41 @@ func (r *Recorder) Flush() { _ = r.FlushError() } //nolint:errcheck // http.Flus
 
 // FlushError flushes the underlying writer. A flush that succeeds sends the
 // header the server would send, so the record commits to 200 when no final
-// status was written yet.
+// status was written yet. A flush that fails for another reason than the
+// writer not supporting it may already have sent that header, so the record
+// commits as well, and the failure is kept as the first write error: a
+// response whose delivery failed is not complete.
 func (r *Recorder) FlushError() error {
 	err := http.NewResponseController(r.ResponseWriter).Flush()
-	if err == nil && !r.committed {
-		r.status = http.StatusOK
-		r.committed = true
+	if err == nil || !errors.Is(err, http.ErrNotSupported) {
+		if !r.committed {
+			r.status = http.StatusOK
+			r.committed = true
+		}
+		if err != nil && r.writeErr == nil {
+			r.writeErr = err
+		}
 	}
 	return err
 }
 
 // Hijack implements [http.Hijacker] by delegating to the underlying writer.
+// A successful hijack hands the connection off: the response counts as
+// committed with status 101 and [Recorder.Hijacked] reports true.
 func (r *Recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return http.NewResponseController(r.ResponseWriter).Hijack()
+	conn, rw, err := http.NewResponseController(r.ResponseWriter).Hijack()
+	if err == nil {
+		r.hijacked = true
+		if !r.committed {
+			r.status = http.StatusSwitchingProtocols
+			r.committed = true
+		}
+	}
+	return conn, rw, err
 }
+
+// Hijacked reports whether the connection was handed off.
+func (r *Recorder) Hijacked() bool { return r.hijacked }
 
 // Push implements [http.Pusher] when the underlying writer does.
 func (r *Recorder) Push(target string, opts *http.PushOptions) error {

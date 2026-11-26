@@ -253,7 +253,10 @@ func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, 
 	override := 0
 	if len(sc) > 0 && sc[0] > 0 {
 		override = sc[0]
-		err = statusOverride{error: err, status: override}
+		// A nil error stays nil: handlers report a bare status that way.
+		if err != nil {
+			err = statusOverride{error: err, status: override}
+		}
 	}
 	errorResponse, statusCode := wr.options.responseBuilder.Build(r, err)
 	if override > 0 {

@@ -5,6 +5,7 @@
 package responder
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -114,21 +115,27 @@ func TestErrorInterceptor_Hijack_NotSupported(t *testing.T) {
 func TestErrorInterceptor_LargeErrorBodyIsBounded(t *testing.T) {
 	t.Parallel()
 
+	const limit = 64 << 10
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/fail", nil)
-	ei := NewErrorInterceptor(rec, req, &mockErrorWriter{})
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
 
 	ei.WriteHeader(http.StatusBadGateway)
 	chunk := make([]byte, 32<<10)
+	for i := range chunk {
+		chunk[i] = 'x'
+	}
 	for range 320 { // 10 MiB
 		n, err := ei.Write(chunk)
 		require.NoError(t, err)
 		require.Equal(t, len(chunk), n, "the handler sees every byte accepted")
 	}
-	require.LessOrEqual(t, ei.buffer.Len(), maxCapturedBody)
+	ei.Finish()
 
-	ei.release()
-	require.LessOrEqual(t, ei.buffer.Cap(), maxCapturedBody, "an oversized buffer is not pooled")
+	require.NotNil(t, w.err)
+	require.LessOrEqual(t, len(w.err.Error()), limit, "the diagnostic text is bounded")
+	require.Greater(t, len(w.err.Error()), 0)
 }
 
 func TestErrorInterceptor_MarkedResponsePassesThrough(t *testing.T) {
@@ -166,3 +173,20 @@ func TestErrorInterceptor_FirstFinalStatusWins(t *testing.T) {
 	require.True(t, w.called)
 	require.Equal(t, http.StatusNotFound, w.status)
 }
+
+func TestErrorInterceptor_FailedFlushCommits(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest("GET", "/stream", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(failFlush{httptest.NewRecorder()}, req, w)
+
+	require.Error(t, ei.FlushError())
+	ei.WriteHeader(http.StatusInternalServerError)
+	ei.Finish()
+	require.False(t, w.called, "the status was committed; a later error is not rewritten")
+}
+
+type failFlush struct{ *httptest.ResponseRecorder }
+
+func (failFlush) FlushError() error { return errors.New("broken pipe") }

@@ -82,7 +82,7 @@ scoped by service, and the bytes of the key cannot reach another service's recor
 
 ## Request fingerprints and owners
 
-Each key records a fingerprint of the method and the deterministically marshaled request. A key reused for a different request is refused with
+Each key records a fingerprint of the method and the deterministically marshaled request. For a client-streaming or bidi call the key is taken once, on the first message that carries one, and the fingerprint covers that message only; later messages of the call are not checked. A message received after the call finished takes no lock. A key reused for a different request is refused with
 `InvalidArgument` and reason `IDEMPOTENCY_KEY_MISMATCH` instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML
 `disableRequestFingerprint: true`) turns this off. When the Keeper records owners (`idempotency.WithOwner`), a key of another caller is refused with
 `PermissionDenied` and reason `IDEMPOTENCY_KEY_FORBIDDEN`, and nothing of its record is returned. A `ReplayAuthorizer` refusal that carries a gRPC

@@ -210,7 +210,9 @@ func (e *ErrorInterceptor) FlushError() error {
 		return nil
 	}
 	err := http.NewResponseController(e.ResponseWriter).Flush()
-	if err == nil {
+	// A failed flush may already have sent the status, so only a writer that
+	// cannot flush at all leaves the response open.
+	if err == nil || !errors.Is(err, http.ErrNotSupported) {
 		e.final = true
 		e.written = true
 	}

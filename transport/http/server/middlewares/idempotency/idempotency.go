@@ -181,7 +181,9 @@ func (m *middleware) finalize(
 	// place, even when it then panicked: the key completes, without a response
 	// to replay because the body may be cut off. A panic before that, or any
 	// other status, releases the key.
-	succeeded := sw.HeadersWritten() && sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices
+	// A handler that returns without writing sends an implicit 200.
+	committed := !panicked || sw.HeadersWritten()
+	succeeded := committed && (sw.Hijacked() || sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices)
 	if succeeded {
 		// ErrLockStolen here means the lock TTL expired during processing
 		// and another node took over — our result is dropped rather than

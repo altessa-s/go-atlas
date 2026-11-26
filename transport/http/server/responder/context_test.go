@@ -14,10 +14,12 @@ import (
 type mockErrorWriter struct {
 	called bool
 	status int
+	err    error
 }
 
 func (m *mockErrorWriter) WriteError(w http.ResponseWriter, r *http.Request, err error, statusCode ...int) error {
 	m.called = true
+	m.err = err
 	if len(statusCode) > 0 {
 		m.status = statusCode[0]
 	}

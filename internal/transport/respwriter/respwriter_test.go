@@ -5,7 +5,9 @@
 package respwriter_test
 
 import (
+	"bufio"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -131,4 +133,36 @@ func TestMarkStructured_WalksUnwrapChain(t *testing.T) {
 
 	respwriter.MarkStructured(httptest.NewRecorder()) // no marker: nothing to do
 	respwriter.MarkStructured(nil)
+}
+
+type failFlush struct{ *httptest.ResponseRecorder }
+
+func (failFlush) FlushError() error { return errors.New("broken pipe") }
+
+func TestRecorder_FailedFlushMayHaveCommitted(t *testing.T) {
+	t.Parallel()
+	w := respwriter.NewRecorder(failFlush{httptest.NewRecorder()}, false, 0)
+	defer w.Release()
+
+	require.Error(t, w.FlushError())
+	require.True(t, w.HeadersWritten(), "the status may have been sent")
+	require.Error(t, w.WriteError(), "delivery failed, the response is incomplete")
+	w.WriteHeader(http.StatusInternalServerError)
+	require.Equal(t, http.StatusOK, w.StatusCode())
+}
+
+type hijackable struct{ *httptest.ResponseRecorder }
+
+func (hijackable) Hijack() (net.Conn, *bufio.ReadWriter, error) { return nil, nil, nil }
+
+func TestRecorder_HijackCommits(t *testing.T) {
+	t.Parallel()
+	w := respwriter.NewRecorder(hijackable{httptest.NewRecorder()}, false, 0)
+	defer w.Release()
+
+	_, _, err := w.Hijack()
+	require.NoError(t, err)
+	require.True(t, w.Hijacked())
+	require.True(t, w.HeadersWritten())
+	require.Equal(t, http.StatusSwitchingProtocols, w.StatusCode())
 }

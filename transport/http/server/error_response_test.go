@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 )
 
@@ -63,34 +65,46 @@ func get(t *testing.T, url string) (*http.Response, []byte) {
 	return resp, body
 }
 
-// A response the writer already structured is not re-encoded from its own JSON text.
+// A response the writer already structured is not re-encoded from its own
+// JSON text. It runs through the public server path, with a recording
+// middleware between the handler and the interceptor, so a wrapper that
+// breaks the Unwrap chain is caught.
 func TestErrorInterceptor_KeepsStructuredWriterError(t *testing.T) {
 	t.Parallel()
-	s := &Server{writer: writer.New()}
-	srv := serveThroughInterceptor(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = s.writer.Write(w, r, typedError{})
-	})
 
-	resp, body := get(t, srv.URL)
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
-	got := decodeWireError(t, body)
-	require.Equal(t, "ITEM_GONE", got.Error.Code)
-	require.Equal(t, "the item is gone", got.Error.Message)
-}
+	tests := []struct {
+		name   string
+		write  func(rw writer.ReadWriter)
+		status int
+	}{
+		{name: "write", status: http.StatusNotFound, write: func(rw writer.ReadWriter) { _ = rw.Write(typedError{}) }},
+		{name: "write error with status", status: http.StatusConflict, write: func(rw writer.ReadWriter) {
+			_ = rw.WriteError(typedError{}, http.StatusConflict)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-// The same holds when the handler passes an explicit status.
-func TestErrorInterceptor_KeepsStructuredWriteError(t *testing.T) {
-	t.Parallel()
-	s := &Server{writer: writer.New()}
-	srv := serveThroughInterceptor(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = s.writer.WriteError(w, r, typedError{}, http.StatusConflict)
-	})
+			srv := newTestServer(t, "/item", nil)
+			srv.RegisterMiddleware(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					rec := middlewares.NewResponseWriter(w, true)
+					defer rec.Release()
+					next.ServeHTTP(rec, r)
+				})
+			})
+			srv.Handle("/item", tc.write)
+			require.NoError(t, srv.Start())
+			t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
-	resp, body := get(t, srv.URL)
-	require.Equal(t, http.StatusConflict, resp.StatusCode)
-	got := decodeWireError(t, body)
-	require.Equal(t, "ITEM_GONE", got.Error.Code)
-	require.Equal(t, "the item is gone", got.Error.Message)
+			resp, body := get(t, "http://"+srv.Address()+"/item")
+			require.Equal(t, tc.status, resp.StatusCode)
+			got := decodeWireError(t, body)
+			require.Equal(t, "ITEM_GONE", got.Error.Code)
+			require.Equal(t, "the item is gone", got.Error.Message)
+		})
+	}
 }
 
 // A handler's stale Content-Length must not survive the rewrite.
@@ -159,3 +173,22 @@ type errWithStatus struct{ status int }
 
 func (e errWithStatus) Error() string   { return "status " + strconv.Itoa(e.status) }
 func (e errWithStatus) HTTPStatus() int { return e.status }
+
+// A bare status with a nil error stays safe for a converter that formats the error.
+func TestWriterWriteError_NilErrorWithConverter(t *testing.T) {
+	t.Parallel()
+	w := writer.New(writer.WithResponseBuilder(writer.NewDefault(writer.WithDefaultBuilderErrorConverter(
+		func(err error) (writer.Error, int) {
+			return writer.Error{Message: err.Error()}, 0
+		}))))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+
+	rec := httptest.NewRecorder()
+	require.NotPanics(t, func() { _ = w.WriteError(rec, req, nil, http.StatusServiceUnavailable) })
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	rec = httptest.NewRecorder()
+	require.NoError(t, w.WriteError(rec, req, errors.New("boom"), http.StatusNotFound))
+	require.Equal(t, "boom", decodeWireError(t, rec.Body.Bytes()).Error.Message)
+}

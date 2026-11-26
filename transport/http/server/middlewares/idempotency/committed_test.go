@@ -5,7 +5,10 @@
 package idempotency
 
 import (
+	"bufio"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -139,4 +142,70 @@ func TestStorageKeyDoesNotIntern(t *testing.T) {
 		_ = m.buildKey(http.MethodPost, "/orders/"+strconv.Itoa(i), httpTestKey)
 	}
 	require.Equal(t, before, intern.Default().Size())
+}
+
+// A handler that returns without writing sends an implicit 200: the key completes.
+func TestImplicitOKCompletesKey(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+
+	post(t, h, t.Context(), "/orders", "a")
+	post(t, h, t.Context(), "/orders", "a")
+	require.EqualValues(t, 1, calls.Load(), "the mutation ran once")
+}
+
+// failFlush is a writer whose flush fails after the status was committed.
+type failFlush struct{ *httptest.ResponseRecorder }
+
+func (failFlush) FlushError() error { return errors.New("broken pipe") }
+
+// A failed flush may have committed the status: a later 500 does not release
+// the key, and a response whose delivery failed is never replayed.
+func TestFailedFlushCommitsAndIsNotReplayed(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	h := Middleware(newOwnedKeeper(), WithResponseReplay())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, "created")
+		_ = http.NewResponseController(w).Flush()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	req := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader("a"))
+		r.Header.Set(DefaultIdempotencyKeyHeader, httpTestKey)
+		return r
+	}
+
+	h.ServeHTTP(failFlush{httptest.NewRecorder()}, req())
+	second := httptest.NewRecorder()
+	h.ServeHTTP(failFlush{second}, req())
+	require.EqualValues(t, 1, calls.Load(), "the key stayed taken")
+	require.Equal(t, http.StatusUnprocessableEntity, second.Code, "the incompletely delivered response is not replayed")
+}
+
+// hijackable is a writer that hands its connection off.
+type hijackable struct{ *httptest.ResponseRecorder }
+
+func (hijackable) Hijack() (net.Conn, *bufio.ReadWriter, error) { return nil, nil, nil }
+
+// A hijacked connection is a committed response: the key completes.
+func TestHijackCompletesKey(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _, err := http.NewResponseController(w).Hijack()
+		require.NoError(t, err)
+	}))
+	for range 2 {
+		r := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader("a"))
+		r.Header.Set(DefaultIdempotencyKeyHeader, httpTestKey)
+		h.ServeHTTP(hijackable{httptest.NewRecorder()}, r)
+	}
+	require.EqualValues(t, 1, calls.Load())
 }

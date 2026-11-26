@@ -29,6 +29,9 @@ const (
 // ResponseWriter forwards Flush, FlushError, Hijack and Push to the wrapped
 // writer, so streaming and connection upgrades keep working behind it.
 //
+// The exported embedded field of earlier versions is gone: read the wrapped
+// writer with [ResponseWriter.Unwrap].
+//
 // A ResponseWriter is NOT safe for concurrent use by multiple goroutines.
 // Body capture is capped at [MaxCaptureBodySize] (1 MB). The first call
 // to Write implicitly calls WriteHeader(200) if not already called.
@@ -71,8 +74,12 @@ func (rw *ResponseWriter) Flush() { rw.rec.Flush() }
 // implicit 200 when no final status was written yet.
 func (rw *ResponseWriter) FlushError() error { return rw.rec.FlushError() }
 
-// Hijack implements [http.Hijacker] by delegating to the wrapped writer.
+// Hijack implements [http.Hijacker] by delegating to the wrapped writer. A
+// successful hijack commits the response with status 101.
 func (rw *ResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) { return rw.rec.Hijack() }
+
+// Hijacked reports whether the connection was handed off.
+func (rw *ResponseWriter) Hijacked() bool { return rw.rec.Hijacked() }
 
 // Push implements [http.Pusher] when the wrapped writer does.
 func (rw *ResponseWriter) Push(target string, opts *http.PushOptions) error {
