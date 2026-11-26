@@ -23,7 +23,7 @@ type Option = auth.MethodOption[*auth.MountPathMethod]
 // in the heap for the process lifetime.
 func New(username, password string, opt ...Option) *auth.MountPathMethod {
 	username = strings.TrimSpace(username)
-	pw := secure.NewString(strings.TrimSpace(password))
+	pw := secure.NewString(password)
 
 	opt = append(opt, auth.WithSecret(pw))
 	return auth.NewMountPathMethodOptions("userpass", userpass.WithMountPath, func(opts ...userpass.LoginOption) (vaultApi.AuthMethod, error) {

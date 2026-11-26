@@ -6,6 +6,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -293,7 +294,10 @@ func (a *Authenticator) Run(ctx context.Context) (err error) {
 			return err
 		}
 		if err != nil {
-			a.logger.ErrorContext(ctx, "unable to authenticate", "error", err)
+			a.logger.ErrorContext(ctx, "unable to authenticate",
+				"method", a.method.Name(),
+				"error_type", fmt.Sprintf("%T", err),
+				"status", errorStatusCode(err))
 
 			// Check if it's an authentication error that shouldn't be retried
 			if IsAuthenticationError(err) {
@@ -461,16 +465,28 @@ func (a *Authenticator) stopWatcher() {
 	}
 }
 
+// errorStatusCode extracts an HTTP status code from a Vault or wrapped auth
+// error, or returns 0 when none is present.
+func errorStatusCode(err error) int {
+	if vaultErr, ok := errors.AsType[*vaultApi.ResponseError](err); ok {
+		return vaultErr.StatusCode
+	}
+	if authErr, ok := errors.AsType[*AuthError](err); ok {
+		return authErr.Code
+	}
+	return 0
+}
+
 // runWatcher runs the watcher in a controlled goroutine with proper cleanup
 func (a *Authenticator) runWatcher(ctx context.Context) {
-	if a.watcher == nil {
+	w := a.watcher
+	if w == nil {
 		return
 	}
 
-	// Start the watcher renewal process
-	a.renewWg.Go(func() {
-		a.watcher.Renew()
-	})
+	// Start the watcher renewal process on the captured instance so
+	// stopWatcher clearing a.watcher cannot race with or nil-deref it.
+	a.renewWg.Go(w.Renew)
 
 	for {
 		select {
@@ -478,7 +494,7 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 			a.logger.InfoContext(ctx, "context canceled, stopping watcher")
 			a.stopWatcher()
 			return
-		case err := <-a.watcher.DoneCh():
+		case err := <-w.DoneCh():
 			if err != nil {
 				a.metrics.tokenRenewalErrors.Inc()
 				// The raw Vault SDK error may carry lease IDs and
@@ -493,7 +509,7 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 			}
 			a.stopWatcher()
 			return
-		case <-a.watcher.RenewCh():
+		case <-w.RenewCh():
 			a.metrics.tokenRenewals.Inc()
 			a.logger.DebugContext(ctx, "auth token was successfully renewed")
 
