@@ -22,6 +22,11 @@ var ErrFilterClosed = errors.New("filter closed")
 // rebuild publishes a fresh snapshot, so there is nothing to retry.
 var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
 
+// ErrRebuildJournalOverflow is wrapped by a Rebuild error when so many adds
+// arrived during the rebuild that its journal overflowed on every attempt.
+// The previous contents stay; retry when the add rate is lower.
+var ErrRebuildJournalOverflow = errors.New("filter rebuild journal overflowed")
+
 // ErrUnsafeEvictionPolicy is wrapped by the error of a Redis eviction-policy
 // check when a server evicts any key under memory pressure (an allkeys-*
 // maxmemory-policy): a shared filter's keys carry no TTL by design, and
