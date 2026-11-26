@@ -637,6 +637,32 @@ func TestOutcomeClassifierDefinitiveAbort(t *testing.T) {
 	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
 }
 
+func TestApply_CallbackPanicRedactsLogs(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	previous := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	const marker = "private-callback-payload"
+	r := uow.New(&uowtest.Fake{}, logger)
+	err := r.Run(t.Context(), func(ctx context.Context) error {
+		require.NoError(t, r.AfterCommit(ctx, func(context.Context) { panic(marker + "-hook") }))
+		require.NoError(t, uow.OnCommit(ctx, uow.Effect{
+			Apply:      func(context.Context) error { return nil },
+			Compensate: func(context.Context) error { panic(marker + "-compensate") },
+		}))
+		return uow.OnCommit(ctx, uow.Effect{
+			Apply: func(context.Context) error { panic(marker + "-apply") },
+		})
+	})
+	require.ErrorIs(t, err, uow.ErrCallbackPanicked)
+	require.NotContains(t, err.Error(), marker)
+	require.NotContains(t, logs.String(), marker)
+	require.Equal(t, 3, bytes.Count(logs.Bytes(), []byte("stacktrace=")))
+	require.Contains(t, logs.String(), "TestApply_CallbackPanicRedactsLogs")
+}
+
 func TestApply_EffectPanicStillCompensatesAndRunsHooks(t *testing.T) {
 	t.Parallel()
 	rec := &recorder{}

@@ -20,6 +20,9 @@ import (
 )
 
 var (
+	// ErrCallbackPanicked reports a panic in a post-commit callback.
+	ErrCallbackPanicked = errors.New("post-commit callback panicked")
+
 	// ErrNoUnitOfWork is returned by [OnCommit] when ctx carries no unit of
 	// work (OnCommit was called outside a [Runner.Run] body), and by
 	// [Runner.AfterCommit] in the same situation unless
@@ -455,8 +458,15 @@ func (r *Runner) runHook(ctx context.Context, hook func(ctx context.Context)) {
 // runCallback converts a panic to an error without including its payload.
 func runCallback(ctx context.Context, fn func(context.Context) error) (err error) {
 	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(context.Context, any) {
-		err = errors.New("post-commit callback panicked")
+		err = ErrCallbackPanicked
 	})
+	// The core handler logs the recovered value. Replace it while the
+	// original callback is still on the stack so its frames are retained.
+	defer func() {
+		if recover() != nil {
+			panic("post-commit callback panicked")
+		}
+	}()
 	return fn(ctx)
 }
 
