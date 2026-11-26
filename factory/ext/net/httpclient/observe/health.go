@@ -7,6 +7,7 @@ package observe
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,9 +40,19 @@ type clientHealth struct {
 	aggregate *retrySlidingWindow
 	// perHostWindows holds windows for hosts with explicit breaker settings.
 	// Frozen at attach; nil when perHost is off.
-	perHostWindows *coremaps.ImmutableMap[string, *retrySlidingWindow]
-	// knownHosts is the set of hostnames registered as separate services.
-	knownHosts map[string]struct{}
+	perHostWindows  *coremaps.ImmutableMap[string, *retrySlidingWindow]
+	lifecycleMu     sync.Mutex
+	closeOnce       sync.Once
+	signal          chan struct{}
+	stop            chan struct{}
+	done            chan struct{}
+	reportAggregate func(health.ServingStatus)
+	reportHost      map[string]func(health.ServingStatus)
+	unregister      []func()
+
+	dirtyMu        sync.Mutex
+	aggregateDirty bool
+	dirtyHosts     map[string]struct{}
 }
 
 // retryBucket is a single slot in [retrySlidingWindow]. Bucket ownership is
@@ -145,6 +156,8 @@ func newClientHealth(opts options, reporter health.Reporter) *clientHealth {
 		return h
 	}
 	h.aggregate = newRetrySlidingWindow(h.window, h.buckets)
+	h.signal = make(chan struct{}, 1)
+	h.stop = make(chan struct{})
 	return h
 }
 
@@ -155,32 +168,47 @@ func (h *clientHealth) attach(breakers httpclient.Breakers) {
 	if h.reporter == nil {
 		return
 	}
-	h.breakers = breakers
-	if h.perHost {
-		hosts := breakers.ConfiguredHosts()
-		if len(hosts) > 0 {
-			known := make(map[string]struct{}, len(hosts))
-			windows := make(map[string]*retrySlidingWindow, len(hosts))
-			for _, host := range hosts {
-				known[host] = struct{}{}
-				windows[host] = newRetrySlidingWindow(h.window, h.buckets)
-			}
-			h.knownHosts = known
-			h.perHostWindows = coremaps.NewImmutableMap(windows)
-		}
-	}
-	h.register()
-}
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 
-// register attaches the configured checkers to the reporter.
-func (h *clientHealth) register() {
-	h.reporter.RegisterService(h.serviceName, h)
-	if !h.perHost {
+	select {
+	case <-h.stop:
+		return
+	default:
+	}
+	if h.done != nil {
 		return
 	}
-	for host := range h.knownHosts {
-		h.reporter.RegisterService(perHostServiceName(h.serviceName, host), &perHostChecker{parent: h, host: host})
+
+	h.breakers = breakers
+	var hosts []string
+	var reportHost map[string]func(health.ServingStatus)
+	if h.perHost {
+		hosts = breakers.ConfiguredHosts()
 	}
+	if len(hosts) > 0 {
+		windows := make(map[string]*retrySlidingWindow, len(hosts))
+		for _, host := range hosts {
+			windows[host] = newRetrySlidingWindow(h.window, h.buckets)
+		}
+		h.perHostWindows = coremaps.NewImmutableMap(windows)
+		reportHost = make(map[string]func(health.ServingStatus), len(hosts))
+	}
+	report, unregister := health.RegisterOwnedService(h.reporter, h.serviceName, h)
+	h.reportAggregate = report
+	h.unregister = append(h.unregister, unregister)
+	for _, host := range hosts {
+		report, unregister := health.RegisterOwnedService(h.reporter, perHostServiceName(h.serviceName, host), &perHostChecker{parent: h, host: host})
+		reportHost[host] = report
+		h.unregister = append(h.unregister, unregister)
+	}
+
+	h.dirtyMu.Lock()
+	h.reportHost = reportHost
+	h.dirtyMu.Unlock()
+
+	h.done = make(chan struct{})
+	go h.runNotifier()
 }
 
 // recordRequest is invoked for every completed request (after retries). It
@@ -198,33 +226,79 @@ func (h *clientHealth) recordRequest(host string, retried bool) {
 	}
 }
 
-// notifyAggregate recomputes the aggregate status and pushes it to the
-// reporter without waiting for the scheduler cycle. Called on breaker state
-// changes; the recomputation runs in a goroutine because the gobreaker
-// callback fires while the breaker's internal mutex is held — reading the
-// breaker states from inside the callback would self-deadlock.
-func (h *clientHealth) notifyAggregate() {
-	if h.reporter == nil || h.breakers == nil {
+// notifyChange records dirty services without reading breaker state. The driver
+// invokes this callback under the breaker lock.
+func (h *clientHealth) notifyChange(host string) {
+	if h.reporter == nil {
 		return
 	}
-	go func() {
-		h.reporter.NotifyStatusChange(h.serviceName, h.aggregateStatus())
-	}()
+
+	h.dirtyMu.Lock()
+	defer h.dirtyMu.Unlock()
+	select {
+	case <-h.stop:
+		return
+	default:
+	}
+	h.aggregateDirty = true
+	if _, ok := h.reportHost[host]; ok {
+		if h.dirtyHosts == nil {
+			h.dirtyHosts = make(map[string]struct{})
+		}
+		h.dirtyHosts[host] = struct{}{}
+	}
+	select {
+	case h.signal <- struct{}{}:
+	default:
+	}
 }
 
-// notifyHost notifies subscribers of a per-host service. Noop when the host
-// was not registered (lazy host or perHost off). Async for the same reason
-// as [clientHealth.notifyAggregate].
-func (h *clientHealth) notifyHost(host string) {
-	if h.reporter == nil || !h.perHost {
+func (h *clientHealth) runNotifier() {
+	defer close(h.done)
+	for {
+		select {
+		case <-h.stop:
+			return
+		case <-h.signal:
+		}
+
+		h.dirtyMu.Lock()
+		select {
+		case <-h.stop:
+			h.dirtyMu.Unlock()
+			return
+		default:
+		}
+		aggregate, hosts := h.aggregateDirty, h.dirtyHosts
+		h.aggregateDirty, h.dirtyHosts = false, nil
+		h.dirtyMu.Unlock()
+
+		if aggregate {
+			h.reportAggregate(h.aggregateStatus())
+		}
+		for host := range hosts {
+			h.reportHost[host](h.hostStatus(host))
+		}
+	}
+}
+
+func (h *clientHealth) close() {
+	if h.reporter == nil {
 		return
 	}
-	if _, ok := h.knownHosts[host]; !ok {
-		return
-	}
-	go func() {
-		h.reporter.NotifyStatusChange(perHostServiceName(h.serviceName, host), h.hostStatus(host))
-	}()
+	h.closeOnce.Do(func() {
+		h.lifecycleMu.Lock()
+		close(h.stop)
+		done := h.done
+		h.lifecycleMu.Unlock()
+
+		if done != nil {
+			<-done
+		}
+		for _, unregister := range h.unregister {
+			unregister()
+		}
+	})
 }
 
 // CheckHealth implements [health.Checker]. It aggregates breaker state and

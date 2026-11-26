@@ -19,6 +19,7 @@ import (
 // Observer is an [httpclient.Observer] that records the client's events as
 // metrics and, with a health reporter, derives health checks from them.
 // Create one per client with [New] and pass it to [httpclient.WithObserver].
+// Call [Observer.Close] when the client is retired.
 type Observer struct {
 	metrics *clientMetrics
 	health  *clientHealth
@@ -43,6 +44,9 @@ func New(meter metrics.Meter, reporter health.Reporter, opts ...Option) *Observe
 func (o *Observer) Attach(breakers httpclient.Breakers) {
 	o.health.attach(breakers)
 }
+
+// Close stops health notifications and unregisters the observer's checkers.
+func (o *Observer) Close() { o.health.close() }
 
 // RequestDone implements [httpclient.Observer].
 func (o *Observer) RequestDone(e httpclient.RequestEvent) {
@@ -69,10 +73,7 @@ func (o *Observer) BreakerRejected(httpclient.AttemptEvent) {
 // the client-wide one.
 func (o *Observer) BreakerStateChanged(e httpclient.BreakerStateEvent) {
 	o.metrics.circuitBreakerState.WithLabels(metrics.Labels{"host": cmp.Or(e.Host, e.Name)}).Set(stateToFloat(e.To))
-	o.health.notifyAggregate()
-	if e.Host != "" {
-		o.health.notifyHost(e.Host)
-	}
+	o.health.notifyChange(e.Host)
 }
 
 // stateToFloat converts a gobreaker state to a float64 for gauge metrics.

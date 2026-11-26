@@ -59,6 +59,7 @@ func newTestHealth(t *testing.T, coord *health.Coordinator, breakers httpclient.
 	}
 	h := newClientHealth(*o, reporter)
 	h.attach(breakers)
+	t.Cleanup(h.close)
 	return h
 }
 
@@ -107,8 +108,7 @@ func TestNewClientHealthNoReporter(t *testing.T) {
 
 	// Method calls must be cheap noops.
 	h.recordRequest("api.example.com", true)
-	h.notifyAggregate()
-	h.notifyHost("api.example.com")
+	h.notifyChange("api.example.com")
 	require.Equal(t, health.StatusServing, h.CheckHealth(t.Context()))
 }
 
@@ -280,6 +280,7 @@ func TestPushNotifyOnGlobalBreakerTrip(t *testing.T) {
 	defer coord.Close()
 
 	obs := New(nil, coord)
+	defer obs.Close()
 	// No per-host breakers: every host shares the client-wide breaker.
 	c := failingClient(obs, httpclient.WithMaxHostBreakers(0))
 
@@ -307,6 +308,7 @@ func TestPerHostCheckerReportsBreakerState(t *testing.T) {
 	defer coord.Close()
 
 	obs := New(nil, coord, WithPerHostHealthChecks())
+	defer obs.Close()
 	c := failingClient(obs, httpclient.WithCircuitBreakerSettings("api.example.com", &httpclient.CircuitBreakerSettings{
 		// Trip on a single failure for deterministic test behavior.
 		ReadyToTrip: func(gobreaker.Counts) bool { return true },
