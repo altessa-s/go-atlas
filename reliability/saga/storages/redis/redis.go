@@ -562,7 +562,10 @@ func recoverScore(inst *saga.Instance) (score float64, indexed bool) {
 	case inst.Status.IsTerminal():
 		return 0, false
 	case inst.LeaseOwner != "":
-		return float64(inst.LeaseUntil.UnixMilli()) + 1, true
+		// Truncated, never rounded up: the index is a coarse filter and Recoverable
+		// decides exactly, so a lease expiring within the query's millisecond is
+		// fetched and checked instead of hidden until the next one.
+		return float64(inst.LeaseUntil.UnixMilli()), true
 	case inst.Status == saga.StatusCompensating:
 		return 0, true
 	case inst.Status == saga.StatusRunning && !inst.Deadline.IsZero():

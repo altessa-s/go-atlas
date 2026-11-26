@@ -36,7 +36,7 @@ skipped and logged by class. All writes keep the index consistent with the insta
 
 | Instance state               | Index score      |
 |------------------------------|------------------|
-| holding an execution lease   | lease expiry (Unix) + 1 |
+| holding an execution lease   | lease expiry (Unix ms, truncated) |
 | `COMPENSATING`               | `0` (always due) |
 | `RUNNING` with a deadline    | deadline (Unix)  |
 | `RUNNING` without a deadline | not indexed      |
