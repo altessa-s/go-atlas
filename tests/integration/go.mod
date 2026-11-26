@@ -13,7 +13,7 @@ require (
 	github.com/altessa-s/go-aip v0.1.12
 	github.com/altessa-s/go-aip/backend/mongo v0.1.9
 	github.com/altessa-s/go-atlas v0.0.0
-	github.com/altessa-s/go-atlas-core v0.3.5
+	github.com/altessa-s/go-atlas-core v0.4.0
 	github.com/altessa-s/go-atlas/store/postgres/migrations v0.0.0
 	github.com/altessa-s/go-mongox v0.1.2
 	github.com/go-sql-driver/mysql v1.10.1
@@ -33,11 +33,11 @@ require (
 	github.com/adrg/postcode v0.1.0 // indirect
 	github.com/altessa-s/go-atlas-net v0.3.7 // indirect
 	github.com/altessa-s/go-convert v0.1.1 // indirect
-	github.com/altessa-s/go-horai v0.1.3 // indirect
+	github.com/altessa-s/go-horai v0.2.0 // indirect
 	github.com/altessa-s/go-kryptos v0.1.5 // indirect
 	github.com/altessa-s/go-nomos v0.2.5 // indirect
-	github.com/altessa-s/go-slogx v0.1.5 // indirect
-	github.com/altessa-s/go-tlsutils v0.2.3 // indirect
+	github.com/altessa-s/go-slogx v0.2.1 // indirect
+	github.com/altessa-s/go-tlsutils v0.3.0 // indirect
 	github.com/altessa-s/ozzo-rules v1.17.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect

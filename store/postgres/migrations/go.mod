@@ -19,10 +19,10 @@ require (
 
 require (
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect
-	github.com/altessa-s/go-atlas-core v0.3.5 // indirect
-	github.com/altessa-s/go-horai v0.1.3 // indirect
+	github.com/altessa-s/go-atlas-core v0.4.0 // indirect
+	github.com/altessa-s/go-horai v0.2.0 // indirect
 	github.com/altessa-s/go-optgen v0.4.0 // indirect
-	github.com/altessa-s/go-slogx v0.1.5 // indirect
+	github.com/altessa-s/go-slogx v0.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
