@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
+	"strconv"
 	"sync"
 	"time"
 
@@ -154,19 +156,21 @@ func CheckTokenLifetime(minLifetime, maxLifetime time.Duration) error {
 
 // evaluateCELProgram evaluates a compiled CEL program with claims, returning false on error.
 func evaluateCELProgram(program cel.Program, claims map[string]any) bool {
-	// CEL policies historically see JSON numbers as doubles. Keep the
-	// signed dates intact for the other checks and for the returned claims.
+	// CEL policies historically see JSON numbers as doubles. A number that a
+	// double cannot hold exactly is handed over as an int or uint instead, so
+	// two distinct identifiers never compare equal. Signed dates stay intact
+	// for the other checks and for the returned claims.
 	var view map[string]any
 	for key, value := range claims {
 		if n, ok := value.(json.Number); ok {
-			f, err := n.Float64()
-			if err != nil {
+			v, ok := celNumber(n)
+			if !ok {
 				return false
 			}
 			if view == nil {
 				view = maps.Clone(claims)
 			}
-			view[key] = f
+			view[key] = v
 		}
 	}
 	if view != nil {
@@ -185,4 +189,29 @@ func evaluateCELProgram(program cel.Program, claims map[string]any) bool {
 	}
 
 	return bool(boolResult)
+}
+
+// celNumber converts a JSON number for CEL: a double when that holds it
+// exactly, an int or uint when it is an integer that a double rounds, and a
+// double otherwise.
+func celNumber(n json.Number) (any, bool) {
+	f, err := n.Float64()
+	if err != nil || math.IsInf(f, 0) {
+		return nil, false
+	}
+	if i, err := strconv.ParseInt(string(n), 10, 64); err == nil && !doubleHoldsInt(f, i) {
+		return i, true
+	}
+	if u, err := strconv.ParseUint(string(n), 10, 64); err == nil && !doubleHoldsUint(f, u) {
+		return u, true
+	}
+	return f, true
+}
+
+func doubleHoldsInt(f float64, i int64) bool {
+	return f >= math.MinInt64 && f < -float64(math.MinInt64) && int64(f) == i
+}
+
+func doubleHoldsUint(f float64, u uint64) bool {
+	return f >= 0 && f < 1<<64 && uint64(f) == u
 }
