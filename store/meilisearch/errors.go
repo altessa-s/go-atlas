@@ -53,6 +53,9 @@ var (
 	// server message text.
 	ErrTaskFailed = errors.New("meilisearch: task failed")
 
+	// ErrRequestFailed is the sanitized cause of an unclassified SDK failure.
+	ErrRequestFailed = errors.New("meilisearch: request failed")
+
 	// ErrInvalidDocumentID reports a missing, null, empty, or non-scalar
 	// primary-key value encountered while enumerating document IDs.
 	ErrInvalidDocumentID = errors.New("meilisearch: invalid or missing document primary key")
@@ -122,12 +125,8 @@ func (e *safeError) Error() string        { return e.msg }
 func (e *safeError) GoString() string     { return e.msg }
 func (e *safeError) meiliAPICode() string { return e.apiCode }
 
-func (e *safeError) Is(target error) bool {
-	if e.kind != nil && errors.Is(e.kind, target) {
-		return true
-	}
-	return errors.Is(e.cause, target)
-}
+func (e *safeError) Unwrap() error        { return e.kind }
+func (e *safeError) Is(target error) bool { return errors.Is(e.cause, target) }
 
 func validIdentifier(s string) string {
 	if s == "" || len(s) > 64 {
@@ -188,6 +187,7 @@ func safeSDKErrorWithKind(kind error, op string, err error) error {
 	if existing, ok := errors.AsType[*safeError](err); ok && kind == nil {
 		return existing
 	}
+	kind = cmp.Or(kind, ErrRequestFailed)
 	if meiliErr, ok := errors.AsType[*msdk.Error](err); ok {
 		code := validIdentifier(string(meiliErr.APIError.Code))
 		errType := validIdentifier(meiliErr.APIError.Type)

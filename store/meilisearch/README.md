@@ -97,6 +97,9 @@ Write methods (`IndexDocuments`, `DeleteDocuments`, `SwapIndexes`, …) are fire
 
 ## Errors
 
+**Breaking change.** Sanitized diagnostics unwrap to package sentinels such as `ErrTaskFailed` or `ErrRequestFailed`. The error chain no longer
+exposes `*meilisearch.Error` from the SDK, so callers using `errors.As` for SDK fields must switch to the wrapper's predicates and sentinels.
+
 | Sentinel                 | Predicate                          | Maps to Meilisearch code   |
 |--------------------------|------------------------------------|----------------------------|
 | `ErrIndexNotFound`       | `IsErrorIndexNotFound(err)`        | `index_not_found`          |

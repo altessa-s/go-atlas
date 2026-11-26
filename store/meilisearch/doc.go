@@ -31,4 +31,7 @@
 //	if err := c.SetupIndexes(ctx, defs); err != nil {
 //	    return err
 //	}
+//
+// Sanitized request and task errors unwrap to package sentinels such as
+// [ErrRequestFailed] and [ErrTaskFailed].
 package meilisearch

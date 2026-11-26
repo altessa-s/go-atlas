@@ -5,6 +5,7 @@
 package meilisearch_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/store/meilisearch"
+
+	msdk "github.com/meilisearch/meilisearch-go"
 )
 
 func newMeiliHTTPServer(t *testing.T, handler http.HandlerFunc) *meilisearch.Client {
@@ -95,6 +98,7 @@ func TestClient_OmitsServerMessageFromTaskAndSearchErrors(t *testing.T) {
 		t.Parallel()
 		taskErr := client.WaitForTask(t.Context(), 9, time.Millisecond)
 		require.ErrorIs(t, taskErr, meilisearch.ErrTaskFailed)
+		require.Equal(t, meilisearch.ErrTaskFailed, errors.Unwrap(taskErr))
 		require.Contains(t, taskErr.Error(), "invalid_document_id")
 		require.NotContains(t, taskErr.Error(), marker)
 	})
@@ -107,6 +111,12 @@ func TestClient_OmitsServerMessageFromTaskAndSearchErrors(t *testing.T) {
 			Filter:    "email = '" + marker + "'",
 		})
 		require.Error(t, searchErr)
+		cause := errors.Unwrap(searchErr)
+		require.Equal(t, meilisearch.ErrRequestFailed, cause)
+		require.Nil(t, errors.Unwrap(cause))
+		require.NotContains(t, cause.Error(), marker)
+		var sdkErr *msdk.Error
+		require.False(t, errors.As(searchErr, &sdkErr))
 		require.Contains(t, searchErr.Error(), "invalid_search_filter")
 		require.NotContains(t, searchErr.Error(), marker)
 	})
