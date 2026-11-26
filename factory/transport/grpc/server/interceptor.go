@@ -463,9 +463,6 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 	}
 
 	opts = slices.AppendIf(opts, len(c.KeyMetadata) > 0, cache.WithMetadataKeys(c.KeyMetadata...))
-	if f := cfg.FieldMask; f.IsEnabled() && f.MetadataReadMaskHeader != "" && f.MetadataReadMaskHeader != fieldmask.DefaultMetadataReadMaskHeader {
-		opts = append(opts, cache.WithReadMaskHeader(f.MetadataReadMaskHeader))
-	}
 	opts = slices.AppendIf(opts, b.cacheMetadataProcessor != nil, cache.WithMetadataProcessor(b.cacheMetadataProcessor))
 	opts = slices.AppendIf(opts, len(b.cacheMethodPolicies) > 0, cache.WithMethodPolicy(b.cacheMethodPolicies...))
 	opts = slices.AppendIf(opts, len(c.IgnorePatterns) > 0,
@@ -477,12 +474,14 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 	))
 
 	cacher := b.cacher
-	build := func(authRequired bool) interceptors.ServerInterceptor {
+	build := func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor {
 		options := slices.AppendIf(stdslices.Clone(opts), authRequired, cache.WithAuthRequired())
+		options = slices.AppendIf(options, readMaskHeader != "" && readMaskHeader != fieldmask.DefaultMetadataReadMaskHeader,
+			cache.WithReadMaskHeader(readMaskHeader))
 		return cache.ServerInterceptor(cacher, options...)
 	}
 	b.interceptors = append(b.interceptors, &cacheRegistration{
-		ServerInterceptor: build(false),
+		ServerInterceptor: build(false, ""),
 		build:             build,
 	})
 	return b
@@ -490,7 +489,7 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 
 type cacheRegistration struct {
 	interceptors.ServerInterceptor
-	build func(authRequired bool) interceptors.ServerInterceptor
+	build func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor
 }
 
 func (i *cacheRegistration) Dependencies() []string {
@@ -500,13 +499,23 @@ func (i *cacheRegistration) Dependencies() []string {
 // resolveCacheInterceptors configures the cache from the registered chain.
 // The copy lets the builder be reused without changing a built server.
 func (b *ServerBuilder) resolveCacheInterceptors() []interceptors.ServerInterceptor {
-	authRequired := stdslices.ContainsFunc(b.interceptors, func(i interceptors.ServerInterceptor) bool {
-		return nilcheck.IsNotNil(i) && i.Name() == auth.Name()
-	})
+	var authRequired bool
+	var readMaskHeader string
+	for _, i := range b.interceptors {
+		if nilcheck.IsNil(i) {
+			continue
+		}
+		switch i.Name() {
+		case auth.Name():
+			authRequired = true
+		case fieldmask.Name():
+			readMaskHeader = fieldmask.MetadataReadMaskHeader(i)
+		}
+	}
 	resolved := stdslices.Clone(b.interceptors)
 	for idx, i := range resolved {
-		if registration, ok := i.(*cacheRegistration); ok && authRequired {
-			resolved[idx] = registration.build(true)
+		if registration, ok := i.(*cacheRegistration); ok {
+			resolved[idx] = registration.build(authRequired, readMaskHeader)
 		}
 	}
 	return resolved

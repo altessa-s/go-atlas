@@ -116,14 +116,23 @@ func TestFactoryCacheRunsAfterAuthenticationAndAuthorization(t *testing.T) {
 func TestFactoryCachePartitionsReadMasks(t *testing.T) {
 	t.Parallel()
 
-	for _, header := range []string{fieldmask.DefaultMetadataReadMaskHeader, "x-read-projection"} {
-		t.Run(header, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, header, override string
+	}{
+		{name: "default", header: fieldmask.DefaultMetadataReadMaskHeader},
+		{name: "configured", header: "x-read-projection"},
+		{name: "code override", header: "x-read-projection", override: "x-projection"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := cacheTestBuilder()
 			b.cfg.Interceptors.FieldMask = &grpcconfig.FieldMaskInterceptor{BaseInterceptor: enabled}
 			b.cfg.Interceptors.Cache.KeyMetadata = []string{"x-api-version"}
-			if header != fieldmask.DefaultMetadataReadMaskHeader {
-				b.cfg.Interceptors.FieldMask.MetadataReadMaskHeader = header
+			b.cfg.Interceptors.FieldMask.MetadataReadMaskHeader = tc.header
+			header := tc.header
+			if tc.override != "" {
+				b.UseFieldMaskOptions(fieldmask.WithMetadataReadMaskHeader(tc.override), fieldmask.WithMetadataReadMaskHeader(""))
+				header = tc.override
 			}
 			call := callCacheChain(t, b.WithCacheInterceptor().WithFieldMaskInterceptor())
 			calls := 0

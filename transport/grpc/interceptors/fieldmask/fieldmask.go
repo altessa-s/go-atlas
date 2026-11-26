@@ -142,6 +142,21 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	return interceptors.ServerDrivenInterceptor(ic)
 }
 
+// MetadataReadMaskHeader returns the effective metadata header configured for
+// the built-in read extractor. It returns an empty string for interceptors
+// that were not created by [ServerInterceptor].
+func MetadataReadMaskHeader(si interceptors.ServerInterceptor) string {
+	driven, ok := si.(*interceptors.DrivenServerInterceptor)
+	if !ok || driven == nil {
+		return ""
+	}
+	i, ok := driven.Interceptor().(*interceptor)
+	if !ok {
+		return ""
+	}
+	return i.opts.metadataReadMaskHeader
+}
+
 // classify returns the configured Kind for fullMethod, falling back to the
 // AIP-naming heuristic in [ClassifyMethod].
 func (i *interceptor) classify(fullMethod string) Kind {
