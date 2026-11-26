@@ -7,6 +7,7 @@ package databaselock
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -31,6 +32,9 @@ const serverNow = "$$NOW"
 
 // ErrHeld indicates an unexpired lease owned by another process.
 var ErrHeld = errors.New("migration lock is held by another process")
+
+// ErrLeaseLost indicates that the lease could not be renewed: another process owns it, or no renewal succeeded for a whole lease.
+var ErrLeaseLost = errors.New("migration lock lease lost")
 
 type migrationLockDocument struct {
 	ID         string        `bson:"_id"`
@@ -125,5 +129,84 @@ func Release(ctx context.Context, collection *mongo.Collection, id string, owner
 	filter := bson.M{"_id": id, lockFieldOwner: owner}
 	update := bson.M{"$set": bson.M{"expiresAt": time.Unix(0, 0).UTC()}, "$unset": bson.M{lockFieldOwner: ""}}
 	_, err := collection.UpdateOne(releaseCtx, filter, update)
+	return err
+}
+
+// Renew extends the lease of the mutex document id by lease from the server clock, while owner still holds the document. A document
+// owned by someone else, or missing, is [ErrLeaseLost].
+func Renew(ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease time.Duration) error {
+	result, err := collection.UpdateOne(ctx, bson.M{"_id": id, lockFieldOwner: owner}, mongo.Pipeline{
+		bson.D{{Key: "$set", Value: bson.M{"expiresAt": bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}}}}},
+	})
+	switch {
+	case err != nil:
+		return err
+	case result.MatchedCount == 0:
+		return ErrLeaseLost
+	default:
+		return nil
+	}
+}
+
+// Hold runs fn while keeping the lease of the mutex document id, taken by [Acquire] for owner, alive. The lease is a renewable
+// resource separate from the work budget: a heartbeat renews it every lease/3 until fn returns, independently of the work context.
+// The work context passed to fn carries the budget and is canceled when the budget ends, when ctx is canceled, or when a renewal
+// fails for good (ownership lost, or no renewal succeeded for a whole lease). After the work context is canceled the heartbeat
+// keeps renewing while fn still runs, so a step that ignores its context never overlaps a successor as long as renewals succeed.
+// held reports whether the lease is still believed to be owned; it turns false once ownership is lost. When the lease was lost
+// during fn, the result wraps [ErrLeaseLost].
+func Hold(
+	ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease, budget time.Duration,
+	fn func(work context.Context, held func() bool) error,
+) error {
+	renew := func(ctx context.Context) error { return Renew(ctx, collection, id, owner, lease) }
+	return hold(ctx, renew, lease, budget, fn)
+}
+
+func hold(
+	ctx context.Context, renew func(context.Context) error, lease, budget time.Duration,
+	fn func(work context.Context, held func() bool) error,
+) error {
+	interval := lease / 3
+	workCtx, cancelWork := context.WithTimeout(ctx, budget)
+	defer cancelWork()
+
+	var lost atomic.Bool
+	held := func() bool { return !lost.Load() }
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Renewals run detached from the work context: they must outlive its cancellation.
+		renewBase := context.WithoutCancel(ctx)
+		lastOK := time.Now()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
+			renewCtx, cancel := context.WithTimeout(renewBase, interval)
+			err := renew(renewCtx)
+			cancel()
+			switch {
+			case err == nil:
+				lastOK = time.Now()
+			case errors.Is(err, ErrLeaseLost) || time.Since(lastOK) >= lease:
+				lost.Store(true)
+				cancelWork()
+				return
+			}
+		}
+	}()
+
+	err := fn(workCtx, held)
+	close(stop)
+	<-done
+	if lost.Load() {
+		return errors.Join(err, ErrLeaseLost)
+	}
 	return err
 }

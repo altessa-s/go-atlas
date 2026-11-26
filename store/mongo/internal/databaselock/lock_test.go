@@ -5,6 +5,9 @@
 package databaselock
 
 import (
+	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,4 +90,67 @@ func TestMigrationLock_TimeoutBudgets(t *testing.T) {
 	require.Less(t, RetryBaseDelay, RetryMaxDelay)
 	require.Less(t, RetryMaxDelay, 30*time.Second,
 		"a single backoff step must not consume the whole wait budget")
+}
+
+func TestHold_RenewsUntilWorkReturnsPastBudget(t *testing.T) {
+	t.Parallel()
+
+	var renewals atomic.Int32
+	renew := func(context.Context) error { renewals.Add(1); return nil }
+
+	err := hold(t.Context(), renew, 30*time.Millisecond, 20*time.Millisecond, func(work context.Context, held func() bool) error {
+		// The step ignores its context and outlives both the budget and several lease periods.
+		<-work.Done()
+		time.Sleep(120 * time.Millisecond)
+		require.True(t, held())
+		return nil
+	})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, renewals.Load(), int32(3), "the heartbeat keeps renewing after the work context is canceled")
+}
+
+func TestHold_LostRenewalCancelsWork(t *testing.T) {
+	t.Parallel()
+
+	renew := func(context.Context) error { return ErrLeaseLost }
+	err := hold(t.Context(), renew, 30*time.Millisecond, time.Minute, func(work context.Context, held func() bool) error {
+		select {
+		case <-work.Done():
+		case <-time.After(5 * time.Second):
+			t.Error("work context was not canceled")
+		}
+		require.False(t, held())
+		return work.Err()
+	})
+	require.ErrorIs(t, err, ErrLeaseLost)
+}
+
+func TestHold_TransientRenewalErrorsTolerated(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	renew := func(context.Context) error {
+		if calls.Add(1) == 1 {
+			return errors.New("transient")
+		}
+		return nil
+	}
+	err := hold(t.Context(), renew, 60*time.Millisecond, time.Minute, func(work context.Context, held func() bool) error {
+		time.Sleep(150 * time.Millisecond)
+		require.True(t, held())
+		require.NoError(t, work.Err())
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestHold_PersistentRenewalErrorsLoseTheLease(t *testing.T) {
+	t.Parallel()
+
+	renew := func(context.Context) error { return errors.New("unreachable") }
+	err := hold(t.Context(), renew, 30*time.Millisecond, time.Minute, func(work context.Context, _ func() bool) error {
+		<-work.Done()
+		return nil
+	})
+	require.ErrorIs(t, err, ErrLeaseLost)
 }

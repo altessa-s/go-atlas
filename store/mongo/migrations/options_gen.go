@@ -34,7 +34,7 @@ func WithRegistry(v *Registry) Option {
 
 // WithRollbackOnFailure enables the rollbackOnFailure option.
 //
-// rollbackOnFailure rolls back all applied migrations when an up step fails.
+// rollbackOnFailure rolls back the migrations applied by this run when an up step fails.
 func WithRollbackOnFailure() Option {
 	return func(o *options) {
 		value := true
