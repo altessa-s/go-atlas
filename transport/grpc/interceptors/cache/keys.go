@@ -78,7 +78,7 @@ func newDefaultKeyGenerator() KeyGenerator {
 func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGenerator {
 	fields := newDiscriminators(metadataKeys, processor, "")
 	return func(ctx context.Context, method string, req any) (string, error) {
-		namespace, ok := cacheNamespace(ctx, defaultIdentity, false)
+		namespace, ok := cacheNamespace(ctx, nil, false)
 		if !ok {
 			return "", errIdentityUnknown
 		}

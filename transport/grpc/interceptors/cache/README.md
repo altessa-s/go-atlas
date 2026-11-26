@@ -27,7 +27,7 @@ Package `cache` caches unary gRPC responses with per-method policies and optiona
 | `WithMethodPolicy`      | —                              | Register methods with compression presets                  |
 | `WithDefaultTTL`        | 5m                             | Default cache TTL (1s to 24h)                               |
 | `WithKeyGenerator`      | SHA-256 over the request tuple | Override the storage key while retaining tuple verification |
-| `WithIdentityFunc`      | Verified tenant and subject    | Customize how verified callers are partitioned             |
+| `WithIdentityFunc`      | Verified identity and grants   | Customize how verified callers are partitioned             |
 | `WithAuthRequired`      | false                          | Bypass caching when verified identity is unavailable       |
 | `WithReadMaskHeader`    | `x-goog-fieldmask`             | Include a custom read-mask header alongside the default    |
 | `WithCacheDecision`     | Success only with default TTL  | Customize when and how long to cache                       |
@@ -45,14 +45,18 @@ Package `cache` caches unary gRPC responses with per-method policies and optiona
 ## Verified identity
 
 Dependency-ordered chains run metadata, auth, IP and geographic access controls, and rate limiting before cache. Apply the same ordering when
-assembling a chain manually. The default uses the verified principal's tenant and subject. Authenticated calls with an empty subject or unrecognized
-credentials bypass caching. Services without auth use shared caching with the configured metadata partitions.
+assembling a chain manually. The default partitions by verified tenant, subject, sorted scopes and roles, and the authentication method and verified
+issuer when available. Authenticated calls with an empty subject or unrecognized credentials bypass caching. Services without auth use shared
+caching with the configured metadata partitions.
 
-Use `WithIdentityFunc` for custom credentials or several issuers. Return a nonempty namespace from verified context data with the `Verified` state.
-Include the issuer if identifiers can overlap. Return `AuthenticatedUnknown` if the caller cannot be assigned a safe namespace. Use
-`WithAuthRequired()` in directly constructed authenticated chains to bypass caching when auth skips a call. The gRPC server factory sets this option
-when it wires auth and cache. To use a custom identity with the factory, exclude the config-built cache with `WithInterceptors(cache.ID)` and
-register a configured cache with `WithInterceptor`.
+Use `WithIdentityFunc` when the default cannot identify the current caller or the response depends on other verified attributes. Return a stable,
+nonempty namespace with the `Verified` state. Include the tenant, subject, authenticator or issuer, and every scope, role, or other verified claim
+that can change the response. Use only verified data from the current call. Return `AuthenticatedUnknown` if a safe namespace is unavailable.
+Return `NoAuth` only for calls eligible to share a namespace without authentication.
+
+Use `WithAuthRequired()` in directly constructed authenticated chains to bypass caching when auth skips a call. The gRPC server factory enables
+this option on its config-built cache whenever auth is registered. Auth-ignored public methods bypass that cache. To use a custom identity with the
+factory, exclude the config-built cache with `WithInterceptors(cache.ID)` and register a configured cache with `WithInterceptor`.
 
 ## Cache keys
 

@@ -18,10 +18,12 @@
 // [HeaderMiss] in gRPC response metadata.
 //
 // A dependency-ordered chain runs authentication and access controls before
-// this interceptor. The default identity uses the tenant and subject of the
-// verified principal. Use [WithIdentityFunc] for custom credentials or to
-// distinguish issuers. Calls without an identifiable principal bypass caching
-// when authenticated or when [WithAuthRequired] is set.
+// this interceptor. The default identity uses the current principal's tenant,
+// subject, sorted scopes and roles, and the authentication method and verified
+// issuer when available. Use [WithIdentityFunc] for custom credentials or
+// other verified attributes that affect the response. Authenticated calls
+// without an identifiable principal and auth-ignored calls under
+// [WithAuthRequired] bypass caching.
 //
 // Cache keys and their independent verifiers cover the method, identity,
 // serialized request, and response discriminators, including the read-mask

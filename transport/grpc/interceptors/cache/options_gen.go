@@ -58,7 +58,8 @@ func WithCacheTTL(v time.Duration) Option {
 
 // WithIdentityFunc sets the identityFunc option.
 //
-// identityFunc resolves the verified caller's cache namespace.
+// identityFunc resolves the verified caller's cache namespace. When unset,
+// the default uses the current authentication result.
 func WithIdentityFunc(v IdentityFunc) Option {
 	return func(o *options) {
 		if v == nil {
@@ -248,7 +249,6 @@ func defaultOptions() *options {
 	return &options{
 		cacheHeadersEnabled: true,
 		cacheTTL:            DefaultTTL,
-		identityFunc:        defaultIdentity,
 		ignorePatterns:      defaults.IgnorePatterns,
 		logger:              slog.New(slog.DiscardHandler),
 		methods:             make(map[string]*MethodPolicy),

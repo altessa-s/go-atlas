@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
@@ -210,4 +211,75 @@ func TestCacheUsesCustomVerifiedNamespace(t *testing.T) {
 		require.Equal(t, issuer, got.(*wrapperspb.StringValue).GetValue())
 	}
 	require.Equal(t, 2, calls)
+}
+
+func TestCacheBypassesCustomCredentialsWithInheritedPrincipal(t *testing.T) {
+	t.Parallel()
+
+	cacher := newMapCacher()
+	unary := cache.ServerInterceptor(cacher,
+		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}), cache.WithAuthRequired(),
+	).ServerUnaryInterceptor()
+	ctx := principal.NewContext(t.Context(), principal.Principal{Subject: "upstream"})
+	for _, user := range []string{"alice", "bob"} {
+		got := callWithCacheCredentials(t, ctx, unary, struct{ ID string }{user}, user)
+		require.Equal(t, user, got)
+	}
+	require.Zero(t, cacher.gets)
+	require.Zero(t, cacher.saves)
+}
+
+func TestCachePartitionsGrantsAndIssuer(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		first, second *oidc.Claims
+	}{
+		{name: "scopes", first: &oidc.Claims{Scopes: []string{"read", "write"}}, second: &oidc.Claims{Scopes: []string{"read"}}},
+		{name: "roles", first: &oidc.Claims{RawClaims: map[string]any{"roles": []string{"admin"}}}, second: &oidc.Claims{}},
+		{name: "issuer", first: &oidc.Claims{Issuer: "issuer-a"}, second: &oidc.Claims{Issuer: "issuer-b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.first.Subject, tc.second.Subject = "alice", "alice"
+			cacher := newMapCacher()
+			unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+
+			require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, tc.first, "first"))
+			require.Equal(t, "second", callWithCacheCredentials(t, t.Context(), unary, tc.second, "second"))
+			require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, tc.first, "unexpected miss"))
+			require.Equal(t, 2, cacher.saves)
+		})
+	}
+
+	t.Run("grant order", func(t *testing.T) {
+		t.Parallel()
+		cacher := newMapCacher()
+		unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+		first := principal.Principal{Subject: "alice", Scopes: []string{"write", "read"}, Roles: []string{"owner", "admin"}}
+		second := principal.Principal{Subject: "alice", Scopes: []string{"read", "write"}, Roles: []string{"admin", "owner"}}
+		require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, first, "first"))
+		require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, second, "unexpected miss"))
+		require.Equal(t, []string{"write", "read"}, first.Scopes)
+		require.Equal(t, []string{"owner", "admin"}, first.Roles)
+		require.Equal(t, 1, cacher.saves)
+	})
+}
+
+func callWithCacheCredentials(t *testing.T, ctx context.Context, unary grpc.UnaryServerInterceptor, data any, response string) string {
+	t.Helper()
+
+	authUnary := auth.ServerInterceptor(auth.WithAuthFn(auth.AuthFunc(func(context.Context, auth.Request) (any, error) {
+		return data, nil
+	}))).ServerUnaryInterceptor()
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("authorization", "Bearer test-token"))
+	info := &grpc.UnaryServerInfo{FullMethod: echoMethod}
+	got, err := authUnary(ctx, wrapperspb.String("same"), info, func(ctx context.Context, req any) (any, error) {
+		return unary(ctx, req, info, func(context.Context, any) (any, error) {
+			return wrapperspb.String(response), nil
+		})
+	})
+	require.NoError(t, err)
+	return got.(*wrapperspb.StringValue).GetValue()
 }

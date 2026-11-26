@@ -73,8 +73,9 @@ type options struct {
 	// keyGenerator overrides only the storage key. Identity checks and
 	// verification of the full request tuple still apply.
 	keyGenerator KeyGenerator
-	// identityFunc resolves the verified caller's cache namespace.
-	identityFunc IdentityFunc `optgen:"default=defaultIdentity,notnil"`
+	// identityFunc resolves the verified caller's cache namespace. When unset,
+	// the default uses the current authentication result.
+	identityFunc IdentityFunc `optgen:"notnil"`
 	// authRequired bypasses caching when no verified caller is identifiable.
 	authRequired bool
 	// WithCacheHeaders controls whether cache hit/miss headers are added to responses.
