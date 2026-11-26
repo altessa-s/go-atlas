@@ -76,7 +76,11 @@ Keeper without an owner, or a caller it resolves to no owner, keeps the `422` an
 The middleware passes the Keeper the tuple `("transport", "{METHOD}:/{path}", key)` in the length-prefixed v2 format of
 [`reliability/idempotency.ComposeKey`](../../../../../reliability/idempotency#storage-key-format) — `POST /api/v1/users` with key `550e8400-…` becomes
 `idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage, so a `:` in
-the path or the key cannot make two requests share a record.
+the path or the key cannot make two requests share a record. The path is the escaped path (`URL.EscapedPath`), so `/items/a%2Fb` and `/items/a/b`,
+which a router may dispatch to different handlers, never share a key, fingerprint or replay binding.
+
+A handler that panics after a 2xx status reached the client has run: the key completes without a response to replay (the body may be cut off) and a
+repeat is refused as already used. A panic before any status, or a non-2xx status, releases the key.
 
 ## Request fingerprints and owners
 
