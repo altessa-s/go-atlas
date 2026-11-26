@@ -279,11 +279,12 @@ type Storage interface {
 }
 ```
 
-Every `StoreBatch` implementation accepts an empty slice and rejects any batch containing a `nil` element before writing anything, returning an error
-matching `coreerrs.ErrInvalidArgument`. Batch atomicity varies by backend: **memory** appends atomically under one mutex; **sqldb** inserts atomically
-in one `INSERT` or a storage-owned transaction across chunks (ignoring duplicate IDs; inside a caller-owned transaction, earlier chunks persist until
-the caller rolls back); **mongo** uses ordered `InsertMany` (a write failure can leave an ordered prefix persisted); and **clickhouse** sends chunks
-independently (earlier chunks remain persisted if a later chunk fails).
+Every `Store` and `StoreBatch` implementation rejects `nil` events with `coreerrs.ErrInvalidArgument` before writing anything, and `StoreBatch` accepts
+an empty slice as a no-op. Replay deduplication in **mongo** and **sqldb** is keyed by `Event.ID` only (direct `Storage` callers must supply unique
+IDs). Batch atomicity varies by backend: **memory** appends atomically under one mutex; **sqldb** inserts atomically in one `INSERT` or a storage-owned
+transaction across chunks (ignoring duplicate IDs; inside a caller-owned transaction, earlier chunks persist until the caller rolls back); **mongo**
+executes unordered `InsertMany` sub-batches (verifying duplicate `_id`s on the primary with `majority` read concern, and retaining valid documents when
+another element fails); and **clickhouse** sends chunks independently (earlier chunks remain persisted if a later chunk fails).
 
 The ClickHouse storage takes a connection from `factory/infrastructure/clickhouse`, writes column-wise batches, and checks the table against
 its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the
@@ -327,12 +328,13 @@ Buffer size, batch size, workers, retries, and WAL are all on the `dispatch.Engi
 
 ## Metrics
 
-| Metric                       | Type    | What it counts                    |
-|------------------------------|---------|-----------------------------------|
-| `audit_events_emitted_total` | Counter | Events accepted by the dispatcher |
-| `audit_events_dropped_total` | Counter | Events rejected (buffer full)     |
+| Metric                       | Type    | Labels   | What it counts                                             |
+|------------------------------|---------|----------|------------------------------------------------------------|
+| `audit_events_emitted_total` | Counter | --       | Events accepted by the dispatcher                          |
+| `audit_events_dropped_total` | Counter | `reason` | Events dropped before dispatch or rejected by the pipeline |
 
-The engine adds its own metrics (worker count, flush latency, WAL size, sink errors) under a separate subsystem.
+`reason` takes bounded values: `not_started`, `shutdown`, `dispatcher_closed`, `queue_full`, `wal_full`, and `rejected`. The engine adds its own
+metrics (worker count, flush latency, WAL size, sink errors) under a separate subsystem.
 
 ---
 
