@@ -9,6 +9,11 @@
 #  # Default value: 1000
 #  ipCacheSize: 1000
 #
+#  # <bool> Allow memory storage to evict live windows at capacity.
+#  # Fail-open risk: key churn can reset a quota before its window expires.
+#  # Default value: false
+#  insecureEvictLRU: false
+#
 #  # <object> Storage configuration for rate limit counters.
 #  # Supports multiple storage backends with provider-specific settings.
 #  !include storage_backend.yaml
