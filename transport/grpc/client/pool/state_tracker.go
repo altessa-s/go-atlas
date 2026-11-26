@@ -25,6 +25,88 @@ type trackedEntry struct {
 	cancel context.CancelFunc // nil until the watcher goroutine is running
 }
 
+// subscriberQueueSize bounds the notifications waiting for one subscriber. A
+// subscriber that falls behind loses its oldest states and still receives the
+// latest one, which is the only state a health consumer acts on.
+const subscriberQueueSize = 16
+
+// subscriber delivers a target's state changes to one callback on its own
+// goroutine, so a callback may call [stateTracker.shutdown] or the pool's stop
+// function without waiting for itself. Notifications of one subscriber stay in
+// order; a slow subscriber never delays watchers or other subscribers.
+type subscriber struct {
+	cb   stateChangeFn
+	wake chan struct{}
+	done chan struct{}
+
+	mu    sync.Mutex
+	queue []connectivity.State
+
+	closeOnce sync.Once
+}
+
+func newSubscriber(cb stateChangeFn) *subscriber {
+	s := &subscriber{cb: cb, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	// The goroutine lives until close and is deliberately outside the
+	// tracker's watcher wait group.
+	go s.run()
+	return s
+}
+
+// enqueue records state for delivery. A repeat of the newest queued state is
+// dropped and a full queue discards its oldest entry.
+func (s *subscriber) enqueue(state connectivity.State) {
+	s.mu.Lock()
+	switch {
+	case len(s.queue) > 0 && s.queue[len(s.queue)-1] == state:
+	case len(s.queue) >= subscriberQueueSize:
+		s.queue = append(s.queue[1:], state)
+	default:
+		s.queue = append(s.queue, state)
+	}
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *subscriber) next() (connectivity.State, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.queue) == 0 {
+		return connectivity.Idle, false
+	}
+	state := s.queue[0]
+	s.queue = s.queue[1:]
+	return state, true
+}
+
+func (s *subscriber) run() {
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-s.wake:
+		}
+		for {
+			state, ok := s.next()
+			if !ok {
+				break
+			}
+			select {
+			case <-s.done:
+				return
+			default:
+			}
+			s.cb(state)
+		}
+	}
+}
+
+// close stops delivery without waiting for a callback in progress.
+func (s *subscriber) close() { s.closeOnce.Do(func() { close(s.done) }) }
+
 // stateTracker watches connectivity state on every conn the pool owns and
 // fans changes out to subscribers. Watcher goroutines run only when at least
 // one consumer (the pool's optional health helper or an external
@@ -42,7 +124,7 @@ type stateTracker struct {
 
 	subSeq atomic.Int64
 	subsMu sync.RWMutex
-	subs   map[string]map[int64]stateChangeFn
+	subs   map[string]map[int64]*subscriber
 
 	// onTargetStateChange is invoked synchronously on the watcher goroutine
 	// before subscriber fan-out. Used by the pool's health helper to push
@@ -60,7 +142,7 @@ func newStateTracker() *stateTracker {
 		parentCtx:    ctx,
 		parentCancel: cancel,
 		perTarget:    make(map[string]map[*pooledConnection]*trackedEntry),
-		subs:         make(map[string]map[int64]stateChangeFn),
+		subs:         make(map[string]map[int64]*subscriber),
 	}
 }
 
@@ -137,14 +219,24 @@ func (t *stateTracker) detach(target string, pc *pooledConnection) {
 	}
 }
 
-// shutdown cancels every watcher and waits for them to exit. Safe to call
-// multiple times.
+// shutdown cancels every watcher and waits for them to exit, then stops
+// subscriber delivery without waiting for callbacks in progress. Safe to call
+// multiple times and from a subscriber callback.
 func (t *stateTracker) shutdown() {
 	t.mu.Lock()
 	t.closed = true
 	t.parentCancel()
 	t.mu.Unlock()
 	t.wg.Wait()
+
+	t.subsMu.Lock()
+	for target, subs := range t.subs {
+		for _, sub := range subs {
+			sub.close()
+		}
+		delete(t.subs, target)
+	}
+	t.subsMu.Unlock()
 }
 
 // spawnWatcher creates the per-conn context and goroutine. Safe under
@@ -176,7 +268,7 @@ func (t *stateTracker) watch(ctx context.Context, target string, pc *pooledConne
 }
 
 // recordAndFanOut updates the entry's last-seen state, invokes the
-// pool-level callback, and notifies subscribers for this target.
+// pool-level callback, and queues the state for the subscribers of this target.
 func (t *stateTracker) recordAndFanOut(target string, entry *trackedEntry, state connectivity.State) {
 	t.mu.Lock()
 	entry.state = state
@@ -192,14 +284,10 @@ func (t *stateTracker) recordAndFanOut(target string, entry *trackedEntry, state
 		t.subsMu.RUnlock()
 		return
 	}
-	callbacks := make([]stateChangeFn, 0, len(targetSubs))
-	for _, cb := range targetSubs {
-		callbacks = append(callbacks, cb)
+	for _, sub := range targetSubs {
+		sub.enqueue(state)
 	}
 	t.subsMu.RUnlock()
-	for _, cb := range callbacks {
-		cb(state)
-	}
 }
 
 // subscribe registers cb for the given target and implicitly enables the
@@ -208,19 +296,27 @@ func (t *stateTracker) subscribe(target string, cb stateChangeFn) func() {
 	if cb == nil {
 		return func() {}
 	}
+	t.mu.RLock()
+	closed := t.closed
+	t.mu.RUnlock()
+	if closed {
+		return func() {}
+	}
 	id := t.subSeq.Add(1)
+	sub := newSubscriber(cb)
 	t.subsMu.Lock()
 	targetSubs, ok := t.subs[target]
 	if !ok {
-		targetSubs = make(map[int64]stateChangeFn)
+		targetSubs = make(map[int64]*subscriber)
 		t.subs[target] = targetSubs
 	}
-	targetSubs[id] = cb
+	targetSubs[id] = sub
 	t.subsMu.Unlock()
 
 	t.enable()
 
 	return func() {
+		sub.close()
 		t.subsMu.Lock()
 		defer t.subsMu.Unlock()
 		subs, ok := t.subs[target]
@@ -235,8 +331,9 @@ func (t *stateTracker) subscribe(target string, cb stateChangeFn) func() {
 }
 
 // stateForTarget returns the best (most-ready) connectivity state across
-// all conns currently tracked for target. Returns [connectivity.Idle] when
-// the target is unknown.
+// all conns currently tracked for target: the watcher's last observation, or
+// the live state of a connection without a watcher. Returns
+// [connectivity.Idle] when the target is unknown.
 func (t *stateTracker) stateForTarget(target string) connectivity.State {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -245,9 +342,14 @@ func (t *stateTracker) stateForTarget(target string) connectivity.State {
 		return connectivity.Idle
 	}
 	best := connectivity.Shutdown
-	for _, entry := range targetMap {
-		if connStateRank(entry.state) > connStateRank(best) {
-			best = entry.state
+	for pc, entry := range targetMap {
+		state := entry.state
+		if entry.cancel == nil && pc != nil && pc.conn != nil {
+			// No watcher keeps entry.state current, so ask the connection.
+			state = pc.conn.GetState()
+		}
+		if connStateRank(state) > connStateRank(best) {
+			best = state
 		}
 	}
 	return best

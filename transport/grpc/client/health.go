@@ -121,11 +121,12 @@ func (h *clientHealth) detach() {
 	})
 }
 
-// onPoolStateChange is the subscription callback used in pool mode. The
-// pool's tracker invokes it synchronously on every per-conn state change.
-func (h *clientHealth) onPoolStateChange(state connectivity.State) {
+// onPoolStateChange is the subscription callback used in pool mode. A
+// per-connection event only signals that the target changed: the pushed
+// status is the target aggregate that [clientHealth.CheckHealth] reports.
+func (h *clientHealth) onPoolStateChange(connectivity.State) {
 	if h.registered.Load() {
-		h.notify(h.mapper(state))
+		h.notify(h.CheckHealth(context.Background()))
 	}
 }
 
