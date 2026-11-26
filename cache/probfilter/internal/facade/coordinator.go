@@ -404,8 +404,8 @@ func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader,
 		if recorder, ok := st.(LoadRecorder); ok {
 			recorder.SetLoaded(loaded)
 		}
-		if err := ctx.Err(); err != nil {
-			return abort(ctx, st, coreerrs.WrapOperation(err, "load values during rebuild"))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return abort(ctx, st, coreerrs.WrapOperation(ctxErr, "load values during rebuild"))
 		}
 
 		done, err := c.settle(ctx, st, loaded)
