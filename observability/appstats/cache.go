@@ -6,6 +6,8 @@ package appstats
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -73,10 +75,15 @@ func collectMetrics(ctx context.Context) {
 	now := time.Now().Unix()
 	// Each collector publishes successful readings independently. Cancellation
 	// leaves the last available samples in the cache.
-	_ = concurrency.Process(ctx, metricCollectionTasks, func(ctx context.Context, collect func(context.Context, int64)) error {
+	err := concurrency.Process(ctx, metricCollectionTasks, func(ctx context.Context, collect func(context.Context, int64)) error {
 		collect(ctx, now)
 		return nil
 	})
+	if errors.Is(err, concurrency.ErrWorkerPanic) {
+		// The error carries only the panic value's type, never the value.
+		slog.Default().ErrorContext(ctx, "metric collector panicked; its last sample stays cached",
+			slog.String("category", "worker_panic"), slog.String("error", err.Error()))
+	}
 }
 
 func (m *CachedMetrics) updateCPU(ctx context.Context, timestamp int64) {

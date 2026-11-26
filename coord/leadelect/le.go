@@ -472,6 +472,11 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 		return nil
 	}); err != nil { // No StopOnError: run all callbacks regardless of errors.
 		le.metrics.callbackErrors.Inc()
+		if errors.Is(err, concurrency.ErrWorkerPanic) {
+			// The error carries only the panic value's type, never the value.
+			slog.Default().ErrorContext(ctx, "leader election callback panicked",
+				slog.String("category", "worker_panic"), slog.String("error", err.Error()))
+		}
 		return
 	}
 }

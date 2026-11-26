@@ -400,7 +400,7 @@ func (o *Outbox) dispatchBatch(ctx, handleCtx context.Context, events []Event) [
 
 	// Each claim starts with its release state and has at most one worker
 	// writing the outcome. Process waits for all started work before returning.
-	_ = concurrency.Process(workCtx, indices, func(workCtx context.Context, i int) error {
+	err := concurrency.Process(workCtx, indices, func(workCtx context.Context, i int) error {
 		// A worker can observe its handler's cancellation before the
 		// cancellation has propagated to the context that admits work.
 		if workCtx.Err() != nil || handleCtx.Err() != nil || ctx.Err() != nil {
@@ -429,6 +429,12 @@ func (o *Outbox) dispatchBatch(ctx, handleCtx context.Context, events []Event) [
 		updates[i] = event
 		return nil
 	})
+	if errors.Is(err, concurrency.ErrWorkerPanic) {
+		// The error carries only the panic value's type, never the value. The
+		// panicked claim keeps its release state and is retried on a later cycle.
+		o.logger.ErrorContext(ctx, "outbox dispatch worker panicked",
+			slog.String("category", "worker_panic"), slog.String("error", err.Error()))
+	}
 	return updates
 }
 
