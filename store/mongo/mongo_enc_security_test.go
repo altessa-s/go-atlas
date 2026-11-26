@@ -68,7 +68,7 @@ func newEncryptingMongo(t testing.TB, ce clientEncryption, opts ...Option) *Mong
 	require.NoError(t, err)
 	m, err := New("testdb", append(opts, WithEncryptionEnabled(), WithKMS(kms))...)
 	require.NoError(t, err)
-	m.encryption.encryptionClient = ce
+	m.encryption.installClient(ce)
 	return m
 }
 
@@ -269,7 +269,7 @@ func TestDataKey_RejectsEmptyKeyID(t *testing.T) {
 
 	_, err := m.DataKey(t.Context(), "k", false)
 	require.Error(t, err)
-	_, cached := m.encryption.dkids.Load("k")
+	_, cached := m.encryption.current.dkids.Load("k")
 	require.False(t, cached, "an empty id must never be cached")
 }
 
@@ -527,7 +527,7 @@ func TestEncrypt_UsesRegisteredValueEncoder(t *testing.T) {
 	}))
 	ce := &fakeClientEncryption{}
 	m := newEncryptingMongo(t, ce, WithClientOptions(mongoOptions.Client().SetRegistry(reg)))
-	m.encryption.dkids.Store("key", DataKeyId{Subtype: bson.TypeBinaryUUID, Data: []byte("0123456789abcdef")})
+	m.encryption.current.dkids.Store("key", DataKeyId{Subtype: bson.TypeBinaryUUID, Data: []byte("0123456789abcdef")})
 	_, err := m.Encrypt(t.Context(), secretMarshaler{Secret: "value"}, EncryptionAlgRandom, "key")
 	require.NoError(t, err)
 	require.Len(t, ce.encrypted, 1)
