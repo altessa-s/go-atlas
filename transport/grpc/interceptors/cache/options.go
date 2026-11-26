@@ -70,9 +70,14 @@ func (com *MethodPolicy) HasCompressor() bool {
 type options struct {
 	// methods contains per-method cache configurations
 	methods map[string]*MethodPolicy `optgen:"default=make(map[string]*MethodPolicy)"`
-	// keyGenerator generates cache keys. The default is built once per
-	// interceptor and snapshots DefaultMetadataKeys at construction time.
-	keyGenerator KeyGenerator `optgen:"default=newDefaultKeyGenerator()"`
+	// keyGenerator overrides only the storage key. Identity checks and
+	// verification of the full request tuple still apply.
+	keyGenerator KeyGenerator
+	// identityFunc resolves the verified caller's cache namespace. When unset,
+	// the default uses the current authentication result.
+	identityFunc IdentityFunc `optgen:"notnil"`
+	// authRequired bypasses caching when no verified caller is identifiable.
+	authRequired bool
 	// WithCacheHeaders controls whether cache hit/miss headers are added to responses.
 	// When enabled, responses include an "x-cache" header with values "hit" or "miss".
 	// This is useful for debugging and monitoring cache behavior in development and production.
@@ -92,32 +97,13 @@ type options struct {
 	ignoreMethods []string
 	// ignorePatterns contains regex patterns to skip caching for
 	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
-	// metadataKeys is a list of gRPC metadata keys to include in cache hash
-	// Set by WithMetadataKeys, which also rebuilds keyGenerator.
-	metadataKeys []string `optgen:"manual"`
-	// metadataProcessor is a custom function to process metadata for hashing
-	// Set by WithMetadataProcessor, which also rebuilds keyGenerator.
-	metadataProcessor MetadataProcessor `optgen:"manual"`
-}
-
-// WithMetadataKeys sets the gRPC metadata keys to include in the cache key hash.
-// If not set, DefaultMetadataKeys will be used.
-func WithMetadataKeys(keys ...string) Option {
-	return func(o *options) {
-		o.metadataKeys = keys
-		// Update key generator to use new keys
-		o.keyGenerator = NewKeyGenerator(o.metadataKeys, o.metadataProcessor)
-	}
-}
-
-// WithMetadataProcessor sets a custom metadata processor for cache key generation.
-// This allows for advanced logic such as parsing JWT tokens and including their claims in the hash.
-func WithMetadataProcessor(p MetadataProcessor) Option {
-	return func(o *options) {
-		o.metadataProcessor = p
-		// Update key generator to use new processor
-		o.keyGenerator = NewKeyGenerator(o.metadataKeys, o.metadataProcessor)
-	}
+	// metadataKeys selects response discriminators. An empty list uses
+	// DefaultMetadataKeys. The default read-mask header is always included.
+	metadataKeys []string
+	// metadataProcessor supplies additional response discriminators.
+	metadataProcessor MetadataProcessor
+	// readMaskHeader adds the configured read-mask header to the discriminators.
+	readMaskHeader string
 }
 
 // WithCacheHeadersEnabled enables the cacheHeadersEnabled option.

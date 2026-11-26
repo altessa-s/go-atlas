@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -34,6 +35,7 @@ import (
 	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/requestid"
+	stdslices "slices"
 )
 
 // interceptorsCfg returns the interceptors config or nil if not configured.
@@ -82,8 +84,8 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 		{geoaclinter.Name(), b.WithGeoAclInterceptor},
 		{limiter.Name(), b.WithLimiterInterceptor},
 		{idempotency.Name(), b.WithIdempotencyInterceptor},
-		{cache.Name(), b.WithCacheInterceptor},
 		{auth.Name(), b.WithAuthInterceptor},
+		{cache.Name(), b.WithCacheInterceptor},
 		{fieldbehavior.Name(), b.WithFieldBehaviorInterceptor},
 		{fieldmask.Name(), b.WithFieldMaskInterceptor},
 		{protovalidator.Name(), b.WithBufValidatorInterceptor},
@@ -471,8 +473,52 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 		cache.DefaultSuccessAndErrorDecision(c.SuccessTTL, c.ErrorTTL),
 	))
 
-	b.interceptors = append(b.interceptors, cache.ServerInterceptor(b.cacher, opts...))
+	cacher := b.cacher
+	build := func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor {
+		options := slices.AppendIf(stdslices.Clone(opts), authRequired, cache.WithAuthRequired())
+		options = slices.AppendIf(options, readMaskHeader != "" && readMaskHeader != fieldmask.DefaultMetadataReadMaskHeader,
+			cache.WithReadMaskHeader(readMaskHeader))
+		return cache.ServerInterceptor(cacher, options...)
+	}
+	b.interceptors = append(b.interceptors, &cacheRegistration{
+		ServerInterceptor: build(false, ""),
+		build:             build,
+	})
 	return b
+}
+
+type cacheRegistration struct {
+	interceptors.ServerInterceptor
+	build func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor
+}
+
+func (i *cacheRegistration) Dependencies() []string {
+	return i.ServerInterceptor.(interface{ Dependencies() []string }).Dependencies() //nolint:errcheck // cache's driven interceptor declares dependencies
+}
+
+// resolveCacheInterceptors configures the cache from the registered chain.
+// The copy lets the builder be reused without changing a built server.
+func (b *ServerBuilder) resolveCacheInterceptors() []interceptors.ServerInterceptor {
+	var authRequired bool
+	var readMaskHeader string
+	for _, i := range b.interceptors {
+		if nilcheck.IsNil(i) {
+			continue
+		}
+		switch i.Name() {
+		case auth.Name():
+			authRequired = true
+		case fieldmask.Name():
+			readMaskHeader = fieldmask.MetadataReadMaskHeader(i)
+		}
+	}
+	resolved := stdslices.Clone(b.interceptors)
+	for idx, i := range resolved {
+		if registration, ok := i.(*cacheRegistration); ok {
+			resolved[idx] = registration.build(authRequired, readMaskHeader)
+		}
+	}
+	return resolved
 }
 
 // WithAuthInterceptor creates an authentication interceptor from the builder's configuration.

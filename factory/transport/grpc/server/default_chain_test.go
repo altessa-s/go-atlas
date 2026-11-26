@@ -57,6 +57,6 @@ func TestFullDefaultChainOrder(t *testing.T) {
 	names, err := b.dependencyOrder()
 	require.NoError(t, err)
 	require.Equal(t, []string{"metadata", "realip", "requestid", "tracing", "logger", "metrics", "errstatus",
-		"recovery", "ipacl", "geoacl", "cache", "auth", "limiter", "idempotency",
+		"recovery", "ipacl", "geoacl", "auth", "limiter", "idempotency", "cache",
 		"fieldbehavior", "fieldmask", "protovalidator", "health"}, names)
 }

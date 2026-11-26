@@ -41,6 +41,7 @@ type mapCacher struct {
 	entries map[string][]byte
 	getErr  error
 	saveErr error
+	gets    int
 	saves   int
 }
 
@@ -64,6 +65,7 @@ func (c *mapCacher) Save(_ context.Context, key string, v any, _ ...time.Duratio
 func (c *mapCacher) Get(_ context.Context, key string, v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.gets++
 	if c.getErr != nil {
 		return c.getErr
 	}
@@ -182,7 +184,7 @@ func TestName(t *testing.T) {
 	require.Equal(t, "cache", si.Name())
 	deps, ok := si.(interface{ Dependencies() []string })
 	require.True(t, ok)
-	require.Equal(t, []string{"metadata"}, deps.Dependencies())
+	require.Equal(t, []string{"metadata", "auth", "ipacl", "geoacl", "limiter"}, deps.Dependencies())
 }
 
 func TestCache_MissThenHitWithHeaders(t *testing.T) {

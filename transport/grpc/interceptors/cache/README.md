@@ -4,55 +4,77 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 ```
 
-Package `cache` provides a gRPC server interceptor for response caching with compression support. Backed by any [`cache.Cacher`](../../../../cache) implementation (Redis,
-freecache, LRU, noop). Supports per-method configuration, decision functions, key generators, metadata processors, and cache headers.
+Package `cache` caches unary gRPC responses with per-method policies and optional compression. It accepts any backend implementing
+[`cache.Cacher`](../../../../cache).
 
 ## Key types
 
-| Type / Interface    | Description                                                             |
-|---------------------|-------------------------------------------------------------------------|
-| `cache.Cacher`            | Pluggable backend from `github.com/altessa-s/go-atlas/cache`               |
-| `MethodPolicy`      | Per-method caching policy: response prototype and compression            |
-| `KeyGenerator`      | Function that generates cache keys from method, request, and metadata   |
-| `DecisionFunc`      | Function that decides whether to cache a response and for how long      |
-| `Serializer`        | Handles response serialization/deserialization with optional compression |
-| `MetadataProcessor` | Custom function to process gRPC metadata for cache key hashing          |
+| Type                | Description                                                               |
+|---------------------|---------------------------------------------------------------------------|
+| `MethodPolicy`      | Per-method response prototype and compression                             |
+| `KeyGenerator`      | Overrides the cache storage key                                           |
+| `IdentityFunc`      | Resolves a namespace from verified context data                           |
+| `IdentityState`     | Whether the call can use a verified or shared namespace                   |
+| `DecisionFunc`      | Selects responses to cache and their TTL                                  |
+| `Serializer`        | Serializes responses with optional compression                            |
+| `MetadataProcessor` | Supplies additional response discriminators from metadata or context      |
 
 ## Options
 
-| Option                  | Default                        | Description                                      |
-|-------------------------|--------------------------------|--------------------------------------------------|
-| `WithMethod`            | --                             | Register a method with response prototype         |
-| `WithMethodPolicy`      | --                             | Bulk register methods with compression presets    |
-| `WithDefaultTTL`        | 5m                             | Default cache TTL (1s to 24h)                     |
-| `WithKeyGenerator`      | `NewKeyGenerator(nil, nil)`    | Custom cache key generation function              |
-| `WithCacheDecision`     | success-only with default TTL  | Custom caching decision function (receives req)   |
-| `WithSerializer`        | protobuf (`DefaultSerializer`) | Response serialization format                     |
-| `WithCompression`       | none                           | Gzip compression with custom size/level settings  |
-| `WithCompressionPreset` | none                           | Predefined compression preset (Fast/Balanced/Best) |
-| `WithCacheHeaders`      | true                           | Add `x-cache` hit/miss headers to responses       |
-| `WithKeysPrefix`        | ""                             | Optional prefix for cache key namespacing         |
-| `WithMetadataKeys`      | default keys                   | gRPC metadata keys to include in cache key hash   |
-| `WithMetadataProcessor` | nil                            | Custom metadata processing for key generation     |
-| `WithIgnoreMethods`     | --                             | Methods to skip caching                           |
-| `WithIgnorePatterns`    | reflection, health             | Regex patterns for methods to skip                |
-| `WithLogger`            | discard                        | Structured logger                                 |
+| Option                  | Default                        | Description                                                |
+|-------------------------|--------------------------------|------------------------------------------------------------|
+| `WithMethod`            | —                              | Register a method with its response prototype              |
+| `WithMethodPolicy`      | —                              | Register methods with compression presets                  |
+| `WithDefaultTTL`        | 5m                             | Default cache TTL (1s to 24h)                               |
+| `WithKeyGenerator`      | SHA-256 over the request tuple | Override the storage key while retaining tuple verification |
+| `WithIdentityFunc`      | Verified identity and grants   | Customize how verified callers are partitioned             |
+| `WithAuthRequired`      | false                          | Bypass caching when verified identity is unavailable       |
+| `WithReadMaskHeader`    | `x-goog-fieldmask`             | Include a custom read-mask header alongside the default    |
+| `WithCacheDecision`     | Success only with default TTL  | Customize when and how long to cache                       |
+| `WithSerializer`        | Protobuf                       | Override response serialization                            |
+| `WithCompression`       | None                           | Set custom gzip size and level                             |
+| `WithCompressionPreset` | None                           | Use a predefined gzip preset                               |
+| `WithCacheHeaders`      | true                           | Add `x-cache` hit or miss headers                          |
+| `WithKeysPrefix`        | Empty                          | Add a prefix to storage keys                               |
+| `WithMetadataKeys`      | `DefaultMetadataKeys`          | Select metadata response discriminators                    |
+| `WithMetadataProcessor` | nil                            | Supply additional response discriminators                  |
+| `WithIgnoreMethods`     | —                              | Skip named methods                                         |
+| `WithIgnorePatterns`    | Reflection and health          | Skip methods matching regular expressions                  |
+| `WithLogger`            | Discard                        | Set the structured logger                                  |
+
+## Verified identity
+
+Dependency-ordered chains run metadata, auth, IP and geographic access controls, and rate limiting before cache. Apply the same ordering when
+assembling a chain manually. The default partitions by verified tenant, subject, sorted scopes and roles, and the authentication method and verified
+issuer when available. Authenticated calls with an empty subject or unrecognized credentials bypass caching. Services without auth use shared
+caching with the configured metadata partitions.
+
+Use `WithIdentityFunc` when the default cannot identify the current caller or the response depends on other verified attributes. Return a stable,
+nonempty namespace with the `Verified` state. Include the tenant, subject, authenticator or issuer, and every scope, role, or other verified claim
+that can change the response. Use only verified data from the current call. Return `AuthenticatedUnknown` if a safe namespace is unavailable.
+Return `NoAuth` only for calls eligible to share a namespace without authentication.
+
+Use `WithAuthRequired()` in directly constructed authenticated chains to bypass caching when auth skips a call. The gRPC server factory enables
+this option on its config-built cache whenever auth is registered. Auth-ignored public methods bypass that cache. To use a custom identity with the
+factory, exclude the config-built cache with `WithInterceptors(cache.ID)` and register a configured cache with `WithInterceptor`.
 
 ## Cache keys
 
-The default generator is built once per interceptor and snapshots `DefaultMetadataKeys` at construction time. Every hashed component (method, request
-bytes, metadata keys and values, processor output) is written as tag + length + payload, so distinct inputs cannot collide by concatenation (for example
-`tenant-id=["auser-idb"]` versus `tenant-id=["a"], user-id=["b"]`). When key generation fails the call bypasses the cache entirely.
+The default storage key is 32 hexadecimal characters from SHA-256 over the framed method, identity namespace, serialized request, and response
+discriminators. Entries carry a separate SHA-256 verifier over the same tuple, including when a custom storage key is used. A verifier mismatch
+is a cache miss. When configured through `WithKeyGenerator`, `NewKeyGenerator` uses the interceptor's resolved namespace, including a custom
+`WithIdentityFunc`. Existing entries are cold after upgrading. Cached gRPC errors preserve their full status, including structured details.
+
+The default read-mask header is always included, even when `WithMetadataKeys` replaces the default list. For a different header, set
+`WithReadMaskHeader`. The gRPC server factory uses the registered field-mask interceptor's effective header, including code-level overrides.
+
+Method names and processor-output keys are case-sensitive. Protobuf requests use deterministic serialization, including map fields. Metadata is
+bounded to 100 selected keys, 256 bytes per key, 20 values per key, and 1024 bytes per value. Processor output uses the same key and value bounds.
+Exceeding a bound returns `ErrMetadataTooLarge` and bypasses caching. A custom metadata processor receives an empty writable map if the request
+has no incoming metadata.
 
 ## Subpackages
 
-| Package                          | Description                                      |
-|----------------------------------|--------------------------------------------------|
-| [compression](./compression)     | High-performance gzip compression for cache ops  |
-
-Method names and processor-output keys are case-sensitive; protobuf requests use deterministic serialization, including map fields. Selected metadata is
-bounded to 100 keys, 256 bytes per key, 20 values per key and 1024 bytes per value. Processor output uses the same key/value bounds. Exceeding a bound
-returns `ErrMetadataTooLarge` and bypasses caching, rather than omitting identity fields from the cache key.
-
-A custom `MetadataProcessor` runs even when the incoming context has no gRPC metadata. It receives an empty writable metadata map in that case, so
-identity stored in context values still contributes to cache partitioning.
+| Package                      | Description                          |
+|------------------------------|--------------------------------------|
+| [compression](./compression) | Gzip compression for cache entries   |
