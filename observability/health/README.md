@@ -24,10 +24,9 @@ named services, caches status results, and delivers changes to subscribers via s
 | `Coordinator.Health`  | `Health(ctx) error`: nil while serving, else `ErrNotServing` — plugs into the gRPC health interceptor directly |
 
 Status updates for a named service invalidate cached overall readiness. A push supersedes an overlapping poll for the same subscriber.
-`RegisterScopedService` binds updates and removal to the registered owner, including concurrent replacement. `RegisterOwnedService` uses that
-contract for a direct coordinator. For a decorated `Reporter`, it calls the supplied named methods, including `UnregisterService` when available.
-A name-based reporter must serialize replacement with an outstanding update or removal. `DetachableChecker.Detach` releases its own registrations
-through either coordinator registration method.
+`RegisterScopedService` binds updates and removal to a registration, including concurrent replacement. `RegisterOwnedService` uses that contract
+for any `ScopedReporter`. A legacy reporter receives name-based status updates. Adapters that store a `DetachableChecker` bind an
+identity-checked removal callback using `BindRemoval`. Implement `ScopedReporter` for updates that must be safe across concurrent replacements.
 
 ## Features
 

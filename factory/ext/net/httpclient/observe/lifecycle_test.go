@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/require"
@@ -115,4 +116,32 @@ func TestObserverCloseRemovesScopedHealthChecks(t *testing.T) {
 	require.ElementsMatch(t, []string{"http_client", "http_client.api.example.com"}, slices.Collect(c.ListServices()))
 	replacement.Close()
 	require.Empty(t, slices.Collect(c.ListServices()))
+}
+
+// Embed only the public ports so the observer cannot depend on the concrete coordinator.
+func TestObserverUsesScopedReporterAdapter(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		c := health.New(health.WithStatusCacheTTL(time.Minute))
+		t.Cleanup(c.Close)
+		reporter := struct {
+			health.Reporter
+			health.ScopedReporter
+		}{Reporter: &recordingReporter{statuses: make(chan health.ServingStatus, 1)}, ScopedReporter: c}
+		makeObserver := func(b *fakeBreakers) *Observer {
+			obs := New(nil, reporter)
+			obs.Attach(b)
+			t.Cleanup(obs.Close)
+			return obs
+		}
+		old := makeObserver(&fakeBreakers{states: []gobreaker.State{gobreaker.StateOpen}})
+		replacement := makeObserver(&fakeBreakers{})
+		require.Contains(t, slices.Collect(c.ListServices()), DefaultHealthServiceName)
+		old.BreakerStateChanged(httpclient.BreakerStateEvent{To: gobreaker.StateOpen})
+		synctest.Wait()
+		old.Close()
+		require.Equal(t, health.StatusServing, c.CheckStatus(t.Context(), DefaultHealthServiceName))
+		replacement.Close()
+		require.NotContains(t, slices.Collect(c.ListServices()), DefaultHealthServiceName)
+	})
 }

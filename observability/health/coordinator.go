@@ -73,7 +73,8 @@ type Notifier interface {
 // [Checker] to the health system once at construction. [Coordinator]
 // implements this interface.
 type Registrar interface {
-	// RegisterService adds a service checker under name.
+	// RegisterService adds a service checker under name. Registrars that store
+	// a [DetachableChecker] bind removal of that entry to the checker.
 	RegisterService(name string, checker Checker)
 }
 
@@ -273,7 +274,10 @@ func (c *Coordinator) RegisterScopedService(name string, checker Checker) (notif
 func (c *Coordinator) register(name string, checker Checker) *serviceRegistration {
 	reg := c.statuses.registry.register(name, checker)
 	if detachable, ok := checker.(*DetachableChecker); ok {
-		detachable.bind(serviceBinding{registry: &c.statuses.registry, name: name, owner: reg})
+		detachable.bind(serviceBinding{
+			remove:  func() { c.statuses.registry.remove(name, reg) },
+			current: func() bool { return c.statuses.registry.lookup(name) == reg },
+		})
 	}
 	return reg
 }
