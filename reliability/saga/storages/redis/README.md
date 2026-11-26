@@ -4,7 +4,7 @@
 import sagaredis "github.com/altessa-s/go-atlas/reliability/saga/storages/redis"
 ```
 
-Durable [`saga.Storage`](../../storage.go) backed by Redis. Each saga instance is a hash keyed by its ID holding the serialized payload and a `version`
+Durable [`saga.Storage`](../../storage.go) backed by Redis. Each saga instance is a hash holding the serialized payload and a `version`
 field used as the optimistic-concurrency token: `Update` is a Lua compare-and-set on `version`, so a stale writer is rejected with
 `errs.ErrVersionConflict` and concurrent recovery cycles cannot double-advance an instance.
 
@@ -22,9 +22,9 @@ field used as the optimistic-concurrency token: `Update` is a Lua compare-and-se
 | `WithTTL`        | 0        | Expiry of a terminal instance, set on its terminal write; a live instance never expires. `0` persists indefinitely. |
 | `WithLogger`     | discard  | Logger for skipped undecodable records (class and size only).     |
 
-`New` returns `(*Store, error)`. On Redis Cluster the key prefix must contain a hash tag (`WithKeyPrefix("{saga}:")`) so an instance and its indexes
-share a slot; a cluster client with an untagged prefix fails with an error matching `ErrInvalidArgument`. An instance ID that is not valid UTF-8 is
-rejected with `ErrInvalidStorageKey` (it wraps `ErrInvalidID`), because JSON would rewrite it.
+`New` returns `(*Store, error)` and works with a standalone, sentinel or Redis Cluster client. The key prefix needs no hash tag: the store tags the keys
+of each definition itself (see [Storage layout](#storage-layout)). An instance ID that is not valid UTF-8 is rejected with `ErrInvalidStorageKey`
+(it wraps `ErrInvalidID`), because JSON would rewrite it.
 
 ## Recovery index
 
@@ -44,11 +44,19 @@ skipped and logged by class. All writes keep the index consistent with the insta
 
 ## Storage layout
 
-| Key                         | Type | Contents                                |
-|-----------------------------|------|-----------------------------------------|
-| `<prefix>i:<id>`            | Hash | `d` = instance JSON, `v` = version      |
-| `<prefix>index:recoverable` | ZSet | member = instance ID, score = see above |
-| `<prefix>index:terminal`    | ZSet | member = instance ID, score = last update (Unix ms) |
+| Key                                    | Type   | Contents                                |
+|----------------------------------------|--------|-----------------------------------------|
+| `<prefix>{d:<definition>}:i:<id>`      | Hash   | `d` = instance JSON, `v` = version      |
+| `<prefix>{d:<definition>}:index:recoverable` | ZSet | member = instance ID, score = see above |
+| `<prefix>{d:<definition>}:index:terminal`    | ZSet | member = instance ID, score = last update (Unix ms) |
+| `<prefix>id:<id>`                      | String | name of the definition that owns the ID |
+| `<prefix>definitions`                  | Set    | names of the definitions seen by `Create` |
+
+The `{d:<definition>}` hash tag puts the instance hash and both indexes of one definition in one Redis Cluster slot, so every Lua script touches keys
+of a single slot, and different definitions spread across slots. Braces in a definition name are percent-escaped. `Get` and `Delete` receive only an
+ID, so they read `id:<id>` first; it also keeps IDs unique across definitions. `FetchRecoverable` and `DeleteTerminal` with an empty definition walk
+the `definitions` set. Neither key is touched by a script. A lookup left by a crash reads as not found and is taken over by the next `Create`; with
+`WithTTL` the lookup of a terminal instance expires with it. Keys written by earlier versions, which carried no definition tag, are not read.
 
 ## Retention
 

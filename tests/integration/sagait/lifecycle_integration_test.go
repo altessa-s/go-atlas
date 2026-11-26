@@ -33,7 +33,7 @@ func (s *failFirstUpdate) Update(ctx context.Context, inst *saga.Instance) error
 
 // lifecycleBackends lists every live backend with its store constructor.
 func lifecycleBackends() map[string]func(testing.TB) saga.Storage {
-	backends := map[string]func(testing.TB) saga.Storage{"mongodb": newMongoStore, "redis": newRedisStore}
+	backends := map[string]func(testing.TB) saga.Storage{"mongodb": newMongoStore, "redis": newRedisStore, "redis-cluster": newRedisClusterStore}
 	for _, target := range sqlTargets() {
 		backends[target.name] = target.store
 	}

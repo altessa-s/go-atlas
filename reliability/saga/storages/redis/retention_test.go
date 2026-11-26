@@ -17,7 +17,6 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	sagaredis "github.com/altessa-s/go-atlas/reliability/saga/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -113,7 +112,7 @@ func TestFetchRecoverableReportsCorruptRecordOnce(t *testing.T) {
 
 	require.NoError(t, s.Create(ctx, instance("a-corrupt", saga.StatusCompensating, time.Time{})))
 	require.NoError(t, s.Create(ctx, instance("b-valid", saga.StatusCompensating, time.Time{})))
-	require.NoError(t, client.HSet(ctx, "saga:i:a-corrupt", "d", "{not json").Err())
+	require.NoError(t, client.HSet(ctx, "saga:{d:place-order}:i:a-corrupt", "d", "{not json").Err())
 
 	rec, err := s.FetchRecoverable(ctx, "place-order", baseTime, 10)
 	require.NoError(t, err)
@@ -137,14 +136,9 @@ func TestFetchRecoverableContinuesWhenCursorMemberDisappears(t *testing.T) {
 	require.NoError(t, err)
 	ctx := t.Context()
 
-	// Two full pages of equal-score foreign entries, then two eligible ones.
+	// Two full pages of equal-score entries, then a short third one.
 	for i := range 130 {
-		other := instance(fmt.Sprintf("a-%03d", i), saga.StatusCompensating, time.Time{})
-		other.Definition = "ship-order"
-		require.NoError(t, s.Create(ctx, other))
-	}
-	for i := range 2 {
-		require.NoError(t, s.Create(ctx, instance(fmt.Sprintf("z-%d", i), saga.StatusCompensating, time.Time{})))
+		require.NoError(t, s.Create(ctx, instance(fmt.Sprintf("a-%03d", i), saga.StatusCompensating, time.Time{})))
 	}
 
 	var pages atomic.Int32
@@ -162,10 +156,11 @@ func TestFetchRecoverableContinuesWhenCursorMemberDisappears(t *testing.T) {
 		}
 	}})
 
-	rec, err := s.FetchRecoverable(ctx, "place-order", baseTime, 2)
+	rec, err := s.FetchRecoverable(ctx, "place-order", baseTime, 0)
 	require.NoError(t, err)
 	require.True(t, removed.Load(), "the cursor member must have been removed mid-scan")
-	require.Equal(t, []string{"z-0", "z-1"}, ids(rec))
+	require.Len(t, rec, 130, "the scan continues past the removed cursor member")
+	require.Equal(t, "a-129", rec[len(rec)-1].ID)
 }
 
 func TestTerminalIndexIsTrimmedWhenTTLExpiresHashes(t *testing.T) {
@@ -183,7 +178,7 @@ func TestTerminalIndexIsTrimmedWhenTTLExpiresHashes(t *testing.T) {
 	fresh.UpdatedAt = time.Now()
 	require.NoError(t, s.Create(ctx, fresh))
 
-	members, err := mr.ZMembers("saga:index:terminal")
+	members, err := mr.ZMembers("saga:{d:place-order}:index:terminal")
 	require.NoError(t, err)
 	require.Equal(t, []string{"fresh"}, members, "an expired instance must not leave a permanent index entry")
 }
@@ -290,25 +285,6 @@ func TestInvalidUTF8IDCannotAddressTwin(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "twin", got.LastError)
 	require.Equal(t, twin.Version, got.Version)
-}
-
-func TestNewRejectsUntaggedClusterPrefix(t *testing.T) {
-	t.Parallel()
-	cluster := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{"127.0.0.1:1"}})
-	t.Cleanup(func() { _ = cluster.Close() })
-
-	_, err := sagaredis.New(cluster)
-	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-	_, err = sagaredis.New(cluster, sagaredis.WithKeyPrefix("{saga"))
-	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-	_, err = sagaredis.New(cluster, sagaredis.WithKeyPrefix("{}saga:"))
-	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-	_, err = sagaredis.New(cluster, sagaredis.WithKeyPrefix("{saga}:"))
-	require.NoError(t, err)
-
-	client, _ := redistest.RedisClient(t)
-	_, err = sagaredis.New(client)
-	require.NoError(t, err, "a standalone client needs no hash tag")
 }
 
 // The index is a coarse filter at millisecond precision; Instance.Recoverable

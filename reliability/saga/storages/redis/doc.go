@@ -4,8 +4,7 @@
 
 // Package redis provides a durable [saga.Storage] backed by Redis.
 //
-// Each saga instance is stored as a hash keyed by its ID, holding the
-// serialized payload and a version field. Update is a version-checked write
+// Each saga instance is stored as a hash holding the serialized payload and a version field. Update is a version-checked write
 // (a Lua compare-and-set on the version) that fails with errs.ErrVersionConflict
 // when another coordinator has advanced the instance, so concurrent recovery
 // cycles cannot double-advance it.
@@ -28,9 +27,19 @@
 //
 // # Cluster
 //
-// Every write is one script over the instance hash and both indexes, so on Redis
-// Cluster the keys must share a hash slot. New rejects a cluster client whose
-// key prefix has no hash tag; use a prefix such as "{saga}:".
+// Every write is one script over the instance hash and both indexes of one
+// definition, so those keys carry the definition name as a hash tag
+// ("<prefix>{d:<definition>}:i:<id>", "...:index:recoverable",
+// "...:index:terminal") and share a slot on Redis Cluster, while different
+// definitions spread across slots. The key prefix needs no hash tag of its own
+// (one that has it places every key in a single slot). Storage calls that
+// address an instance by ID alone (Get, Delete) resolve its definition through
+// a plain key "<prefix>id:<id>", which also keeps IDs unique across
+// definitions; a set "<prefix>definitions" lists the definitions for calls with
+// an empty definition. Neither key is touched by a script. A lookup left behind
+// by a crash reads as "not found" and is taken over by the next create.
+//
+// Keys written by earlier versions, which had no definition tag, are not read.
 //
 // # Usage
 //
