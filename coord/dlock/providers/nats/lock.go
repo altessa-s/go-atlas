@@ -68,7 +68,12 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, opts *options, observer nats
 		}),
 		natskvlease.WithLeaseCallbacks(natskvlease.LeaseCallbacks{
 			OnAcquired: func() { l.isLocked.Store(true) },
-			OnLost:     l.ended,
+			OnLost: func() {
+				l.isLocked.Store(false)
+				if !l.lease.ReleasePending() {
+					l.ended()
+				}
+			},
 			OnReleased: l.ended,
 			OnRenewed: func() {
 				l.metadata.LastRenewed = time.Now()

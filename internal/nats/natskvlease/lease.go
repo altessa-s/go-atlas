@@ -5,6 +5,7 @@
 package natskvlease
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -66,6 +67,12 @@ const (
 // have expired on the server.
 var errRenewalDeadline = errors.New("lease renewal deadline passed")
 
+const (
+	leaseIdle uint32 = iota
+	leaseHeld
+	leaseReleasePending
+)
+
 // LeaseCallbacks defines callbacks for lease state changes.
 type LeaseCallbacks struct {
 	// OnAcquired is called when the lease is successfully acquired.
@@ -95,7 +102,7 @@ type Lease struct {
 	ttl  time.Duration
 	opts *leaseOptions
 
-	isHeld atomic.Bool
+	state atomic.Uint32
 	// value holds the lease payload (owner identifier) as an atomically
 	// swappable pointer. The camping goroutine reads it on every Renew
 	// while UpdateValue may be called concurrently from a callback
@@ -103,15 +110,13 @@ type Lease struct {
 	// reads and writes race-free without locking the hot Renew path.
 	value atomic.Pointer[[]byte]
 
-	// cancelMu guards cancel: RunCamping publishes it and StopCamping reads
-	// it, and nothing requires those to happen on the same goroutine.
+	// cancelMu guards the camping cancellation and renewal completion.
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
+	campDone <-chan struct{}
 
 	// releaseGuard (a one-slot semaphore, so waiting honors a context)
-	// serializes Release: stopping the camping loop makes it release the
-	// lease too, and a caller must not return while that attempt — which may
-	// fail and leave the lease held — is still in flight.
+	// serializes explicit and context-scoped Release calls.
 	releaseGuard chan struct{}
 
 	logger *slog.Logger
@@ -155,63 +160,84 @@ func (l *Lease) currentValue() []byte {
 // Acquire attempts to acquire the lease.
 // Returns true if successfully acquired, false if already held by another owner.
 func (l *Lease) Acquire(ctx context.Context) (bool, error) {
-	// Try to create the key - only succeeds if it doesn't exist
-	_, err := l.ops.Create(ctx, l.key, l.currentValue())
-	if err == nil {
-		l.setHeld(true)
-		l.record("acquire", nil)
+	return l.acquireAt(ctx, time.Now())
+}
+
+func (l *Lease) acquireAt(ctx context.Context, started time.Time) (bool, error) {
+	revision, err := l.tryAcquire(ctx)
+	if err == nil && revision != 0 && time.Since(started) >= l.ttl {
+		err = ErrLeaseNotHeld
+	}
+	l.record("acquire", err)
+	if err != nil {
+		// A write may have landed even if its acknowledgment did not.
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
+		defer cancel()
+		if releaseErr := l.deleteOwned(releaseCtx, revision); releaseErr != nil {
+			l.logger.WarnContext(releaseCtx, "failed to release an unconfirmed acquisition", slog.Any("error", releaseErr))
+		}
+		return false, err
+	}
+	if revision != 0 {
+		l.setState(leaseHeld)
 		if l.opts.callbacks.OnAcquired != nil {
 			l.opts.callbacks.OnAcquired()
 		}
-		return true, nil
+	}
+	return revision != 0, nil
+}
+
+func (l *Lease) tryAcquire(ctx context.Context) (uint64, error) {
+	// Try to create the key - only succeeds if it doesn't exist
+	revision, err := l.ops.Create(ctx, l.key, l.currentValue())
+	if err == nil {
+		return revision, nil
 	}
 
 	// If key exists, check if we're the owner or if it's stale
 	if errors.Is(err, jetstream.ErrKeyExists) {
-		return l.tryTakeoverStale(ctx)
+		return l.refreshOwned(ctx)
 	}
 
-	l.record("acquire", err)
-
-	return false, err
+	return 0, err
 }
 
-// tryTakeoverStale attempts to take over a potentially stale lease.
-func (l *Lease) tryTakeoverStale(ctx context.Context) (bool, error) {
+// refreshOwned renews a key already held by this owner.
+func (l *Lease) refreshOwned(ctx context.Context) (uint64, error) {
 	entry, err := l.ops.Get(ctx, l.key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			// Key was deleted, try to acquire again
-			return l.Acquire(ctx)
+			return 0, nil
 		}
-		return false, err
+		return 0, err
 	}
 
 	// Check if entry is valid
 	if entry == nil || entry.Value() == nil {
-		return false, nil
+		return 0, nil
 	}
 
 	// Check if we're already the owner
 	if l.opts.ownerCheck != nil && l.opts.ownerCheck(entry.Value()) {
 		// We own it, just update to renew
-		_, err := l.ops.Update(ctx, l.key, l.currentValue(), entry.Revision())
-		if err == nil {
-			l.isHeld.Store(true)
-			return true, nil
+		revision, err := l.ops.Update(ctx, l.key, l.currentValue(), entry.Revision())
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			return 0, nil
 		}
-		// Update failed, someone else got it
-		return false, nil
+		if err != nil {
+			return 0, err
+		}
+		return revision, nil
 	}
 
 	// Someone else owns it
-	return false, nil
+	return 0, nil
 }
 
-func (l *Lease) setHeld(held bool) {
-	l.isHeld.Store(held)
+func (l *Lease) setState(state uint32) {
+	l.state.Store(state)
 	if l.opts.observer != nil {
-		l.opts.observer.SetHeld(held)
+		l.opts.observer.SetHeld(state == leaseHeld)
 	}
 }
 
@@ -230,7 +256,7 @@ func (l *Lease) record(op string, err error) {
 // Every way of discovering the loss — the key gone, a tombstone, another owner,
 // a revision that moved on — leaves the same state behind.
 func (l *Lease) lost() (bool, error) {
-	l.setHeld(false)
+	l.setState(leaseIdle)
 	l.record("renew", ErrLeaseNotHeld)
 
 	return false, ErrLeaseNotHeld
@@ -255,7 +281,7 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 	}
 
 	// Someone else took the key over.
-	if l.opts.ownerCheck != nil && !l.opts.ownerCheck(entry.Value()) {
+	if !l.owns(entry.Value()) {
 		return l.lost()
 	}
 
@@ -286,9 +312,20 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 // provider shutting down, and the renewal loop's own teardown can all reach the
 // same lease, and exactly one of them performs the delete.
 // Concurrent calls are serialized, so none returns while another is still
-// releasing; a release that fails leaves the lease held, and a later Release
-// retries it.
+// releasing. A failed release stays pending for a later Release to retry.
 func (l *Lease) Release(ctx context.Context) error {
+	l.StopCamping()
+	l.cancelMu.Lock()
+	done := l.campDone
+	l.cancelMu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	select {
 	case l.releaseGuard <- struct{}{}:
 	case <-ctx.Done():
@@ -296,77 +333,65 @@ func (l *Lease) Release(ctx context.Context) error {
 	}
 	defer func() { <-l.releaseGuard }()
 
-	if !l.isHeld.CompareAndSwap(true, false) {
+	if l.state.Load() == leaseIdle {
 		return nil
 	}
 
-	// Stop renewing before touching the key, so the renewal loop cannot write
-	// it back between the ownership check and the delete below.
-	l.StopCamping()
-	if l.opts.observer != nil {
-		l.opts.observer.SetHeld(false)
+	l.setState(leaseReleasePending)
+	err := l.deleteOwned(ctx, 0)
+	l.record("release", err)
+	if err != nil {
+		return err
 	}
+	l.setState(leaseIdle)
+	if l.opts.callbacks.OnReleased != nil {
+		l.opts.callbacks.OnReleased()
+	}
+	return nil
+}
 
+func (l *Lease) owns(value []byte) bool {
+	if l.opts.ownerCheck != nil {
+		return l.opts.ownerCheck(value)
+	}
+	return bytes.Equal(value, l.currentValue())
+}
+
+func (l *Lease) deleteOwned(ctx context.Context, revision uint64) error {
 	entry, err := l.ops.Get(ctx, l.key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			l.released()
 			return nil
 		}
-		return l.releaseFailed(err)
+		return err
 	}
 
 	// Check if entry is valid
-	if entry == nil || entry.Value() == nil {
-		l.released()
+	if entry == nil || entry.Value() == nil || !l.owns(entry.Value()) {
 		return nil
 	}
-
-	// Someone else holds the key now — ours expired and was taken over.
-	// Deleting it would be releasing a lock we no longer own.
-	if l.opts.ownerCheck != nil && !l.opts.ownerCheck(entry.Value()) {
-		l.logger.WarnContext(ctx, "lease was taken over before release; leaving the current holder's key alone")
-		l.record("release", nil)
-
+	if revision != 0 && entry.Revision() != revision {
 		return nil
 	}
 
 	// Revision-checked: between the Get above and this delete the key can
 	// expire and be re-acquired by another holder, and an unconditional delete
 	// would drop *their* lock. The revision makes the delete a compare-and-set.
-	if err := l.ops.DeleteWithRevision(ctx, l.key, entry.Revision()); err != nil {
-		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			l.released()
-			return nil
-		}
-		return l.releaseFailed(err)
+	err = l.ops.DeleteWithRevision(ctx, l.key, entry.Revision())
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil
 	}
-
-	l.released()
-	return nil
-}
-
-// releaseFailed records a release that did not reach the key and marks the
-// lease held again, so a later Release retries it instead of returning as a
-// no-op; renewal stays stopped, so an unretried lease lapses at its TTL.
-func (l *Lease) releaseFailed(err error) error {
-	l.record("release", err)
-	l.setHeld(true)
-
 	return err
 }
 
-// released records a completed release and fires the callback.
-func (l *Lease) released() {
-	if l.opts.callbacks.OnReleased != nil {
-		l.opts.callbacks.OnReleased()
-	}
-	l.record("release", nil)
+// ReleasePending reports that ownership is uncertain and release can be retried.
+func (l *Lease) ReleasePending() bool {
+	return l.state.Load() == leaseReleasePending
 }
 
 // IsHeld returns true if the lease is currently held.
 func (l *Lease) IsHeld() bool {
-	return l.isHeld.Load()
+	return l.state.Load() == leaseHeld
 }
 
 // GetOps returns the underlying KVOps instance.
@@ -397,11 +422,11 @@ func (l *Lease) UpdateValue(val []byte) {
 // The renewal also ends on [Lease.Release] or [Lease.StopCamping].
 func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (bool, error) {
 	// Taken before the request is sent: the server writes the key, and starts
-	// its TTL, only after that, so the lease is valid at least until here + TTL.
+	// its TTL, only after that. Use this instant as the conservative start.
 	acquiredAt := time.Now()
 
-	acquireCtx, cancelAcquire := corectx.ApplyTimeout(ctx, acquireTimeout)
-	acquired, err := l.Acquire(acquireCtx)
+	acquireCtx, cancelAcquire := corectx.WithMaxTimeout(ctx, acquireTimeout)
+	acquired, err := l.acquireAt(acquireCtx, acquiredAt)
 	cancelAcquire()
 
 	if err != nil {
@@ -413,9 +438,11 @@ func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (b
 	}
 
 	campCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 
 	l.cancelMu.Lock()
 	l.cancel = cancel
+	l.campDone = done
 	l.cancelMu.Unlock()
 
 	go func() {
@@ -423,7 +450,17 @@ func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (b
 		// otherwise a panic in the renew loop (a callback that throws,
 		// a NATS-driver bug, etc.) takes the whole process down.
 		defer panics.Handle(campCtx)
-		l.campingLoop(campCtx, acquiredAt)
+		func() {
+			defer close(done)
+			l.campingLoop(campCtx, acquiredAt)
+		}()
+		if ctx.Err() != nil {
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
+			defer cancel()
+			if err := l.Release(releaseCtx); err != nil {
+				l.logger.ErrorContext(releaseCtx, "failed to release lease", slog.Any("error", err))
+			}
+		}
 	}()
 
 	return true, nil
@@ -570,6 +607,9 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 	for {
 		select {
 		case <-timer.C:
+			if ctx.Err() != nil {
+				return
+			}
 			renewedAt, err := l.renewWithRetry(ctx, writtenAt.Add(l.ttl), every)
 			if err == nil {
 				writtenAt = renewedAt
@@ -579,15 +619,13 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 				continue
 			}
 
-			// Canceled mid-renewal: the ctx.Done branch releases the lease.
-			if ctx.Err() != nil {
-				continue
-			}
-
-			// Renew marks a definitive loss itself; a lease that ran out of time
-			// is just as gone.
+			// Renew marks definitive loss. Otherwise, an unanswered write
+			// may still own the key, so leave cleanup pending.
 			if !errors.Is(err, ErrLeaseNotHeld) {
-				l.setHeld(false)
+				if ctx.Err() != nil {
+					return
+				}
+				l.setState(leaseReleasePending)
 			}
 			l.logger.WarnContext(ctx, "lease lost during renewal", slog.Any("error", err))
 			if l.opts.callbacks.OnLost != nil {
@@ -597,13 +635,6 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 			return
 
 		case <-ctx.Done():
-			l.logger.DebugContext(ctx, "context canceled, releasing lease")
-			releaseCtx, cancel := context.WithTimeout(context.Background(), defaultReleaseTimeout)
-			if err := l.Release(releaseCtx); err != nil { //nolint:contextcheck // original context canceled
-				//nolint:contextcheck // using new context for cleanup after original context canceled
-				l.logger.ErrorContext(releaseCtx, "failed to release lease", slog.Any("error", err))
-			}
-			cancel()
 			return
 		}
 	}

@@ -21,8 +21,8 @@ type leaseOptions struct {
 	renewRatio float64 `optval:"nonpositive"`
 
 	// WithLeaseOwnerCheck sets the function reporting whether a stored value
-	// belongs to this lease holder. Without one, a key that already exists is
-	// never taken over and a stored value is never treated as someone else's.
+	// belongs to this lease holder. Use a stable owner check when the payload
+	// changes. By default renewal and cleanup compare the whole payload.
 	ownerCheck func(value []byte) bool
 
 	// WithLeaseCallbacks sets the callbacks fired on lease state changes.

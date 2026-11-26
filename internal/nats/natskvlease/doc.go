@@ -13,6 +13,8 @@
 //   - Lease-based resource management with camping loops that retry a failed
 //     renewal for as long as the lease may still be valid
 //
+// Lease cleanup checks KV ownership and revision after ambiguous writes.
+//
 // [WithLeaseObserver] reports operation results and held-state transitions.
 //
 // The package is designed as an internal utility and should not be imported

@@ -403,6 +403,121 @@ func (m *memKV) Delete(_ context.Context, key string, _ ...jetstream.KVDeleteOpt
 	return nil
 }
 
+// ambiguousWriteKV can delay or lose the response after applying a write.
+type ambiguousWriteKV struct {
+	*memKV
+	afterCreate    func(context.Context) error
+	afterUpdate    func(context.Context) error
+	checkedDeletes int
+}
+
+func (m *ambiguousWriteKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
+	rev, err := m.memKV.Create(ctx, key, value, opts...)
+	if err == nil && m.afterCreate != nil {
+		return rev, m.afterCreate(ctx)
+	}
+	return rev, err
+}
+
+func (m *ambiguousWriteKV) Update(ctx context.Context, key string, value []byte, rev uint64) (uint64, error) {
+	rev, err := m.memKV.Update(ctx, key, value, rev)
+	if err == nil && m.afterUpdate != nil {
+		return rev, m.afterUpdate(ctx)
+	}
+	return rev, err
+}
+
+func (m *ambiguousWriteKV) Delete(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
+	if len(opts) != 0 {
+		m.checkedDeletes++
+	}
+	return m.memKV.Delete(ctx, key, opts...)
+}
+
+func TestLease_AmbiguousCreateIsReleased(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		kv := &ambiguousWriteKV{
+			memKV: &memKV{entries: map[string]memEntry{}},
+			afterCreate: func(ctx context.Context) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}
+		lease := natskvlease.NewLease(kv, testLeaseKey, time.Second, []byte(testLeaseOwner))
+		acquired, err := lease.RunCamping(t.Context(), time.Second)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.False(t, acquired)
+		_, err = kv.Get(t.Context(), testLeaseKey)
+		require.ErrorIs(t, err, jetstream.ErrKeyNotFound)
+		require.Equal(t, 1, kv.checkedDeletes)
+	})
+}
+
+func TestLease_RejectsLateCreateAcknowledgment(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = time.Second
+		ctx := t.Context()
+		kv := &memKV{entries: map[string]memEntry{}}
+		late := &ambiguousWriteKV{
+			memKV: kv,
+			afterCreate: func(context.Context) error {
+				time.Sleep(ttl)
+				return nil
+			},
+		}
+		a := natskvlease.NewLease(late, testLeaseKey, ttl, []byte(testLeaseOwner))
+		b := natskvlease.NewLease(kv, testLeaseKey, ttl, []byte("successor"))
+		defer a.StopCamping()
+
+		done := make(chan error, 1)
+		go func() {
+			_, err := a.RunCamping(ctx, 2*ttl)
+			done <- err
+		}()
+		synctest.Wait()
+		// The storage has expired the original entry before the reply reaches A.
+		require.NoError(t, kv.Delete(ctx, testLeaseKey))
+		acquired, err := b.Acquire(ctx)
+		require.NoError(t, err)
+		require.True(t, acquired)
+
+		require.ErrorIs(t, <-done, natskvlease.ErrLeaseNotHeld)
+		require.False(t, a.IsHeld())
+		entry, err := kv.Get(ctx, testLeaseKey)
+		require.NoError(t, err)
+		require.Equal(t, "successor", string(entry.Value()))
+	})
+}
+
+func TestLease_UnconfirmedRenewalStillReleases(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = time.Second
+		kv := &ambiguousWriteKV{
+			memKV: &memKV{entries: map[string]memEntry{}},
+			afterUpdate: func(ctx context.Context) error {
+				<-ctx.Done()
+				return context.DeadlineExceeded
+			},
+		}
+		lost := make(chan struct{})
+		lease := natskvlease.NewLease(kv, testLeaseKey, ttl, []byte(testLeaseOwner),
+			natskvlease.WithLeaseCallbacks(natskvlease.LeaseCallbacks{OnLost: func() { close(lost) }}))
+		acquired, err := lease.RunCamping(t.Context(), time.Second)
+		require.NoError(t, err)
+		require.True(t, acquired)
+		<-lost
+		require.False(t, lease.IsHeld())
+
+		require.NoError(t, lease.Release(t.Context()))
+		_, err = kv.Get(t.Context(), testLeaseKey)
+		require.ErrorIs(t, err, jetstream.ErrKeyNotFound)
+		require.Equal(t, 1, kv.checkedDeletes)
+	})
+}
+
 // TestLease_ShortTTLHighRatioRenews pins that a lease whose renewal window is
 // shorter than the retry pacing still gets its renewal attempt: with a 100ms
 // TTL at ratio 0.95 the window between the scheduled renewal and the deadline

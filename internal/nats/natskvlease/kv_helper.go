@@ -261,26 +261,24 @@ func (o *KVOps) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, e
 	})
 }
 
-// Create creates a new key-value pair. Fails if key already exists.
+// Create makes one attempt to create a key. The caller handles ambiguous replies.
 func (o *KVOps) Create(ctx context.Context, key string, value []byte) (uint64, error) {
 	physical, err := natskey.Encode(key)
 	if err != nil {
 		return 0, err
 	}
-	return Retry(ctx, func() (uint64, error) {
-		return o.kv.Create(ctx, physical, value)
-	})
+	return o.kv.Create(ctx, physical, value)
 }
 
 // Update updates an existing key with optimistic locking using revision.
+// A retry could turn an applied update with a lost reply into a revision
+// mismatch, so leave ambiguous outcomes visible to the caller.
 func (o *KVOps) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
 	physical, err := natskey.Encode(key)
 	if err != nil {
 		return 0, err
 	}
-	return Retry(ctx, func() (uint64, error) {
-		return o.kv.Update(ctx, physical, value, revision)
-	})
+	return o.kv.Update(ctx, physical, value, revision)
 }
 
 // Delete deletes a key from the store.
