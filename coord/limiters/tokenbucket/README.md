@@ -22,6 +22,9 @@ authentication token extraction with configurable storage backends and sophistic
 | `WithMeter`                  | no-op   | Metrics collector                  |
 | `WithLogger`                 | discard | Structured logger                  |
 
+A client service can return `RateLimitSkip` to fall back to IP rules. `RateLimitUnlimited` bypasses storage for either a token or an IP rule.
+Ordinary settings with a non-positive limit or period return `ErrInvalidArgument`.
+
 ## Storage keys
 
 An IPv4 client is counted per address. An IPv6 client is counted per `WithIPv6KeyPrefixBits` prefix (default `/64`), because a subscriber can rotate

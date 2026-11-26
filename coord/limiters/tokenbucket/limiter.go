@@ -153,54 +153,43 @@ func (l *RuleLimiter) parseAndSortRules() {
 //
 //	info, err := limiter.Limit(ctx)
 func (l *RuleLimiter) Limit(ctx context.Context) (*limiters.LimitInfo, error) {
-	// Check for an authenticated client first
-	if token := l.options.extractToken(ctx); token != "" {
-		return l.handleRequest(ctx, token)
+	var settings *RateLimitSettings
+	token := l.options.extractToken(ctx)
+	if token != "" && l.options.clientService != nil {
+		if clientSettings, err := l.options.clientService.Settings(ctx, token); err == nil {
+			settings = clientSettings
+		}
 	}
 
-	// Fall back to IP-based rate limiting
-	return l.handleIpBasedRequest(ctx)
-}
-
-func (l *RuleLimiter) handleRequest(ctx context.Context, token string) (*limiters.LimitInfo, error) {
-	if l.options.clientService != nil {
-		clientSettings, err := l.options.clientService.Settings(ctx, token)
+	var ip string
+	if settings.IsSkip() {
+		ip = l.options.extractClientIPAddress(ctx)
+		if ip == "" {
+			if l.options.logger != nil {
+				l.options.logger.ErrorContext(ctx, "no client ip address found")
+			}
+			return nil, ErrNoIPFoundOrInvalid
+		}
+		var err error
+		settings, err = l.findRateLimitRuleByIp(ctx, ip)
 		if err != nil {
-			goto IP // fall back to IP-based limiting on error
+			return nil, err
 		}
-
-		// If no specific settings, fall back to IP-based limiting.
-		// IsSkip returns true if clientSettings is nil or indicates skipping.
-		if clientSettings.IsSkip() {
-			goto IP
-		} else if clientSettings.IsUnlimited() {
-			return clientSettings.LimitInfo(), nil // No rate limiting for this client
-		}
-
-		// Key by digest: storage backends must never hold a bearer token.
-		key := "token-" + corehash.SHA256HexString(token)
-		return l.applyRateLimit(ctx, key, clientSettings)
 	}
 
-IP:
-	// Fall back to IP-based limiting if no client settings found
-	return l.handleIpBasedRequest(ctx)
-}
-
-func (l *RuleLimiter) handleIpBasedRequest(ctx context.Context) (*limiters.LimitInfo, error) {
-	ip := l.options.extractClientIPAddress(ctx)
-	if ip == "" {
-		if l.options.logger != nil {
-			l.options.logger.ErrorContext(ctx, "no client ip address found")
-		}
-		return nil, ErrNoIPFoundOrInvalid
+	if settings.IsUnlimited() {
+		return settings.LimitInfo(), nil
 	}
-
-	settings, err := l.findRateLimitRuleByIp(ctx, ip)
-	if err != nil {
+	if err := settings.Validate(); err != nil {
+		l.metrics.limitCheckErrors.Inc()
 		return nil, err
 	}
-	return l.applyRateLimit(ctx, l.storageKeyForAddr(ip), settings)
+
+	if ip != "" {
+		return l.applyRateLimit(ctx, l.storageKeyForAddr(ip), settings)
+	}
+	// Key by digest so storage backends never hold a bearer token.
+	return l.applyRateLimit(ctx, "token-"+corehash.SHA256HexString(token), settings)
 }
 
 // ipv6Bits is the length of an IPv6 address in bits.
