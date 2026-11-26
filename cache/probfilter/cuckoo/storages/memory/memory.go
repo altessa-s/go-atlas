@@ -31,9 +31,6 @@ type Storage struct {
 	filter *cuckooFilter
 	mu     sync.RWMutex
 	opts   *options
-	// capacity is the requested capacity of filter: the configured one, or
-	// the one a rebuild sized it to.
-	capacity uint
 }
 
 var _ storages.Storage = (*Storage)(nil)
@@ -46,9 +43,8 @@ var _ storages.Storage = (*Storage)(nil)
 func New(opt ...Option) *Storage {
 	opts := newOptions(opt...)
 	return &Storage{
-		filter:   newCuckooFilter(opts.capacity),
-		opts:     opts,
-		capacity: opts.capacity,
+		filter: newCuckooFilter(opts.capacity),
+		opts:   opts,
 	}
 }
 
@@ -103,7 +99,7 @@ func (s *Storage) Stage(_ context.Context, expectedItems int64) (storages.Stagin
 		//nolint:gosec // G115: expectedItems is positive here
 		capacity = max(capacity, uint(expectedItems+expectedItems/stageHeadroomDivisor))
 	}
-	return &staging{live: s, filter: newCuckooFilter(capacity), capacity: capacity}, nil
+	return &staging{live: s, filter: newCuckooFilter(capacity)}, nil
 }
 
 // stageHeadroomDivisor sizes a rebuilt filter with 1/stageHeadroomDivisor
@@ -113,9 +109,8 @@ const stageHeadroomDivisor = 4
 
 // staging is a replacement filter built off to the side of the live one.
 type staging struct {
-	live     *Storage
-	filter   *cuckooFilter
-	capacity uint
+	live   *Storage
+	filter *cuckooFilter
 }
 
 // AddBatch inserts values into the replacement filter. It returns
@@ -132,7 +127,6 @@ func (st *staging) Commit(ctx context.Context) error {
 	st.live.mu.Lock()
 	defer st.live.mu.Unlock()
 	st.live.filter = st.filter
-	st.live.capacity = st.capacity
 	return nil
 }
 
@@ -148,7 +142,9 @@ func (s *Storage) Stats(_ context.Context) (*stats.FilterStats, error) {
 	defer s.mu.RUnlock()
 
 	count := int64(s.filter.count) //nolint:gosec // G115: filter count fits in int64
-	capacity := int64(s.capacity)  //nolint:gosec // G115: capacity is validated via options
+	// The slots actually allocated bound the occupancy; the requested
+	// capacity only sizes rebuilds.
+	capacity := int64(len(s.filter.buckets)) * bucketSize
 
 	var fillRatio float64
 	if capacity > 0 {

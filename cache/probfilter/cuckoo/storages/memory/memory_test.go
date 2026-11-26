@@ -211,3 +211,17 @@ func absentProbe(t *testing.T, s *memory.Storage) string {
 	t.Fatal("no absent probe found")
 	return ""
 }
+
+func TestStorage_Stats_NeverExceedsAllocatedCapacity(t *testing.T) {
+	t.Parallel()
+
+	storage := memory.New(memory.WithCapacity(1))
+	ctx := t.Context()
+	require.NoError(t, storage.Add(ctx, "a"))
+	require.NoError(t, storage.Add(ctx, "b"))
+
+	st, err := storage.Stats(ctx)
+	require.NoError(t, err)
+	require.LessOrEqual(t, st.ItemCount, st.Capacity)
+	require.LessOrEqual(t, st.FillRatio, 1.0)
+}
