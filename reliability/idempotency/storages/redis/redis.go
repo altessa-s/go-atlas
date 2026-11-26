@@ -84,31 +84,26 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 		ttl = lockTtl
 	}
 
-	// Try to set provided key with NX (only if not exists)
-	ok, err := s.Client().SetNX(ctx, s.Key(key), val, ttl).Result()
-	if err != nil {
-		return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in Redis")
-	}
-
-	if ok {
-		// Token is a defensive copy of the value we just wrote.
-		// Complete will GET-and-compare via Lua to detect a stolen lock.
-		return true, nil, slices.Clone(val), nil
-	}
-
-	// Key exists, get current state
-	data, err := s.Client().Get(ctx, s.Key(key)).Bytes()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			// Race: SetNX failed but Get says missing. Likely the key
-			// expired between the two calls. Surface as "lock not
-			// acquired, no existing data" — the caller can retry.
-			return false, nil, nil, nil
+	redisKey := s.Key(key)
+	for range 2 {
+		ok, err := s.Client().SetNX(ctx, redisKey, val, ttl).Result()
+		if err != nil {
+			return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in Redis")
 		}
-		return false, nil, nil, coreerrs.WrapOperation(err, "get existing state from Redis")
+		if ok {
+			return true, nil, slices.Clone(val), nil
+		}
+		data, err := s.Client().Get(ctx, redisKey).Bytes()
+		if errors.Is(err, redis.Nil) {
+			// Expiry or release raced SET NX. Retry acquisition once.
+			continue
+		}
+		if err != nil {
+			return false, nil, nil, coreerrs.WrapOperation(err, "get existing state from Redis")
+		}
+		return false, data, nil, nil
 	}
-
-	return false, data, nil, nil
+	return false, nil, nil, nil
 }
 
 // Complete marks the key as successfully processed using the

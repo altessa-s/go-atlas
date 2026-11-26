@@ -5,6 +5,7 @@
 package redis_test
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	idempredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // setupStorage creates a new Storage instance backed by miniredis for testing.
@@ -381,4 +383,38 @@ func TestStorage_CompleteAndSteal_SameCAS(t *testing.T) {
 			})
 		}
 	}
+}
+
+type expireBeforeGet struct {
+	expire func()
+}
+
+func (h expireBeforeGet) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h expireBeforeGet) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+func (h expireBeforeGet) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		if cmd.Name() == "get" {
+			h.expire()
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func TestStorageRetriesWhenKeyVanishesBetweenSetAndGet(t *testing.T) {
+	t.Parallel()
+	client, mr := redistest.RedisClient(t)
+	s := idempredis.New(client)
+	ctx := t.Context()
+	acquired, _, _, err := s.AttemptLock(ctx, "k", []byte("first"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	client.AddHook(expireBeforeGet{expire: func() { mr.Del(idempredis.DefaultKeyPrefix + "k") }})
+	acquired, _, token, err := s.AttemptLock(ctx, "k", []byte("second"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	require.Equal(t, []byte("second"), token)
 }

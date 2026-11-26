@@ -221,18 +221,25 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
-	if err != nil {
-		i.metrics.errors.Inc()
-		return false, nil, err
+	var existingVal []byte
+	for range 2 {
+		ok, current, lockToken, err := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
+		if err != nil {
+			i.metrics.errors.Inc()
+			return false, nil, err
+		}
+		if ok {
+			i.metrics.locksAcquired.Inc()
+			return true, i.heldState(lockToken, wire.Fingerprint, owner), nil
+		}
+		if len(current) != 0 {
+			existingVal = current
+			break
+		}
 	}
-
-	if ok {
-		i.metrics.locksAcquired.Inc()
-		// Carry the CAS token on the State so Complete can validate
-		// our claim later. The State itself isn't serialized at this
-		// point; we hand the freshly-built object back to the caller.
-		return true, i.heldState(lockToken, wire.Fingerprint, owner), nil
+	if len(existingVal) == 0 {
+		i.metrics.locksDenied.Inc()
+		return false, &State{Status: StatusInProgress}, nil
 	}
 
 	// Lock failed, key exists. Deserialize existing state via the

@@ -7,6 +7,7 @@ package idempotency
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -367,4 +368,28 @@ func TestErrorSentinelIdentities(t *testing.T) {
 	require.Same(t, storages.ErrEmptyKey, ErrEmptyKey)
 	require.Same(t, storages.ErrMissingLockState, ErrMissingLockState)
 	require.Same(t, storages.ErrLockStolen, ErrLockStolen)
+}
+
+func TestAttemptLockRetriesMissingCollision(t *testing.T) {
+	t.Parallel()
+	for _, recovers := range []bool{true, false} {
+		t.Run(fmt.Sprint(recovers), func(t *testing.T) {
+			t.Parallel()
+			attempts := 0
+			k := New(StorageFunc{
+				AttemptLockWithTTLFunc: func(_ context.Context, _ string, val []byte, _ time.Duration) (bool, []byte, []byte, error) {
+					attempts++
+					if recovers && attempts == 2 {
+						return true, nil, val, nil
+					}
+					return false, nil, nil, nil
+				},
+			})
+			acquired, state, err := k.AttemptLock(t.Context(), "k")
+			require.NoError(t, err)
+			require.Equal(t, recovers, acquired)
+			require.Equal(t, 2, attempts)
+			require.Equal(t, StatusInProgress, state.Status)
+		})
+	}
 }
