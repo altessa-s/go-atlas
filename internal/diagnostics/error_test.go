@@ -5,6 +5,7 @@
 package diagnostics
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -57,6 +58,12 @@ func TestErrorText_RedactsComplexURLsDSNsAndPasswords(t *testing.T) {
 			want:      "postgres://db/app",
 		},
 		{
+			name:      "slash in password after digits",
+			raw:       "postgres://user:123/slash-secret@db/app",
+			forbidden: []string{"user:", "slash-secret"},
+			want:      "postgres://db/app",
+		},
+		{
 			name:      "password containing question mark",
 			raw:       "redis://u:p?w@h",
 			forbidden: []string{"u:", "p?w"},
@@ -80,6 +87,35 @@ func TestErrorText_RedactsComplexURLsDSNsAndPasswords(t *testing.T) {
 			forbidden: []string{"admin:", "s3cr"},
 			want:      `open "tcp(db:3306)/app": connection refused`,
 		},
+		{
+			name:      "multiple credential fragments in one authority",
+			raw:       "postgres://u:pwd=first-secret;password=second-secret@db/app",
+			forbidden: []string{"first-secret", "second-secret"},
+			want:      "postgres://db/app",
+		},
+		{
+			name:      "postgres keyword password with punctuation and escaped space",
+			raw:       `host=db password=one,two;marker\ suffix user=app`,
+			forbidden: []string{"one", "two", "marker", "suffix"},
+			want:      "host=db password=[REDACTED] user=app",
+		},
+		{
+			name:      "postgres quoted password with escapes",
+			raw:       `host=db password='literal\'secret,tail;marker' user=app`,
+			forbidden: []string{"literal", "secret", "tail", "marker"},
+			want:      "host=db password=[REDACTED] user=app",
+		},
+		{
+			name: "at sign only in URL query",
+			raw:  "https://api/x?email=a@b.com failed",
+			want: "https://api/x?email=a@b.com failed",
+		},
+		{
+			name: "at sign in query after credentials",
+			raw:  "https://user:secret@api/x?email=a@b.com failed",
+			want: "https://api/x?email=a@b.com failed",
+		},
+
 		{
 			name:      "password fragment",
 			raw:       "password=secret",
@@ -112,4 +148,22 @@ func TestErrorText_RedactsComplexURLsDSNsAndPasswords(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzRedactURLUserinfo(f *testing.F) {
+	const marker = "credential-marker-019"
+	f.Add("initial")
+	f.Add(`white space;comma,quote'"backslash\at@`)
+	f.Add("postgres://u:pwd=one;password=two@db")
+	f.Fuzz(func(t *testing.T, noise string) {
+		RedactURLUserinfo(noise) // Arbitrary malformed text must not panic.
+		suffix := url.QueryEscape(noise)
+		for _, input := range []string{
+			"postgres://u:pwd=" + marker + suffix + ";password=" + marker + "@db/app",
+			`host=db password=initial,part;part\ ` + marker + suffix + " user=app",
+			`host=db password='initial\'` + marker + suffix + "' user=app",
+		} {
+			require.NotContains(t, RedactURLUserinfo(input), marker)
+		}
+	})
 }

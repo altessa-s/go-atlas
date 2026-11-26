@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -35,8 +36,9 @@ func ErrorText(s string, limit int) string {
 // RedactURLUserinfo removes credentials from URLs, scheme-less user:pass@
 // tokens, and password=/pwd= fragments while preserving surrounding context.
 func RedactURLUserinfo(s string) string {
+	s = redactTokenUserinfo(s, true)
 	s = redactPasswordFragments(s)
-	return redactTokenUserinfo(s)
+	return redactTokenUserinfo(s, false)
 }
 
 func redactPasswordFragments(s string) string {
@@ -59,20 +61,7 @@ func redactPasswordFragments(s string) string {
 			continue
 		}
 		valStart := skipHorizontalSpace(s, j+1)
-		valEnd := scanPasswordValueEnd(s, valStart)
-
-		tokStart := tokenStartBefore(s, i)
-		if schemeIdx := strings.Index(s[tokStart:i], "://"); schemeIdx >= 0 {
-			if beforeAt, _, hasAt := strings.CutLast(s[valStart:valEnd], "@"); hasAt {
-				afterScheme := tokStart + schemeIdx + len("://")
-				if !strings.ContainsAny(s[afterScheme:i], "/?#") {
-					out.WriteString(s[last:afterScheme])
-					last = valStart + len(beforeAt) + 1
-					i = last
-					continue
-				}
-			}
-		}
+		valEnd := scanPasswordValueEnd(s, valStart, passwordSeparator(s, i))
 
 		out.WriteString(s[last:keyEnd])
 		out.WriteByte('=')
@@ -120,58 +109,60 @@ func skipHorizontalSpace(s string, i int) int {
 	return i
 }
 
-func scanPasswordValueEnd(s string, start int) int {
+// PostgreSQL keyword values are whitespace-delimited. Query parameters and
+// semicolon-delimited connection strings use their own separators instead.
+func passwordSeparator(s string, keyStart int) string {
+	for keyStart > 0 && (s[keyStart-1] == ' ' || s[keyStart-1] == '\t') {
+		keyStart--
+	}
+	if keyStart > 0 {
+		switch s[keyStart-1] {
+		case '?', '&':
+			return "&#"
+		case ';':
+			return ";"
+		}
+	}
+	return ""
+}
+
+func scanPasswordValueEnd(s string, start int, separators string) int {
 	if start >= len(s) {
 		return start
 	}
-	if s[start] == '\'' || s[start] == '"' {
-		quote := s[start]
-		i := start + 1
+	i := start
+	if quote := s[i]; quote == '\'' || quote == '"' {
+		i++
 		for i < len(s) {
 			if s[i] == '\\' && i+1 < len(s) {
 				i += 2
 				continue
 			}
 			if s[i] == quote {
-				if i+1 < len(s) && s[i+1] == quote {
-					i += 2
-					continue
+				i++
+				if i == len(s) || s[i] != quote {
+					break
 				}
-				return i + 1
 			}
 			i++
 		}
-		return len(s)
 	}
-	i := start
-	for i < len(s) && !isUnquotedValueDelimiter(s[i]) {
-		i++
+	for i < len(s) {
+		if s[i] == '\\' && i+1 < len(s) {
+			i += 2
+			continue
+		}
+		r, width := utf8.DecodeRuneInString(s[i:])
+		if unicode.IsSpace(r) || strings.ContainsRune(separators, r) {
+			break
+		}
+		i += width
 	}
 	return i
 }
 
-func isUnquotedValueDelimiter(b byte) bool {
-	switch b {
-	case ' ', '\t', '\n', '\r', '\v', '\f', '&', ';', '"', '\'', ')', ']', '}', ',':
-		return true
-	default:
-		return false
-	}
-}
-
-func tokenStartBefore(s string, pos int) int {
-	for i := pos; i > 0; {
-		r, width := utf8.DecodeLastRuneInString(s[:i])
-		if unicode.IsSpace(r) {
-			return i
-		}
-		i -= width
-	}
-	return 0
-}
-
-func redactTokenUserinfo(s string) string {
-	if !strings.Contains(s, "@") {
+func redactTokenUserinfo(s string, schemes bool) string {
+	if !strings.Contains(s, "@") || (schemes && !strings.Contains(s, "://")) {
 		return s
 	}
 	var out strings.Builder
@@ -191,20 +182,24 @@ func redactTokenUserinfo(s string) string {
 			}
 			end += nw
 		}
-		out.WriteString(redactSingleToken(s[i:end]))
+		out.WriteString(redactSingleToken(s[i:end], schemes))
 		i = end
 	}
 	return out.String()
 }
 
-func redactSingleToken(tok string) string {
+func redactSingleToken(tok string, schemes bool) string {
 	if !strings.Contains(tok, "@") {
 		return tok
 	}
 	if strings.Contains(tok, "://") {
-		return redactSchemeToken(tok)
+		if schemes {
+			return redactSchemeToken(tok)
+		}
+	} else if !schemes {
+		return redactSchemelessToken(tok)
 	}
-	return redactSchemelessToken(tok)
+	return tok
 }
 
 func redactSchemeToken(tok string) string {
@@ -230,14 +225,29 @@ func redactSchemeToken(tok string) string {
 		}
 
 		sub := tok[afterScheme:spanEnd]
-		if _, host, ok := strings.CutLast(sub, "@"); ok {
-			out.WriteString(host)
-		} else {
-			out.WriteString(sub)
-		}
+		out.WriteString(sub[urlUserinfoEnd(sub):])
 		pos = spanEnd
 	}
 	return out.String()
+}
+
+func urlUserinfoEnd(sub string) int {
+	at := strings.LastIndexByte(sub, '@')
+	if at < 0 {
+		return 0
+	}
+	query := strings.IndexByte(sub, '?')
+	if query < 0 || at < query || strings.Contains(sub[:query], "#") {
+		return at + 1
+	}
+	// A valid URL authority makes an @ in the query ordinary data. Keep
+	// looking through the pre-query text for malformed userinfo containing a
+	// slash, which can also look like a valid host and path.
+	authority, _, _ := strings.Cut(sub[:query], "/")
+	if u, err := url.Parse("http://" + authority); err == nil && u.Host != "" {
+		return strings.LastIndexByte(sub[:query], '@') + 1
+	}
+	return at + 1
 }
 
 func redactSchemelessToken(tok string) string {
