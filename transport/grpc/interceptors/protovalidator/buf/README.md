@@ -53,3 +53,11 @@ if err := validator(ctx, msg); err != nil {
 - Human-readable error formatting
 - Optional service-defined reason codes on field violations
 - Integration with buf's protovalidate library
+
+
+For a unary Update RPC registered with `fieldmask.WithUpdateSpec`, `BuildValidator`
+validates the selected resource fields, routing identity, submitted write-only values,
+and the request fields outside the resource. Empty required fields of the resource
+report `required` with the full proto field path and collection subscripts. If the mask
+cannot be resolved, the validator checks the whole body and gives required fields in
+present resource messages the same priority.

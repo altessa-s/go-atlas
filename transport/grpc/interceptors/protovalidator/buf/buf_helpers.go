@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
 	"github.com/altessa-s/go-atlas-core/types/ptr"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -131,13 +132,17 @@ func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.
 		opt(&cfg)
 	}
 
-	return func(_ context.Context, msg proto.Message) error {
+	return func(ctx context.Context, msg proto.Message) error {
 		validator, err := newValidator()
 		if err != nil {
 			return err
 		}
 
-		err = validator.Validate(msg, protovalidate.WithFilter(filter))
+		if selection := updatevalidation.FromContext(ctx, msg); selection != nil {
+			err = validateUpdate(validator, msg, filter, selection)
+		} else {
+			err = validator.Validate(msg, protovalidate.WithFilter(filter))
+		}
 		if err == nil {
 			return nil
 		}
@@ -146,37 +151,44 @@ func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.
 		if !ok {
 			return err
 		}
+		return validationStatus(ve, cfg.reasonCode)
+	}
+}
 
-		fields := make([]*badrequestv1.FieldViolation, 0, len(ve.Violations))
-		for _, violation := range ve.Violations {
-			field := &badrequestv1.FieldViolation{
-				Message:   violation.Proto.Message,
-				FieldPath: ptr.WrapNonZero(protovalidate.FieldPathString(violation.Proto.GetField())),
-			}
-
-			if cfg.reasonCode != nil {
-				if code := cfg.reasonCode(violation.Proto.GetRuleId(), leafFieldName(violation.Proto.GetField())); code != "" {
-					field.Code = new(code)
-				}
-			}
-
-			if field.FieldPath != nil {
-				field.FieldPathComponents = make([]*badrequestv1.FieldPathComponent, 0, len(violation.Proto.GetField().GetElements()))
-				for _, element := range violation.Proto.GetField().GetElements() {
-					field.FieldPathComponents = append(field.FieldPathComponents, buildFieldPathComponent(element))
-				}
-			}
-
-			fields = append(fields, field)
+func validationStatus(ve *protovalidate.ValidationError, reasonCode ReasonCoder) error {
+	fields := make([]*badrequestv1.FieldViolation, 0, len(ve.Violations))
+	for _, violation := range ve.Violations {
+		field := &badrequestv1.FieldViolation{
+			Message:   violation.Proto.Message,
+			FieldPath: ptr.WrapNonZero(protovalidate.FieldPathString(violation.Proto.GetField())),
 		}
 
-		st := status.New(codes.InvalidArgument, "Validation Failed")
-		st, _ = st.WithDetails(&badrequestv1.BadRequest{ //nolint:errcheck
-			FieldViolations: fields,
-		})
+		if reasonCode != nil {
+			name := leafFieldName(violation.Proto.GetField())
+			if violation.Proto.GetRuleId() == requiredRuleID && violation.RuleDescriptor == nil && violation.FieldDescriptor != nil {
+				name = string(violation.FieldDescriptor.Name())
+			}
+			if code := reasonCode(violation.Proto.GetRuleId(), name); code != "" {
+				field.Code = new(code)
+			}
+		}
 
-		return interceptors.NewError(st, BuildValidationError(ve))
+		if field.FieldPath != nil {
+			field.FieldPathComponents = make([]*badrequestv1.FieldPathComponent, 0, len(violation.Proto.GetField().GetElements()))
+			for _, element := range violation.Proto.GetField().GetElements() {
+				field.FieldPathComponents = append(field.FieldPathComponents, buildFieldPathComponent(element))
+			}
+		}
+
+		fields = append(fields, field)
 	}
+
+	st := status.New(codes.InvalidArgument, "Validation Failed")
+	st, _ = st.WithDetails(&badrequestv1.BadRequest{ //nolint:errcheck
+		FieldViolations: fields,
+	})
+
+	return interceptors.NewError(st, BuildValidationError(ve))
 }
 
 // convertFieldType maps protovalidate's *descriptorpb.FieldDescriptorProto_Type

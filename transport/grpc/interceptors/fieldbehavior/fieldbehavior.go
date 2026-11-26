@@ -71,9 +71,10 @@ func (i *interceptor) Dependencies() []string {
 // requestInterceptor holds per-call state captured at PreCall time.
 type requestInterceptor struct {
 	*interceptor
-	meta *sharedmetadata.CallMetadata
-	kind Kind
-	plan atomic.Pointer[update.DeferredPlan]
+	meta           *sharedmetadata.CallMetadata
+	kind           Kind
+	plan           atomic.Pointer[update.DeferredPlan]
+	requestContext context.Context
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -85,7 +86,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		meta:        meta,
 		kind:        i.classify(meta.Method()),
 	}
-	if ri.kind == KindUpdate {
+	if ri.kind == KindUpdate && meta != nil && meta.IsStream {
 		ctx = updatemask.Track(ctx)
 	}
 
@@ -430,6 +431,9 @@ func buildViolationStatus(err *pbfieldbehavior.BehaviorViolationError) *status.S
 func (ri *requestInterceptor) RequestContext(ctx context.Context) context.Context {
 	if plan := ri.plan.Load(); plan != nil {
 		return update.ContextWithPlan(ctx, plan)
+	}
+	if ri.requestContext != nil {
+		return ri.requestContext
 	}
 	return ctx
 }

@@ -4,7 +4,12 @@
 
 // Package updatemask prepares AIP-134 update requests for stateful handlers.
 //
-// Updates use update.Prepare to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
+// For a registered unary RPC, [SelectionFromContext] exposes the original mask
+// and its resolution. The handler owns write planning with the registered
+// spec. The factory chain checks the body first when resolution fails.
+// The deferred plan applies to unregistered methods and streams.
+//
+// By default, updates use update.Prepare to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
 // IMMUTABLE and IDENTIFIER values are captured in the deferred plan for comparison with stored state;
 // their paths do not authorize writes in the initial mask.
 // Protected paths, including explicit clears, are deferred. An unchanged protected value is ignored; a change is INVALID_ARGUMENT from stateful

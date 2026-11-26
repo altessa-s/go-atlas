@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
 	"github.com/altessa-s/go-atlas-core/types/ptr"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -25,6 +26,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	pbfieldmask "github.com/altessa-s/go-aip/fieldmask"
+	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
 // Normalizer applies the update_mask of Update requests to their resource
@@ -34,6 +36,7 @@ type Normalizer struct {
 	policy   []update.Option
 	strict   bool
 	maskName string
+	spec     updatevalidation.SpecLookup
 }
 
 // New returns a Normalizer configured by opt.
@@ -51,6 +54,7 @@ func New(opt ...Option) *Normalizer {
 		}),
 		strict:   o.strict,
 		maskName: o.maskFieldName,
+		spec:     o.specLookup,
 	}
 }
 
@@ -67,7 +71,9 @@ type Result struct {
 	// comparison or replacement has finished.
 	Paths int
 	// Plan retains original values and clear intent for completion by the handler.
-	Plan *update.DeferredPlan
+	Plan      *update.DeferredPlan
+	selection *updatevalidation.Selection
+	legacy    *legacyPlan
 }
 
 // Normalize applies the update_mask of req to its resource with
@@ -90,6 +96,10 @@ func (n *Normalizer) Normalize(ctx context.Context, req proto.Message) (res Resu
 		}
 	}()
 
+	if spec := n.registeredSpec(ctx); spec != nil {
+		return n.normalizeRegistered(ctx, req, spec)
+	}
+
 	t, _ := ctx.Value(trackerKey{}).(*tracker)
 	t.enter(n, req)
 
@@ -102,15 +112,14 @@ func (n *Normalizer) Normalize(ctx context.Context, req proto.Message) (res Resu
 		return Result{}, nil
 	}
 
-	raw = t.sent(raw)
-
-	if n.strict {
-		switch {
-		case raw == nil:
-			return Result{}, n.maskError(n.maskName + " is required")
-		case len(raw.GetPaths()) == 0:
-			return Result{}, n.maskError(n.maskName + " must contain at least one path")
-		}
+	previous := legacyFromContext(ctx, req)
+	if previous != nil {
+		raw = previous.sent
+	} else {
+		raw = t.sent(raw)
+	}
+	if presenceErr := n.checkMaskPresence(raw); presenceErr != nil {
+		return Result{}, presenceErr
 	}
 
 	if writeback == nil {
@@ -118,8 +127,11 @@ func (n *Normalizer) Normalize(ctx context.Context, req proto.Message) (res Resu
 			errors.New("updatemask: the extractor gives no way to write the effective update_mask back"))
 	}
 
-	if previous, ok := t.result(); ok {
-		return previous, nil
+	if previous != nil {
+		return Result{Located: true, Resource: previous.resource, Paths: previous.paths, Plan: previous.plan, legacy: previous}, nil
+	}
+	if tracked, ok := t.result(); ok {
+		return tracked, nil
 	}
 	plan, err := update.Prepare(raw, resource, n.policy...)
 	if err != nil {
@@ -128,12 +140,135 @@ func (n *Normalizer) Normalize(ctx context.Context, req proto.Message) (res Resu
 	effective := plan.Mask()
 
 	// A writeback may rewrite the mask sent in place: keep a copy of it.
+	res = Result{Located: true, Resource: resource, Paths: len(effective), Plan: plan}
+	if t == nil {
+		if meta, _ := sharedmetadata.FromContext(ctx); meta != nil && !meta.IsStream && !meta.IsClient {
+			res.legacy = &legacyPlan{request: req, resource: resource, plan: plan, paths: res.Paths, sent: proto.CloneOf(raw)}
+		}
+	}
 	sent := t.copyOf(raw)
 	writeback(effective.ToProtoFieldMask())
-	res = Result{Located: true, Resource: resource, Paths: len(effective), Plan: plan}
 	t.applied(sent, res)
 
 	return res, nil
+}
+
+// registeredSpec checks the RPC registration before taking the selection path.
+func (n *Normalizer) registeredSpec(ctx context.Context) *update.Spec {
+	if n.spec == nil {
+		return nil
+	}
+	meta, _ := sharedmetadata.FromContext(ctx)
+	if meta == nil || meta.IsStream || meta.IsClient {
+		return nil
+	}
+	return n.spec(ctx)
+}
+
+// Wire the private interceptor operations without adding them to the public
+// Normalizer, Result, or options API.
+func init() {
+	updatevalidation.NewSpecLookupOption = func(lookup updatevalidation.SpecLookup) any {
+		return Option(func(o *options) { o.specLookup = lookup })
+	}
+	updatevalidation.HasRegisteredSpec = func(ctx context.Context, normalizer any) bool {
+		return normalizer.(*Normalizer).registeredSpec(ctx) != nil //nolint:errcheck // Interceptors supply their normalizer.
+	}
+	updatevalidation.Normalize = func(ctx context.Context, normalizer any, request proto.Message, stream bool,
+	) (context.Context, updatevalidation.Normalization, error) {
+		n := normalizer.(*Normalizer) //nolint:errcheck // Interceptors supply their normalizer.
+		res, err := n.Normalize(ctx, request)
+		if !stream && err == nil {
+			ctx = res.requestContext(ctx)
+		}
+		return ctx, updatevalidation.Normalization{Located: res.Located, Resource: res.Resource, Paths: res.Paths, Plan: res.Plan}, err
+	}
+}
+
+func (r Result) requestContext(ctx context.Context) context.Context {
+	if r.selection != nil {
+		return updatevalidation.WithSelection(ctx, r.selection)
+	}
+	if r.legacy == nil {
+		return update.ContextWithPlan(ctx, r.Plan)
+	}
+	if legacyFromContext(ctx, r.legacy.request) == r.legacy {
+		return ctx
+	}
+	return context.WithValue(update.ContextWithPlan(ctx, r.Plan), legacyPlanKey{}, r.legacy)
+}
+
+type legacyPlanKey struct{}
+
+// legacyPlan is the immutable unary handoff. The second normalizer still runs
+// its extractor and strict check using the original client mask.
+type legacyPlan struct {
+	request, resource proto.Message
+	plan              *update.DeferredPlan
+	sent              *fieldmaskpb.FieldMask
+	paths             int
+}
+
+func legacyFromContext(ctx context.Context, req proto.Message) *legacyPlan {
+	plan, _ := ctx.Value(legacyPlanKey{}).(*legacyPlan)
+	if plan != nil && plan.request == req {
+		return plan
+	}
+	return nil
+}
+
+func (n *Normalizer) normalizeRegistered(ctx context.Context, req proto.Message, spec *update.Spec) (Result, error) {
+	if sel := updatevalidation.FromContext(ctx, req); sel != nil && sel.Spec == spec {
+		if err := n.checkMaskPresence(sel.OriginalMask); err != nil {
+			return Result{}, err
+		}
+		return Result{Located: true, Resource: sel.Resource, selection: sel}, nil
+	}
+
+	raw, resource, _, ok := n.extract(ctx, req)
+	if !ok || resource == nil || !resource.ProtoReflect().IsValid() {
+		if n.strict {
+			return Result{}, n.maskError(n.maskName + " is required")
+		}
+		return Result{}, nil
+	}
+	if err := n.checkMaskPresence(raw); err != nil {
+		return Result{}, err
+	}
+	route, ok := updatevalidation.ResourcePath(req, resource)
+	if !ok {
+		return Result{}, n.convert(errors.New("updatemask: the update resource is not held by the request"))
+	}
+	sel := &updatevalidation.Selection{Request: req, Resource: resource, Route: route, Spec: spec, OriginalMask: proto.CloneOf(raw)}
+	sel.Mask, sel.Err = spec.ResolveMask(resource, raw)
+	if sel.Err != nil {
+		if _, ok := errors.AsType[*update.MaskPathError](sel.Err); !ok {
+			return Result{}, n.convert(sel.Err)
+		}
+		sel.MaskError = n.maskError(sel.Err.Error())
+		if !updatevalidation.DefersMaskError(ctx) {
+			return Result{}, sel.MaskError
+		}
+	}
+
+	if err := sel.StripOutputOnly(); err != nil {
+		return Result{}, n.convert(err)
+	}
+	return Result{Located: true, Resource: resource, selection: sel}, nil
+}
+
+func (n *Normalizer) checkMaskPresence(raw *fieldmaskpb.FieldMask) error {
+	if !n.strict {
+		return nil
+	}
+	switch {
+	case raw == nil:
+		return n.maskError(n.maskName + " is required")
+	case len(raw.GetPaths()) == 0:
+		return n.maskError(n.maskName + " must contain at least one path")
+	default:
+		return nil
+	}
 }
 
 // maskError refuses the update_mask as a whole, naming the mask field.

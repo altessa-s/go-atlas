@@ -8,8 +8,10 @@ import (
 	"context"
 
 	"github.com/altessa-s/go-aip/fieldmask/extract"
+	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
 	"google.golang.org/protobuf/proto"
@@ -60,6 +62,17 @@ func newUpdateNormalizer(opts *options) *updatemask.Normalizer {
 		}),
 		updatemask.WithUpdateOptions(opts.updateOptions...),
 		updatemask.WithMaskFieldName(updateMaskName(opts)),
+	}
+	if len(opts.updateSpecs) != 0 {
+		lookup := func(ctx context.Context) *update.Spec {
+			method := sharedmetadata.MethodFromContext(ctx)
+			spec := opts.updateSpecs[method]
+			if spec == nil || methodKind(opts, method) != KindUpdate {
+				return nil
+			}
+			return spec
+		}
+		nopts = append(nopts, updatevalidation.NewSpecLookupOption(lookup).(updatemask.Option)) //nolint:errcheck // updatemask installs the constructor.
 	}
 	nopts = slices.AppendIf(nopts, opts.strictMode, updatemask.WithStrict())
 

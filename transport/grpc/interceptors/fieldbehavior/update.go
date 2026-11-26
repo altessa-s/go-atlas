@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldinfo"
 
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -32,8 +33,12 @@ import (
 func (ri *requestInterceptor) stripUpdateRequest(ctx context.Context, msg proto.Message) error {
 	method := ri.meta.Method()
 
-	res, err := ri.updates.Normalize(ctx, msg)
-	ri.plan.Store(res.Plan)
+	ctx, res, err := updatevalidation.Normalize(ctx, ri.updates, msg, ri.meta.IsStream)
+	if ri.meta.IsStream {
+		ri.plan.Store(res.Plan)
+	} else {
+		ri.requestContext = ctx
+	}
 	if err != nil {
 		if status.Code(err) == codes.Internal {
 			ri.LogError(ctx, "fieldbehavior update_mask apply failed", method, nil, slog.String("classification", diagnostics.ErrorClass(err)))
@@ -60,7 +65,11 @@ func (ri *requestInterceptor) stripUpdateRequest(ctx context.Context, msg proto.
 
 // checkUpdateFormats validates AIP-202 formats of all retained request values.
 func (ri *requestInterceptor) checkUpdateFormats(ctx context.Context, req proto.Message) error {
-	err := fieldinfo.Validate(req, fieldinfo.WithMaxDepth(ri.opts.maxStripDepth))
+	body, projectionErr := formatValidationBody(req, updatevalidation.FromContext(ctx, req))
+	if projectionErr != nil {
+		return interceptors.NewError(status.New(codes.Internal, "Internal Error"), projectionErr)
+	}
+	err := fieldinfo.Validate(body, fieldinfo.WithMaxDepth(ri.opts.maxStripDepth))
 	if err == nil {
 		return nil
 	}
@@ -80,6 +89,59 @@ func (ri *requestInterceptor) checkUpdateFormats(ctx context.Context, req proto.
 	return interceptors.NewError(buildViolationStatus(&pbfieldbehavior.BehaviorViolationError{Violations: violations}), err)
 }
 
+// formatValidationBody projects only the resource, leaving all other request
+// fields available to the format checker at their original paths.
+func formatValidationBody(req proto.Message, sel *updatevalidation.Selection) (proto.Message, error) {
+	if sel == nil || sel.Err != nil || !hasFormatInput(fieldinfo.NewChecker(), sel.Resource.ProtoReflect()) {
+		return req, nil
+	}
+	tree := sel.Tree()
+	var policyErr error
+	sel.Resource.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		name := string(fd.Name())
+		if _, selected := tree[name]; selected {
+			return true
+		}
+		always, err := sel.AlwaysCheck(fd)
+		policyErr = err
+		if always {
+			tree[name] = nil
+		}
+		return err == nil
+	})
+	if policyErr != nil {
+		return nil, policyErr
+	}
+	body := proto.Clone(req)
+	resource := body.ProtoReflect()
+	for _, fd := range sel.Route {
+		resource = resource.Get(fd).Message()
+	}
+	tree = updatevalidation.UnionMapScopes(tree, resource.Descriptor())
+	if err := tree.Select(resource.Interface()); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func hasFormatInput(checker *fieldinfo.Checker, msg protoreflect.Message) bool {
+	if !checker.HasFormats(msg.Descriptor()) {
+		return false
+	}
+	found := false
+	msg.Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		if checker.HasFieldFormat(fd) {
+			found = true
+			return false
+		}
+		updatevalidation.RangeMessages(fd, value, func(child protoreflect.Message) {
+			found = found || hasFormatInput(checker, child)
+		})
+		return !found
+	})
+	return found
+}
+
 // errResourceOutsideRequest reports an update extractor whose resource is
 // not a message the request holds: the mask was applied to something the
 // handler never sees.
@@ -95,7 +157,7 @@ func stripOutside(req, resource proto.Message, opts ...pbfieldbehavior.Option) e
 		return nil
 	}
 
-	route, ok := pathTo(req.ProtoReflect(), resource.ProtoReflect(), maxResourceDepth)
+	route, ok := updatevalidation.ResourcePath(req, resource)
 	if !ok {
 		return errResourceOutsideRequest
 	}
@@ -118,37 +180,4 @@ func stripOutside(req, resource proto.Message, opts ...pbfieldbehavior.Option) e
 	}()
 
 	return pbfieldbehavior.StripUpdate(req, append(slices.Clone(opts), pbfieldbehavior.WithFieldFormats(false))...)
-}
-
-// maxResourceDepth bounds the search for the resource in a request.
-const maxResourceDepth = 8
-
-// pathTo returns the singular message fields leading from m to target, which
-// is found by identity, and whether it was found within depth levels.
-func pathTo(m, target protoreflect.Message, depth int) ([]protoreflect.FieldDescriptor, bool) {
-	if depth == 0 {
-		return nil, false
-	}
-
-	var (
-		route []protoreflect.FieldDescriptor
-		found bool
-	)
-	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		if fd.Message() == nil || fd.IsList() || fd.IsMap() {
-			return true
-		}
-		child := v.Message()
-		if child.Interface() == target.Interface() {
-			route, found = []protoreflect.FieldDescriptor{fd}, true
-			return false
-		}
-		if sub, ok := pathTo(child, target, depth-1); ok {
-			route, found = append([]protoreflect.FieldDescriptor{fd}, sub...), true
-			return false
-		}
-		return true
-	})
-
-	return route, found
 }

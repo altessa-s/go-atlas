@@ -10,7 +10,7 @@ replace github.com/altessa-s/go-atlas/store/postgres/migrations => ../../store/p
 
 require (
 	cloud.google.com/go v0.123.0
-	github.com/altessa-s/go-aip v0.1.12
+	github.com/altessa-s/go-aip v0.1.15
 	github.com/altessa-s/go-aip/backend/mongo v0.1.9
 	github.com/altessa-s/go-atlas v0.0.0
 	github.com/altessa-s/go-atlas-core v0.4.0

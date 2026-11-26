@@ -1,0 +1,83 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+
+package maskvalidationtest.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/field_behavior.proto";
+import "google/api/field_info.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/maskvalidationtest/v1;maskvalidationtestv1";
+
+message UpdateSettingsRequest {
+  Settings settings = 1 [(google.api.field_behavior) = REQUIRED];
+  google.protobuf.FieldMask update_mask = 2;
+  string caller = 3 [(buf.validate.field).string.max_len = 4];
+  optional string outside_required = 4 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  string outside_uuid = 5 [(google.api.field_info).format = UUID4];
+}
+
+message Settings {
+  General general = 1 [(buf.validate.field).cel = {
+    id: "general.field"
+    message: "retention must not be seven"
+    expression: "this.retention_days != 7"
+  }];
+  Notifications notifications = 2;
+  string etag = 3 [(buf.validate.field).string.max_len = 4];
+  string id = 4 [(buf.validate.field).string.max_len = 4];
+  map<string, Route> delegates = 5;
+  string api_key = 6 [(google.api.field_behavior) = INPUT_ONLY, (buf.validate.field).string.max_len = 4];
+  string name = 7 [(google.api.field_behavior) = IMMUTABLE, (buf.validate.field).string.max_len = 4];
+  string routing_key = 8 [(buf.validate.field).string.max_len = 4];
+  string format_uuid = 9 [(google.api.field_info).format = UUID4];
+  map<string, string> labels = 10 [(buf.validate.field).map = {
+    keys: { string: { max_len: 4 } }
+    values: { string: { max_len: 4 } }
+  }];
+  string synonyms = 11 [(google.api.field_behavior) = REQUIRED];
+  string server_note = 12 [(google.api.field_behavior) = OUTPUT_ONLY, (buf.validate.field).string.max_len = 4];
+  google.protobuf.Timestamp update_time = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message General {
+  option (buf.validate.message).cel = {
+    id: "general.message"
+    message: "retention must not be eight"
+    expression: "this.retention_days != 8"
+  };
+
+  string time_zone = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  int32 retention_days = 2 [(buf.validate.field).int32.lte = 3650];
+  string note = 3;
+}
+
+message Notifications {
+  repeated Route routes = 1;
+}
+
+message Route {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_EMAIL = 1;
+  }
+
+  Kind kind = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).enum.not_in = 0
+  ];
+
+  General nested = 2;
+  string format_uuid = 3 [(google.api.field_info).format = UUID4];
+}

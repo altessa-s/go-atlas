@@ -66,8 +66,10 @@ github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXbk/LUBXc=
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
-github.com/altessa-s/go-aip v0.1.12 h1:lcaV4sz+ShEtYXUeUko0SJcvP5NQ1GPuYh0XQ+uF47o=
-github.com/altessa-s/go-aip v0.1.12/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
+github.com/altessa-s/go-aip v0.1.14 h1:3/WCXL1G/4HFqspbH37KJ8MVgsP3hsFhcuZ4McFCioU=
+github.com/altessa-s/go-aip v0.1.14/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
+github.com/altessa-s/go-aip v0.1.15 h1:EkPubZfnqtcV+iKEt452avIB8nESfBR+n7503c8trNk=
+github.com/altessa-s/go-aip v0.1.15/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
 github.com/altessa-s/go-atlas-core v0.4.0 h1:cbg4kGyXKOvrjfO5vjaO10AKS1Y+aVoLEJ7TOGVFRis=
 github.com/altessa-s/go-atlas-core v0.4.0/go.mod h1:lDhYlaxQK66YpjRyyZHJUzQsgQkhEhzBZ3SXSaXuHQM=
 github.com/altessa-s/go-atlas-net v0.3.7 h1:+vgIAo8MWHn91o5KXsN98IP3aSzop3wb8DzIXebxA68=

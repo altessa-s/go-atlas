@@ -5,12 +5,14 @@
 package factory
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
@@ -26,6 +28,9 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
+
+	"google.golang.org/grpc"
 
 	netipx "github.com/altessa-s/go-atlas-net/netipx"
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
@@ -502,9 +507,13 @@ func (i *cacheRegistration) Dependencies() []string {
 	return i.ServerInterceptor.(interface{ Dependencies() []string }).Dependencies() //nolint:errcheck // cache's driven interceptor declares dependencies
 }
 
-// resolveCacheInterceptors configures the cache from the registered chain.
+// resolveInterceptors configures the cache and unary update validation from the registered chain.
 // The copy lets the builder be reused without changing a built server.
-func (b *ServerBuilder) resolveCacheInterceptors() ([]interceptors.ServerInterceptor, error) {
+func (b *ServerBuilder) resolveInterceptors() ([]interceptors.ServerInterceptor, error) {
+	order, err := b.dependencyOrder()
+	if err != nil {
+		return nil, b.WrapError(err, "invalid interceptor chain")
+	}
 	var authRequired bool
 	var readMaskHeader string
 	for _, i := range b.interceptors {
@@ -528,7 +537,33 @@ func (b *ServerBuilder) resolveCacheInterceptors() ([]interceptors.ServerInterce
 			resolved[idx] = interceptor
 		}
 	}
+	for _, i := range resolved {
+		if _, ok := i.(*bufValidatorRegistration); ok {
+			b.deferUpdateMaskErrors(resolved, order)
+			break
+		}
+	}
 	return resolved, nil
+}
+
+// deferUpdateMaskErrors only wraps mask interceptors that the installed
+// dependency order places before Buf.
+func (b *ServerBuilder) deferUpdateMaskErrors(chain []interceptors.ServerInterceptor, order []string) {
+	normalizer := fieldmask.UpdateNormalizer(b.fieldMaskUpdateOptions()...)
+	for _, name := range order {
+		if name == protovalidator.Name() {
+			return
+		}
+		if name != fieldbehavior.Name() && name != fieldmask.Name() {
+			continue
+		}
+		for idx, mask := range chain {
+			if !nilcheck.IsNil(mask) && mask.Name() == name {
+				chain[idx] = &updateValidationInterceptor{ServerInterceptor: mask, normalizer: normalizer}
+				break
+			}
+		}
+	}
 }
 
 // WithAuthInterceptor creates an authentication interceptor from the builder's configuration.
@@ -698,13 +733,50 @@ func (b *ServerBuilder) WithBufValidatorInterceptor() *ServerBuilder {
 	if cfg := b.interceptorsCfg(); cfg != nil && cfg.ProtoValidator != nil {
 		logRawErrors = cfg.ProtoValidator.LogRawErrors
 	}
-	b.interceptors = append(b.interceptors, protovalidator.ServerInterceptor(
+	b.interceptors = append(b.interceptors, &bufValidatorRegistration{protovalidator.ServerInterceptor(
 		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(
 			bufhelpers.BuildValidationFilter(),
 			bufhelpers.WithReasonCode(b.reasonCode),
 		)),
 		protovalidator.WithLogger(b.Logger()),
 		protovalidator.WithLogRawErrors(logRawErrors),
-	))
+	)})
 	return b
+}
+
+// bufValidatorRegistration identifies the validator that consumes pending normalization errors.
+type bufValidatorRegistration struct{ interceptors.ServerInterceptor }
+
+func (i *bufValidatorRegistration) Dependencies() []string {
+	return i.ServerInterceptor.(interface{ Dependencies() []string }).Dependencies() //nolint:errcheck // driven validator
+}
+
+// updateValidationInterceptor enables mask-aware normalization for unary calls.
+type updateValidationInterceptor struct {
+	interceptors.ServerInterceptor
+	normalizer *updatemask.Normalizer
+}
+
+func (i *updateValidationInterceptor) Dependencies() []string {
+	if d, ok := i.ServerInterceptor.(interface{ Dependencies() []string }); ok {
+		return d.Dependencies()
+	}
+	return nil
+}
+
+func (i *updateValidationInterceptor) RequiredDependencies() []string {
+	if d, ok := i.ServerInterceptor.(interface{ RequiredDependencies() []string }); ok {
+		return d.RequiredDependencies()
+	}
+	return nil
+}
+
+func (i *updateValidationInterceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
+	unary := i.ServerInterceptor.ServerUnaryInterceptor()
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if updatevalidation.HasRegisteredSpec(ctx, i.normalizer) && !updatevalidation.DefersMaskError(ctx) {
+			ctx = updatevalidation.DeferMaskError(ctx)
+		}
+		return unary(ctx, req, info, handler)
+	}
 }

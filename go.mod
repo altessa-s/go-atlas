@@ -11,7 +11,7 @@ require (
 	github.com/MicahParks/jwkset v0.12.0
 	github.com/MicahParks/keyfunc/v3 v3.9.2
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/altessa-s/go-aip v0.1.12
+	github.com/altessa-s/go-aip v0.1.15
 	github.com/altessa-s/go-atlas-core v0.4.0
 	github.com/altessa-s/go-atlas-net v0.3.7
 	github.com/altessa-s/go-convert v0.1.1
