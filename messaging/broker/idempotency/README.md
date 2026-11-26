@@ -94,7 +94,7 @@ Upon completion:
 - **`Ack`**: marks the lock as complete (`Complete`, `processed` metric) and forwards `Ack`. `Complete` is retried with bounded backoff inside the
   release timeout. A final failure is logged and counted as `lock_stolen` (`ErrLockStolen`) or `complete_failed`, and `Ack` is still forwarded, never
   `Nak`: the effect is applied. Residual: with a persistent storage outage the record stays in progress, so a duplicate arriving after
-  `MaxLockDuration` runs the handler again. Logs never carry the business key or the storage key composed from it.
+  `MaxLockDuration` runs the handler again. Logs never carry the business key, the storage key composed from it, or keeper and extractor error text (only an error kind).
 - **`Nak` / `NakWithBackOff`**: releases the lock (`Release`) and forwards negative acknowledgment for redelivery.
 - **`Term`**: releases the lock (`Release`) and forwards terminal acknowledgment.
 - **Panic**: releases the lock (`Release`) and re-panics so the broker runtime can record failure.

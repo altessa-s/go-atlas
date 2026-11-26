@@ -394,7 +394,8 @@ func TestWrap_DeliveryFlows(t *testing.T) {
 
 		require.False(t, handlerCalled)
 		require.True(t, acker.termed)
-		require.Contains(t, acker.termReason, "cannot decode key")
+		require.NotContains(t, acker.termReason, "cannot decode key", "extractor error text must not reach the broker")
+		require.Contains(t, acker.termReason, "key extraction failed")
 	})
 
 	t.Run("nak releases lock for redelivery", func(t *testing.T) {

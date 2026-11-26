@@ -157,10 +157,14 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 		w.logger.ErrorContext(ctx, "idempotency: key extraction failed",
 			slog.String("consumer", w.consumer),
 			slog.String("topic", w.handler.Topic()),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
 		w.metrics.inc(outcomeKeyError)
-		_ = m.Term("idempotency: " + err.Error())
+		reason := "key extraction failed"
+		if errors.Is(err, ErrKeyTooLong) {
+			reason = ErrKeyTooLong.Error()
+		}
+		_ = m.Term("idempotency: " + reason)
 		return
 	}
 
@@ -179,7 +183,7 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 	if err != nil {
 		w.logger.ErrorContext(ctx, "idempotency: failed to acquire lock",
 			slog.String("consumer", w.consumer),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
 		w.metrics.inc(outcomeStorageError)
 		_ = m.NakWithBackOff(w.opts.errorBackOff)
@@ -262,7 +266,7 @@ func (a *idempotencyAcker) Ack() error {
 			a.metrics.inc(outcomeCompleteFailed)
 			a.logger.ErrorContext(releaseCtx, "idempotency: complete failed; the record stays in progress until the lock expires",
 				slog.String("consumer", a.consumer),
-				slog.String("error", err.Error()),
+				slog.String("error_kind", errorKind(err)),
 			)
 		}
 	})
@@ -308,7 +312,25 @@ func (a *idempotencyAcker) release(trigger string) {
 		a.logger.ErrorContext(releaseCtx, "idempotency: release failed",
 			slog.String("consumer", a.consumer),
 			slog.String("trigger", trigger),
-			slog.String("error", err.Error()),
+			slog.String("error_kind", errorKind(err)),
 		)
+	}
+}
+
+// errorKind classifies err for logs without its text: keeper and key-extractor
+// errors may echo the storage key or the message content, which carry the
+// original business key.
+func errorKind(err error) string {
+	switch {
+	case errors.Is(err, ErrKeyTooLong):
+		return "key_too_long"
+	case errors.Is(err, idempotency.ErrLockStolen):
+		return "lock_stolen"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "error"
 	}
 }

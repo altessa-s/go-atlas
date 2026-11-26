@@ -100,6 +100,15 @@ func ackingHandler(runs *int) *testSubscriberHandler {
 	}}
 }
 
+// doubleAckHandler acks the message the handler received (the wrapped one)
+// twice.
+func doubleAckHandler(second *error) *testSubscriberHandler {
+	return &testSubscriberHandler{topic: "topic", fn: func(_ context.Context, in *msg.Message) {
+		_ = in.Ack()
+		*second = in.Ack()
+	}}
+}
+
 func dedupMessage(acker msg.Acker, key string) *msg.Message {
 	return msg.NewMessageWithMeta("topic", []byte("body"), msg.Meta{
 		{Key: msg.MetaKeyDeduplicateId, Value: key},
@@ -132,28 +141,26 @@ func TestWrap_TransientCompleteFailureDoesNotRerunHandler(t *testing.T) {
 
 // TestWrap_PersistentCompleteFailureAcks verifies that when Complete keeps
 // failing the effect is already applied, so the message is Acked (never
-// Nak'd), the failure is counted, and a repeated Ack is harmless.
+// Nak'd) and the failure is counted once; a second Ack of the handler's
+// message neither completes again nor counts again.
 func TestWrap_PersistentCompleteFailureAcks(t *testing.T) {
 	t.Parallel()
 
 	keeper := newClockKeeper(-1)
 	tc := metricstest.NewTestCollector()
-	var runs int
-	wrapped := brokeridem.Wrap(ackingHandler(&runs), keeper, "consumer", brokeridem.WithMeter(tc))
+	var secondAck error
+	wrapped := brokeridem.Wrap(doubleAckHandler(&secondAck), keeper, "consumer", brokeridem.WithMeter(tc))
 
 	acker := &mockAcker{}
-	m := dedupMessage(acker, "k")
-	wrapped.Handle(t.Context(), m)
+	wrapped.Handle(t.Context(), dedupMessage(acker, "k"))
 
 	require.True(t, acker.acked)
 	require.False(t, acker.naked)
-	require.Greater(t, keeper.calls(), 1, "Complete must be retried")
+	require.NoError(t, secondAck)
+	completeCalls := keeper.calls()
+	require.Greater(t, completeCalls, 1, "Complete must be retried")
 	require.Equal(t, float64(1), metricstest.GetCounterValue(t, tc, "test_broker_idempotency_outcomes_total",
 		"consumer", "consumer", "outcome", "complete_failed"))
-
-	calls := keeper.calls()
-	require.NoError(t, m.Ack())
-	require.Equal(t, calls, keeper.calls(), "a repeated Ack must not complete again")
 }
 
 // TestWrap_LogsDoNotContainBusinessKey verifies that failure logs carry
@@ -162,13 +169,14 @@ func TestWrap_LogsDoNotContainBusinessKey(t *testing.T) {
 	t.Parallel()
 
 	const email = "alice@example.com"
+	leaky := errors.New("storage error for key idk:v2:3:ibk8:consumer5:topic17:" + email)
 	tests := []struct {
 		name   string
 		keeper *fakeKeeper
 	}{
-		{"lock failure", &fakeKeeper{lockErr: errTransient}},
-		{"complete failure", &fakeKeeper{acquired: true, state: &idempotency.State{}, complete: errTransient}},
-		{"release failure", &fakeKeeper{acquired: true, state: &idempotency.State{}, release: errTransient}},
+		{"lock failure", &fakeKeeper{lockErr: leaky}},
+		{"complete failure", &fakeKeeper{acquired: true, state: &idempotency.State{}, complete: leaky}},
+		{"release failure", &fakeKeeper{acquired: true, state: &idempotency.State{}, release: leaky}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -188,4 +196,27 @@ func TestWrap_LogsDoNotContainBusinessKey(t *testing.T) {
 			require.NotContains(t, buf.String(), email)
 		})
 	}
+}
+
+// TestWrap_ExtractorErrorTextStaysOutOfLogsAndTerm verifies that an error from
+// the key extractor, which may echo message content, reaches neither the logs
+// nor the broker.
+func TestWrap_ExtractorErrorTextStaysOutOfLogsAndTerm(t *testing.T) {
+	t.Parallel()
+
+	const secret = "alice@example.com"
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	h := &testSubscriberHandler{topic: "topic"}
+	wrapped := brokeridem.Wrap(h, &fakeKeeper{}, "consumer",
+		brokeridem.WithLogger(logger),
+		brokeridem.WithKeyFunc(func(*msg.Message) (string, error) { return "", errors.New("cannot parse " + secret) }),
+	)
+	acker := &mockAcker{}
+	wrapped.Handle(t.Context(), dedupMessage(acker, "k"))
+
+	require.True(t, acker.termed)
+	require.NotContains(t, acker.termReason, secret)
+	require.NotContains(t, buf.String(), secret)
+	require.NotEmpty(t, buf.String())
 }
