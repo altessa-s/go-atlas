@@ -39,6 +39,6 @@
 //	defer secretsManager.Close(context.WithoutCancel(ctx))
 //	l := loader.New(backend, loader.WithSecretResolver(manager.NewStringResolver(secretsManager)))
 //
-// Closing the manager releases its health registration and unregisters its
-// scheduled update task.
+// Closing the manager releases its health registration and stops its local
+// updates. The shared scheduler task stays registered for other managers.
 package factory

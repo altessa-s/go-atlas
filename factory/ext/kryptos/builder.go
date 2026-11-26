@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/altessa-s/go-horai/task"
 	"github.com/altessa-s/go-kryptos/manager"
@@ -17,10 +16,8 @@ import (
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/retry"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
-	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/observability/health"
 
-	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -44,12 +41,6 @@ var ErrProviderConfigMissing = errors.New("secrets provider configuration is mis
 // ProviderBuilder creates the configured provider for a manager of T secrets.
 type ProviderBuilder[T any] func(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[T], error)
 
-// UpdateScheduler registers and removes the factory's periodic secrets task.
-type UpdateScheduler interface {
-	task.Registrar
-	Unregister(context.Context, string) error
-}
-
 // ManagerBuilder assembles a [manager.Manager] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [ManagerBuilder.Build] time.
 // The builder is not safe for concurrent use.
@@ -63,7 +54,7 @@ type ManagerBuilder[T any] struct {
 	errs []error
 
 	// Dependencies
-	scheduler         UpdateScheduler
+	scheduler         task.Registrar
 	healthCoordinator health.ScopedReporter
 	providers         map[secretsconfig.Provider]ProviderBuilder[T]
 }
@@ -104,6 +95,9 @@ func (b *ManagerBuilder[T]) Build(ctx context.Context) (*manager.Manager[T], err
 // error path closes it; afterwards Manager.Close does. A Manager whose update
 // task the scheduler rejects is closed, which closes the provider too.
 func newManager[T any](ctx context.Context, b *ManagerBuilder[T], provider kryptos.Provider[T]) (*manager.Manager[T], error) {
+	if nilcheck.IsNil(provider) {
+		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "secrets provider is nil")
+	}
 	owned := &managedProvider[T]{Provider: provider}
 	mgr, err := manager.New[T](owned, managerOptions[T](b)...)
 	if err != nil {
@@ -111,7 +105,7 @@ func newManager[T any](ctx context.Context, b *ManagerBuilder[T], provider krypt
 		return nil, errors.Join(coreerrs.WrapOperation(err, "create secrets manager"), closeErr)
 	}
 
-	if err := registerUpdateTask(ctx, b, mgr, owned); err != nil {
+	if err := registerUpdateTask(ctx, b, mgr); err != nil {
 		return nil, errors.Join(err, mgr.Close(context.WithoutCancel(ctx)))
 	}
 
@@ -127,28 +121,19 @@ func newManager[T any](ctx context.Context, b *ManagerBuilder[T], provider krypt
 type managedProvider[T any] struct {
 	kryptos.Provider[T]
 	unregisterHealth func()
-	unregisterTask   func(context.Context) error
 }
 
 func (p *managedProvider[T]) Close(ctx context.Context) error {
 	if p.unregisterHealth != nil {
 		p.unregisterHealth()
 	}
-	if p.unregisterTask == nil {
-		return p.Provider.Close(ctx)
-	}
-
-	const unregisterTimeout = 5 * time.Second
-	cleanupCtx, cancel := corectx.WithMaxTimeout(context.WithoutCancel(ctx), unregisterTimeout)
-	defer cancel()
-	taskErr := p.unregisterTask(cleanupCtx)
-	return errors.Join(taskErr, p.Provider.Close(ctx))
+	return p.Provider.Close(ctx)
 }
 
 // registerUpdateTask schedules the Manager's update cycle when a scheduler is
 // set and the configuration has an update schedule. The memory provider is
 // the only source of its values, so it is never reconciled.
-func registerUpdateTask[T any](ctx context.Context, b *ManagerBuilder[T], mgr *manager.Manager[T], owner *managedProvider[T]) error {
+func registerUpdateTask[T any](ctx context.Context, b *ManagerBuilder[T], mgr *manager.Manager[T]) error {
 	scheduler := b.scheduler
 	if nilcheck.IsNil(scheduler) || b.cfg.UpdateSchedule == "" || b.cfg.Provider == secretsconfig.ProviderMemory {
 		return nil
@@ -156,20 +141,23 @@ func registerUpdateTask[T any](ctx context.Context, b *ManagerBuilder[T], mgr *m
 	err := scheduler.Register(ctx, task.Config{
 		ID:          UpdateTaskID,
 		Description: "Synchronize secrets cache with storage",
-		Func:        mgr.RunUpdateCycle,
-		Schedule:    b.cfg.UpdateSchedule,
-		RunOnStart:  b.cfg.RunOnStart,
-		Priority:    task.PriorityNormal,
+		Func: func(ctx context.Context) error {
+			err := mgr.RunUpdateCycle(ctx)
+			// The task ID is shared across replicas. Closing this manager
+			// stops its local work while leaving the persisted task intact.
+			if errors.Is(err, kryptos.ErrClosed) {
+				return nil
+			}
+			return err
+		},
+		Schedule:   b.cfg.UpdateSchedule,
+		RunOnStart: b.cfg.RunOnStart,
+		Priority:   task.PriorityNormal,
 	})
 	if err != nil {
 		return coreerrs.WrapOperation(err, "register secrets update cycle task")
 	}
-	owner.unregisterTask = func(ctx context.Context) error {
-		if err := scheduler.Unregister(ctx, UpdateTaskID); err != nil {
-			return diagnostics.ClassifiedError("unregister secrets update cycle task", err)
-		}
-		return nil
-	}
+
 	return nil
 }
 

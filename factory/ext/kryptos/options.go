@@ -7,6 +7,8 @@ package factory
 import (
 	"log/slog"
 
+	"github.com/altessa-s/go-horai/task"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -28,7 +30,7 @@ func (b *ManagerBuilder[T]) UseDefaultLogger() *ManagerBuilder[T] {
 }
 
 // UseScheduler sets the task scheduler for background processes.
-func (b *ManagerBuilder[T]) UseScheduler(v UpdateScheduler) *ManagerBuilder[T] {
+func (b *ManagerBuilder[T]) UseScheduler(v task.Registrar) *ManagerBuilder[T] {
 	b.scheduler = v
 	return b
 }

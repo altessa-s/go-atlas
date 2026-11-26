@@ -20,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 	kryptos "github.com/altessa-s/go-kryptos"
 	memoryprovider "github.com/altessa-s/go-kryptos/providers/memory"
@@ -137,13 +138,19 @@ func (p *observedProvider) Close(ctx context.Context) error {
 
 // recordingRegistrar records registered tasks, failing them with err.
 type recordingRegistrar struct {
-	err     error
-	tasks   []task.Config
-	removed []string
+	err    error
+	tasks  []task.Config
+	active map[string]task.Config
 }
 
 func (r *recordingRegistrar) Register(_ context.Context, cfg task.Config) error {
 	r.tasks = append(r.tasks, cfg)
+	if r.err == nil {
+		if r.active == nil {
+			r.active = make(map[string]task.Config)
+		}
+		r.active[cfg.ID] = cfg
+	}
 	return r.err
 }
 
@@ -208,11 +215,11 @@ const (
 )
 
 func (r *recordingRegistrar) Unregister(_ context.Context, id string) error {
-	r.removed = append(r.removed, id)
+	delete(r.active, id)
 	return nil
 }
 
-func TestManagerCloseRemovesHealthCheckAndUpdateTask(t *testing.T) {
+func TestManagerClosePreservesReplacementUpdateTask(t *testing.T) {
 	t.Parallel()
 	cfg := secretsconfig.Default()
 	cfg.Provider = secretsconfig.ProviderVault
@@ -225,8 +232,35 @@ func TestManagerCloseRemovesHealthCheckAndUpdateTask(t *testing.T) {
 	require.Contains(t, slices.Collect(coord.ListServices()), HealthServiceName)
 	require.Len(t, scheduler.tasks, 1)
 
+	replacement, err := newManager(t.Context(), b, newObservedProvider(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, replacement.Close(context.WithoutCancel(t.Context()))) })
+
 	require.NoError(t, mgr.Close(t.Context()))
 	require.NoError(t, mgr.Close(t.Context()))
+	require.Contains(t, slices.Collect(coord.ListServices()), HealthServiceName)
+	require.Contains(t, scheduler.active, UpdateTaskID)
+	require.NoError(t, scheduler.active[UpdateTaskID].Func(t.Context()))
+
+	require.NoError(t, replacement.Close(t.Context()))
 	require.Empty(t, slices.Collect(coord.ListServices()))
-	require.Equal(t, []string{UpdateTaskID}, scheduler.removed)
+	require.Contains(t, scheduler.active, UpdateTaskID)
+	require.NoError(t, scheduler.active[UpdateTaskID].Func(t.Context()))
+
+}
+
+func TestBuildRejectsNilProvider(t *testing.T) {
+	t.Parallel()
+	for name, provider := range map[string]kryptos.Provider[string]{"nil": nil, "typed nil": (*observedProvider)(nil)} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := secretsconfig.Default()
+			cfg.Provider = secretsconfig.ProviderVault
+			mgr, err := New[string](&cfg).UseProvider(cfg.Provider, func(context.Context, *secretsconfig.Config) (kryptos.Provider[string], error) {
+				return provider, nil
+			}).Build(t.Context())
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.Nil(t, mgr)
+		})
+	}
 }
