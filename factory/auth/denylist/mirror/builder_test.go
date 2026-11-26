@@ -52,16 +52,8 @@ func (s *source) StreamValues(context.Context) iter.Seq2[string, error] {
 
 type registrar struct {
 	mu    sync.Mutex
-	tasks   []schedtask.Config
-	removed []string
-	err     error
-}
-
-func (r *registrar) Unregister(_ context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.removed = append(r.removed, id)
-	return nil
+	tasks []schedtask.Config
+	err   error
 }
 
 func (r *registrar) Register(_ context.Context, cfg schedtask.Config) error {
@@ -245,7 +237,7 @@ func TestBuildRejectsStalenessShorterThanRefresh(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestManagedCloseReleasesHealthAndTask(t *testing.T) {
+func TestManagedCloseReleasesHealthAndNeutralizesTask(t *testing.T) {
 	t.Parallel()
 
 	reg := &registrar{}
@@ -266,7 +258,6 @@ func TestManagedCloseReleasesHealthAndTask(t *testing.T) {
 	services := slices.Collect(coordinator.ListServices())
 	require.NotContains(t, services, name)
 	require.Contains(t, services, factory.DefaultHealthServiceName+".other")
-	require.Equal(t, []string{factory.RefreshTaskID + "-t"}, reg.removed)
 
 	// A refresh still queued in the scheduler does nothing after Close.
 	require.NoError(t, reg.tasks[1].Func(t.Context()))

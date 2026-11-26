@@ -30,7 +30,7 @@ verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
 | `Build` priming       | One synchronous refresh with the build context, bounded by the prime timeout. A source error fails `Build` (matchable with `errors.Is`).                    |
 | Refresh task          | Task `denylist-mirror-refresh-<name>` (default `@every 30s`, 20 s timeout) registered with the scheduler; `Build` fails without one. Each mirror needs its own name (`UseName`; unnamed mirrors are numbered) because a scheduler replaces a task registered under an existing ID. |
 | Health checker        | Service `denylist.mirror.<name>`: Serving while `cache.Ready()`, NotServing while unprimed or older than the maximum staleness.      |
-| `Close`               | `Build` returns a `*Managed` (the `mirror.Cache` plus its registrations). `Close` makes the refresh task a no-op, removes it from a scheduler that has `Unregister(ctx, id) error` (the go-horai scheduler) and releases the scoped health registration. Safe to repeat. |
+| `Close`               | `Build` returns a `*Managed` (the `mirror.Cache` plus its registrations). `Close` makes the refresh task a no-op (it stays registered but inert, because a named mirror shares its task ID across replicas) and releases the scoped health registration. Safe to repeat. |
 | Unavailable           | `cache.IsRevoked` returns `jwt.ErrRevocationUnavailable`; verifiers reject the token, distinct from `jwt.ErrTokenRevoked`.    |
 | `UseInsecureServeUnprimed` | Opt-out: `Build` survives a priming failure and the cache answers "not revoked" until a refresh succeeds.            |
 

@@ -17,8 +17,8 @@
 // service ([Builder.UseName]) because a scheduler replaces a task registered
 // under an existing ID; the maximum staleness must not be shorter than an
 // "@every" refresh interval, and is off by default. [Builder.Build] returns a
-// [Managed] mirror; its Close stops the refresh task, removes it from a
-// scheduler that supports removal and releases the health registration.
+// [Managed] mirror; its Close makes the refresh task a no-op, leaving
+// it registered but inert, and releases the health registration.
 //
 //	cache, err := factory.NewBuilder(store.RawSource()).
 //	    UseScheduler(scheduler).

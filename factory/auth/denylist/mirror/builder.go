@@ -80,26 +80,17 @@ type Managed struct {
 	*mirror.Cache
 	closed           *atomic.Bool
 	unregisterHealth func()
-	unregisterTask   func()
 }
 
-// Close stops the refresh task, removes it from a scheduler that supports
-// removal and releases the health registration. The cache itself holds no
-// resources and keeps answering. It is safe to call repeatedly.
+// Close makes the refresh task a no-op and releases the health registration.
+// The task stays registered but inert: a named mirror shares its task ID across
+// replicas, so removing it here would stop refreshes everywhere. The cache
+// itself holds no resources and keeps answering. It is safe to call repeatedly.
 func (m *Managed) Close() {
 	m.closed.Store(true)
-	if m.unregisterTask != nil {
-		m.unregisterTask()
-	}
 	if m.unregisterHealth != nil {
 		m.unregisterHealth()
 	}
-}
-
-// taskRemover is implemented by schedulers that can remove a registered task,
-// such as the go-horai scheduler.
-type taskRemover interface {
-	Unregister(ctx context.Context, id string) error
 }
 
 // Build validates the dependencies, creates the cache, primes it with ctx,
@@ -156,14 +147,6 @@ func (b *Builder) Build(ctx context.Context) (*Managed, error) {
 	}
 
 	managed := &Managed{Cache: cache, closed: &closed}
-	if remover, ok := b.scheduler.(taskRemover); ok {
-		managed.unregisterTask = sync.OnceFunc(func() {
-			// Close has no error to return and the task is already inert.
-			if err := remover.Unregister(context.WithoutCancel(ctx), taskID); err != nil {
-				b.Logger().Warn("denylist mirror: unregister refresh task failed", slog.String("task", taskID))
-			}
-		})
-	}
 	if !nilcheck.IsNil(b.health) {
 		managed.unregisterHealth = sync.OnceFunc(health.RegisterOwnedChecker(b.health, healthName,
 			health.Func(func(context.Context) health.ServingStatus {

@@ -160,7 +160,7 @@ cache, err := mirrorfactory.NewBuilder(store.RawSource()).
 if err != nil {
     return err
 }
-defer cache.Close()                // stops the refresh task and releases the health registration
+defer cache.Close()                // makes the refresh task inert and releases the health registration
 verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
 ```
 
