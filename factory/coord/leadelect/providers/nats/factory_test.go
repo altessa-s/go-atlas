@@ -58,11 +58,11 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 		}
 	}
 
-	_, err = newBuilder(cfg(false), nc).Build(t.Context())
+	_, err = newBuilder(cfg(false), nc).WithNodeId("node").Build(t.Context())
 	require.ErrorIs(t, err, lenats.ErrBucketTTLMismatch)
 	require.Equal(t, time.Minute, natstest.KVBucketTTL(t, js, bucket), "a rejected build changed the bucket's TTL")
 
-	leader, err := newBuilder(cfg(true), nc).Build(t.Context())
+	leader, err := newBuilder(cfg(true), nc).WithNodeId("node").Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, leader)
 	require.Equal(t, lenats.DefaultBucketKeysTTL, natstest.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
@@ -83,7 +83,7 @@ func TestBuilder_Storage(t *testing.T) {
 				Provider: lockconfig.LeaderElectorProviderNATS,
 				Ttl:      10 * time.Second,
 				Storage:  storage,
-			}, nc).Build(t.Context())
+			}, nc).WithNodeId("node").Build(t.Context())
 			require.NoError(t, err)
 
 			want := jetstream.MemoryStorage
@@ -127,6 +127,6 @@ func TestBuilder_RequiresConnection(t *testing.T) {
 	_, err := factory.Builder(nil)(t.Context(), &lockconfig.LeaderElector{Ttl: time.Second}, slog.New(slog.DiscardHandler), nil)
 	require.ErrorIs(t, err, factory.ErrClientRequired)
 
-	_, err = newBuilder(&lockconfig.LeaderElector{Ttl: time.Second}, nil).Build(t.Context())
+	_, err = newBuilder(&lockconfig.LeaderElector{Ttl: time.Second}, nil).WithNodeId("node").Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrClientRequired)
 }
