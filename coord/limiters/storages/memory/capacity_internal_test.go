@@ -105,30 +105,24 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		free func(t *testing.T, p *Provider)
+		free func(t *testing.T, p *Provider, clock *clock.Fake)
 	}{
-		{name: "expired window", free: func(_ *testing.T, p *Provider) {
-			sh := p.shardFor("old")
-			sh.mu.Lock()
-			defer sh.mu.Unlock()
-			b := sh.buckets["old"]
-			b.requests[0] = time.Now().Add(-2 * time.Hour)
-			p.refreshExpiry(sh, b)
+		{name: "expired window", free: func(_ *testing.T, _ *Provider, fake *clock.Fake) {
+			fake.Advance(2 * time.Hour)
 		}},
-		{name: "reset window", free: func(t *testing.T, p *Provider) { require.NoError(t, p.Reset(t.Context(), "old")) }},
-		{name: "idle cleanup", free: func(_ *testing.T, p *Provider) {
-			sh := p.shardFor("old")
-			sh.mu.Lock()
-			sh.buckets["old"].lastUsed = time.Now().Add(-2 * time.Hour)
-			sh.mu.Unlock()
+		{name: "reset window", free: func(t *testing.T, p *Provider, _ *clock.Fake) { require.NoError(t, p.Reset(t.Context(), "old")) }},
+		{name: "idle cleanup", free: func(t *testing.T, p *Provider, fake *clock.Fake) {
+			fake.Advance(2 * time.Hour)
 			p.RunCleanup()
+			require.False(t, p.tracked("old"))
 		}},
 	}
 	for _, shards := range testShardCounts {
 		for _, tc := range tests {
 			t.Run(tc.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
-				p := New(WithMaxBuckets(1), WithShards(shards), WithEviction(EvictionReject), WithMaxIdleTime(time.Hour))
+				fake := clock.NewFake(time.Now())
+				p := New(WithMaxBuckets(1), WithShards(shards), WithEviction(EvictionReject), WithMaxIdleTime(time.Hour), WithClock(fake))
 				ctx := t.Context()
 				// Keep the initial window live regardless of scheduler delays;
 				// free transitions its state only after the capacity assertion.
@@ -137,7 +131,7 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 				_, err = p.Allow(ctx, "new", 1, time.Hour)
 				require.ErrorIs(t, err, ErrCapacityExceeded)
 
-				tc.free(t, p)
+				tc.free(t, p, fake)
 				_, err = p.Allow(ctx, "new", 1, time.Hour)
 				require.NoError(t, err)
 				require.Equal(t, 1, p.total(t))

@@ -6,7 +6,7 @@ import "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 
 Package `memory` provides an in-memory sliding-window rate limit storage backend for the tokenbucket limiter. Suitable for single-instance
 deployments,
-tests, and local development. Idle buckets are removed by `RunCleanup`, called manually or scheduled via `WithScheduler` and `WithCleanupSchedule`.
+tests, and local development. Idle buckets whose windows have expired are removed by `RunCleanup`, called manually or scheduled via `WithScheduler` and `WithCleanupSchedule`.
 
 ## Options
 
@@ -14,7 +14,7 @@ tests, and local development. Idle buckets are removed by `RunCleanup`, called m
 |-----------------------|-----------------------------------|-----------------------------------------------------------|
 | `WithMaxBuckets`      | `DefaultMaxBuckets`               | Global cap on tracked keys; see [Capacity](#capacity)     |
 | `WithEviction`        | `DefaultEviction` (`EvictionLRU`) | What a new key gets at the cap once no window has expired |
-| `WithMaxIdleTime`     | `DefaultMaxIdleTime`              | Idle time after which cleanup removes a bucket            |
+| `WithMaxIdleTime`     | `DefaultMaxIdleTime`              | Minimum idle time for cleanup of an expired bucket            |
 | `WithShards`          | `DefaultShards` (1)               | Independently locked key shards; see below                |
 | `WithCleanupSchedule` | —                                 | Cron schedule for cleanup when a scheduler is set         |
 | `WithScheduler`       | —                                 | Task registrar that runs cleanup                          |

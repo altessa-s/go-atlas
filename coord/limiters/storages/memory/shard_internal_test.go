@@ -263,19 +263,22 @@ func TestProvider_RunCleanupRemovesIdleKeepsTouched(t *testing.T) {
 			fake := clock.NewFake(time.Now())
 			p := New(WithMaxBuckets(maxBuckets), WithMaxIdleTime(20*time.Millisecond), WithShards(shards), WithClock(fake))
 			ctx := t.Context()
-			for i := range maxBuckets {
-				_, err := p.Allow(ctx, "idle-"+strconv.Itoa(i), 10, time.Minute)
+			_, err := p.Allow(ctx, "live-idle", 1, time.Hour)
+			require.NoError(t, err)
+			for i := range maxBuckets - 1 {
+				_, err := p.Allow(ctx, "idle-"+strconv.Itoa(i), 10, 20*time.Millisecond)
 				require.NoError(t, err)
 			}
 			fake.Advance(40 * time.Millisecond)
-			_, err := p.Allow(ctx, "idle-0", 10, time.Minute)
+			_, err = p.Allow(ctx, "idle-0", 10, time.Minute)
 			require.NoError(t, err)
 
 			p.RunCleanup()
-			require.Equal(t, 1, p.total(t))
+			require.Equal(t, 2, p.total(t))
+			require.True(t, p.tracked("live-idle"))
 			require.True(t, p.tracked("idle-0"))
 
-			for i := range maxBuckets - 1 {
+			for i := range maxBuckets - 2 {
 				_, err := p.Allow(ctx, "fresh-"+strconv.Itoa(i), 10, time.Minute)
 				require.NoError(t, err)
 			}
