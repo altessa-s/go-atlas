@@ -29,7 +29,7 @@ func TestReadFlightResultsAreIndependent(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
 				doc := bson.D{{Key: "name", Value: "original"}, {Key: "tags", Value: bson.M{"old": 1}}}
-				m, db, entered, release, finds := gatedRepository(t, cursorBatchReply("db.items", doc))
+				m, db, entered, release, finds := gatedRepository(t, true, cursorBatchReply("db.items", doc))
 				coll := db.Collection("items")
 				read := func() ([]*flightModel, error) {
 					if many {
@@ -83,7 +83,7 @@ func TestReadFlightConvertsPerCallerWithCollectionCodec(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		doc := bson.D{{Key: "day", Value: "2024-01-01"}}
-		m, db, entered, release, finds := gatedRepository(t, cursorBatchReply("db.items", doc))
+		m, db, entered, release, finds := gatedRepository(t, true, cursorBatchReply("db.items", doc))
 		reg := bsoncodec.NewRegistry()
 		coll := db.Collection("items", options.Collection().SetRegistry(reg))
 		encoding := FilterEncoding{Registry: reg, BSONOptions: &options.BSONOptions{UseJSONStructTags: true}}
@@ -108,7 +108,7 @@ func TestReadFlightSeparatesCollectionHandles(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		doc := bson.D{{Key: "name", Value: "value"}}
-		m, db, entered, release, finds := gatedRepository(t, cursorBatchReply("db.items", doc), cursorBatchReply("db.items", doc))
+		m, db, entered, release, finds := gatedRepository(t, true, cursorBatchReply("db.items", doc), cursorBatchReply("db.items", doc))
 		secondary := db.Collection("items", options.Collection().SetReadPreference(readpref.Secondary()))
 		primary := db.Collection("items", options.Collection().SetReadPreference(readpref.Primary()))
 		a := beginRead(func() (flightModel, error) {

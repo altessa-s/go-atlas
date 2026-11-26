@@ -172,7 +172,7 @@ func TestPreparedEntityDeduplication(t *testing.T) {
 					<-release
 				}
 			}, bson.A{bson.M{"name": "alice"}})
-			m, err := New("testdb")
+			m, err := New("testdb", WithReadDeduplication())
 			require.NoError(t, err)
 			encoding := FilterEncoding{Registry: bson.NewRegistry()}
 			result := make(chan error, 2)

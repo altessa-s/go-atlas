@@ -60,6 +60,10 @@ pre-built `bson.Raw`. For a scalar struct codec, call `bsonfilter.AdmitScalar` o
 Older tokens issued with a different map key order return `pagetoken.ErrFilterChanged`. Restart those reads from the first page.
 The decimal codec now rejects coefficients over 4096 bits. See the [keyset migration notes](store/mongo/keyset/README.md#migrating-keyset-filters).
 
+MongoDB repository reads now issue independent queries by default. Pass `mongo.WithReadDeduplication()` to opt into
+[sharing in-flight queries](store/mongo/README.md#read-deduplication-and-tenant-isolation).
+MongoDB migrations can register [cleanup for a failed up step](store/mongo/migrations/README.md#cleanup-after-a-failed-step).
+
 ## Package Overview
 
 | Package                                                                             | Description                                                                                                                                                         |

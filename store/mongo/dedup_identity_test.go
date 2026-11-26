@@ -44,10 +44,10 @@ func TestDeduplicationIdentity(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				first := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "first"}})
 				second := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "second"}})
-				_, db, entered, release, finds := gatedRepository(t, first, second)
+				_, db, entered, release, finds := gatedRepository(t, false, first, second)
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
-				m, err := New("db", WithClient(db.Client()), WithDeduplicationIdentity(tt.identity))
+				m, err := New("db", WithClient(db.Client()), WithReadDeduplication(), WithDeduplicationIdentity(tt.identity))
 				require.NoError(t, err)
 				coll := db.Collection("items")
 				encoding := FilterEncoding{Registry: bson.NewRegistry()}

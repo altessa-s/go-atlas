@@ -147,15 +147,20 @@ type config struct {
 	//
 	// Successive calls accumulate options in registration order.
 	ConverterOptions []converter.Option `opt:"ConverterOptions" optgen:"append"`
+	// WithReadDeduplication enables sharing eligible concurrent GetEntity and
+	// GetEntities queries. By default each caller issues its own query.
+	readDeduplication bool
+
 	// WithDeduplicationIdentity sets a function that derives a per-context identity
 	// segment (typically tenant/subject) mixed into the GetEntity/GetEntities
 	// singleflight deduplication key. This prevents two callers with the same filter
 	// but different identities from collapsing onto one another's in-flight query.
+	// It applies only with [WithReadDeduplication].
 	//
 	// Returning "" from fn disables prefixing for that call, so existing callers are
 	// unaffected when no identity func is configured.
 	//
-	//	m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+	//	m, _ := mongo.New("app", mongo.WithReadDeduplication(), mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
 	//		p, _ := principal.FromContext(ctx) // zero Principal when unauthenticated
 	//		return p.Tenant
 	//	}))

@@ -91,16 +91,6 @@ func (r *repository) deduplicationKey(ctx context.Context, col *mongo.Collection
 	return key
 }
 
-func (r *repository) deduplicate(
-	ctx context.Context, key readFlightKey, fresh bool, read func(context.Context) ([]bson.Raw, error),
-) ([]bson.Raw, error) {
-	// A session's reads must use its snapshot and cannot share uncommitted data.
-	if fresh || ctx.Value(freshReadKey{}) != nil || mongo.SessionFromContext(ctx) != nil {
-		return read(ctx)
-	}
-	return r.singleFlight.Do(ctx, key, read)
-}
-
 // readQuery visits a document while its bytes and driver decoder are valid.
 func readQuery(ctx context.Context, col *mongo.Collection, filter bson.Raw, single bool, visit func(bson.Raw, func(any) error) error) error {
 	queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
@@ -186,19 +176,27 @@ func readRepository[T, E any](
 		return waitForRead(ctx, read)
 	}
 
-	operation := "find"
-	if single {
-		operation = "find_one"
-	}
-	key := m.repo.deduplicationKey(ctx, col, reflect.TypeFor[T](), operation, filter)
-	docs, err := m.repo.deduplicate(ctx, key, encoding.FreshRead, func(workCtx context.Context) ([]bson.Raw, error) {
+	read := func(workCtx context.Context) ([]bson.Raw, error) {
 		var docs []bson.Raw
 		err := readQuery(workCtx, col, filter, single, func(raw bson.Raw, _ func(any) error) error {
 			docs = append(docs, slices.Clone(raw))
 			return nil
 		})
 		return docs, err
-	})
+	}
+	var docs []bson.Raw
+	var err error
+	// A session's reads must use its snapshot and cannot share uncommitted data.
+	if m.repo.singleFlight != nil && !encoding.FreshRead && ctx.Value(freshReadKey{}) == nil && mongo.SessionFromContext(ctx) == nil {
+		operation := "find"
+		if single {
+			operation = "find_one"
+		}
+		key := m.repo.deduplicationKey(ctx, col, reflect.TypeFor[T](), operation, filter)
+		docs, err = m.repo.singleFlight.Do(ctx, key, read)
+	} else {
+		docs, err = read(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +300,8 @@ func sharedConverter[T any](r *repository) *converter.Converter[T, any] {
 
 // GetEntity retrieves a single entity from MongoDB by converting a document model to domain entity.
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
-// Concurrent reads may share a query started before the caller's own write.
-// Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
+// With [WithReadDeduplication], a read may join a query started before the caller's
+// own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] to issue an independent query.
 // Each read decodes and converts its own result. Reuse col across requests to
 // deduplicate queries. For database or collection codec overrides, provide
 // FilterEncoding. Borrowed handles use driver decoding and independent queries
@@ -315,7 +313,7 @@ func sharedConverter[T any](r *repository) *converter.Converter[T, any] {
 //
 // Parameters:
 //   - ctx: Context for controlling query timeout and cancellation
-//   - m: Mongo client instance containing singleflight for deduplication
+//   - m: Mongo client instance
 //   - col: MongoDB collection to query
 //   - filter: BSON filter criteria for finding the document
 //
@@ -351,8 +349,8 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 
 // GetEntities retrieves multiple entities from MongoDB by converting document models to domain entities.
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
-// Concurrent reads may share a query started before the caller's own write.
-// Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
+// With [WithReadDeduplication], a read may join a query started before the caller's
+// own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] to issue an independent query.
 // Each read decodes and converts its own result. Reuse col across requests to
 // deduplicate queries. For database or collection codec overrides, provide
 // FilterEncoding. Borrowed handles use driver decoding and independent queries
@@ -364,7 +362,7 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 //
 // Parameters:
 //   - ctx: Context for controlling query timeout and cancellation
-//   - m: Mongo client instance containing singleflight for deduplication
+//   - m: Mongo client instance
 //   - col: MongoDB collection to query
 //   - filter: BSON filter criteria for finding documents
 //

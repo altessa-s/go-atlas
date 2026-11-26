@@ -92,12 +92,14 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		},
 		repo: repository{
 			metrics:       metrics,
-			singleFlight:  singleflight.New[readFlightKey, []bson.Raw](),
 			dedupIdentity: cfg.dedupIdentity,
 			converterOpts: append([]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)}, cfg.ConverterOptions...),
 		},
 		encryption: fieldEncryption{registry: registry},
 		schema:     schemaSetup{registry: cfg.migrationRegistry, rollbackOnFailure: cfg.RollbackMigrationsOnFailure, logger: cfg.Logger},
+	}
+	if cfg.readDeduplication {
+		m.repo.singleFlight = singleflight.New[readFlightKey, []bson.Raw]()
 	}
 
 	encryptedFields, err := mongodocument.New(cfg.EncryptionTagName, cfg.EncryptionModels, m.encryption.encryptDocumentField)

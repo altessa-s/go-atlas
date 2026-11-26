@@ -16,7 +16,7 @@ import (
 // the identity comes from a request-scoped value.
 func ExampleWithDeduplicationIdentity() {
 	type tenantKey struct{}
-	m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+	m, _ := mongo.New("app", mongo.WithReadDeduplication(), mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
 		tenant, _ := ctx.Value(tenantKey{}).(string)
 		return tenant
 	}))

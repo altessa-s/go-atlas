@@ -2,6 +2,8 @@
 # Defines settings for connecting to and authenticating with MongoDB database.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
+# Repository read deduplication defaults to off. Enable it in Go with mongo.WithReadDeduplication().
+# Register migration cleanup handlers in Go with migrations.WithCleanupOnFailure().
 
 #mongodb:
 #  # <list[string]> The host addresses where MongoDB instances are running.

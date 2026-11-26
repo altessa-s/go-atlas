@@ -47,7 +47,7 @@ func readValue[T any](t *testing.T, read <-chan flightRead[T]) T {
 	return result.value
 }
 
-func gatedRepository(t *testing.T, replies ...bson.D) (*Mongo, *mongo.Database, <-chan struct{}, chan<- struct{}, *atomic.Int32) {
+func gatedRepository(t *testing.T, deduplicate bool, replies ...bson.D) (*Mongo, *mongo.Database, <-chan struct{}, chan<- struct{}, *atomic.Int32) {
 	t.Helper()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var finds atomic.Int32
@@ -60,7 +60,11 @@ func gatedRepository(t *testing.T, replies ...bson.D) (*Mongo, *mongo.Database, 
 	}})
 	coll := dedupTestCollection(t, opts, replies...)
 	db := coll.Database()
-	m, err := New("db", WithClient(db.Client()))
+	mongoOpts := []Option{WithClient(db.Client())}
+	if deduplicate {
+		mongoOpts = []Option{WithClient(db.Client()), WithReadDeduplication()}
+	}
+	m, err := New("db", mongoOpts...)
 	require.NoError(t, err)
 	return m, db, entered, release, &finds
 }
@@ -98,7 +102,7 @@ func TestReadFlightCancellationDuringDecode(t *testing.T) {
 	defer timer.Stop()
 	synctest.Test(t, func(t *testing.T) {
 		doc := bson.D{{Key: "name", Value: "value"}}
-		m, db, entered, release, finds := gatedRepository(t, cursorBatchReply("db.items", doc, doc))
+		m, db, entered, release, finds := gatedRepository(t, true, cursorBatchReply("db.items", doc, doc))
 		decoderStarted, decoderRelease := make(chan struct{}, 4), make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(decoderRelease) })
 		defer unblock()
@@ -171,7 +175,7 @@ func TestRepositoryEmptyResults(t *testing.T) {
 			t.Parallel()
 			empty := cursorBatchReply("db.items")
 			coll := dedupTestCollection(t, options.Client(), empty, empty)
-			m, err := New("db", WithClient(coll.Database().Client()))
+			m, err := New("db", WithClient(coll.Database().Client()), WithReadDeduplication())
 			require.NoError(t, err)
 			_, err = GetEntity[flightModel, flightModel](t.Context(), m, coll, bson.D{}, tt.settings...)
 			require.Equal(t, mongo.ErrNoDocuments, err)
