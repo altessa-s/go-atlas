@@ -313,25 +313,26 @@ after evaluating handler runtime + upstream retry window.
 
 ## Orphan-lock reclaim
 
-The other classic bug: a holder crashes between `AttemptLock` and `Complete`/`Release`. The InProgress entry sits in storage until the bucket
-TTL fires (default 24h), and every retry sees "in progress" even though no one is processing.
+If a holder crashes before calling `Complete` or `Release`, the lock remains until its TTL expires or a retry takes it over.
+On a collision with an in-progress record owned by the caller, the Keeper can call `Steal` with the observed bytes, replacement bytes,
+the resolved `MaxLockDuration`, and the contender's `LockTTL`. A Keeper skips that attempt when its own acquisition stamp shows the
+lock is still fresh. For Redis, MongoDB, SQL, and memory, the store stamps acquisition and decides whether the lock's age strictly
+exceeds the threshold. A positive lock TTL applies to the replacement, and a nonpositive TTL uses the store default.
 
-Every InProgress wire embeds a `LockedAt` timestamp. On `AttemptLock` collision, if the existing entry has `Status == InProgress` and is
-older than the resolved `MaxLockDuration`, the Keeper calls the storage layer's `Steal` primitive to atomically replace the orphan with a
-fresh wire — and the new holder gets a fresh CAS token.
+`Steal` returns `(stolen, current, token, err)`. A successful takeover returns `stolen=true` and a fresh ownership token. A refusal returns
+the live value in `current` when the key still exists and leaves `token` nil. The Keeper checks the returned record before exposing the
+state to the caller. After takeover, the previous holder's token fails with `storages.ErrLockStolen` on completion or release.
 
-The crashed holder's stale `Complete` then surfaces `storages.ErrLockStolen` (its CAS token is no longer current), so callers see the normal "we lost
-the race" path and skip writing.
+| Backend | Age and replacement |
+|---------|---------------------|
+| memory  | The configured clock supplies age. A mutex protects the live-lock, byte comparison, and replacement. |
+| redis   | Lua uses Redis `TIME` and checks the live lock and expected bytes before replacing it with the contender's TTL. |
+| nats    | The Keeper checks the wire timestamp and passes a zero age threshold. KV requires a live lock and uses its revision to guard replacement. |
+| mongo   | A conditional update checks the live lock, expected bytes, and age using the server's `$$NOW`. |
+| sqldb   | A conditional update checks the live lock, expected bytes, and age using the database statement clock. |
 
-Per-backend Steal mechanism:
-
-| Backend | Mechanism                                                                                               |
-|---------|---------------------------------------------------------------------------------------------------------|
-| memory  | mutex + `bytes.Equal` + replace                                                                         |
-| redis   | Lua script: `GET == expectedVal ? SET PX ttl : ErrLockStolen`                                           |
-| nats    | `kv.Get` → `bytes.Equal` → `kv.Update(key, val, revision)` (revision check protects the Get/Update gap) |
-| mongo   | `UpdateOne` filtered on the stored bytes                                                                |
-| sqldb   | Conditional SQL `UPDATE` comparing live stored bytes on expired `LockedAt`                              |
+**Synchronize the clocks of all Keeper instances that share a NATS bucket.** A wrapper around NATS storage must forward
+`storages.KeeperClockStorage` to preserve takeover. Without it, the Keeper supplies a positive threshold that NATS refuses.
 
 Tune via:
 
@@ -341,8 +342,7 @@ Tune via:
 | `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)                           |
 | `WithMaxLockDuration(d)` with `d <= 0`  | Ignored — `New` falls back to `5m`; reclaim cannot be disabled through the public API |
 
-Reclaim only triggers on the *next* `AttemptLock` collision; there's no background sweeper. If no caller retries the key, the entry remains
-until the bucket TTL fires (which is the original failure mode without this feature).
+Reclaim runs on an `AttemptLock` collision. Without a retry, the lock remains until its TTL expires.
 
 ---
 

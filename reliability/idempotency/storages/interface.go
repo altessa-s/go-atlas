@@ -52,6 +52,7 @@ type Storage interface {
 // KeeperClockStorage is implemented by stores that delegate the lock-age
 // check to the Keeper. The Keeper passes a zero maxLockAge after checking
 // the wire timestamp. Those stores require synchronized Keeper clocks.
+// A storage wrapper must forward this interface to keep takeover enabled.
 type KeeperClockStorage interface {
 	UsesKeeperClock() bool
 }

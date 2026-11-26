@@ -86,6 +86,9 @@
 // [ErrUnknownOutcome]. Without a detector, the Committer must report an explicit
 // abort as an error. Bodies must leave transaction completion to the Committer.
 //
+// Panicking post-commit effects report [ErrCallbackPanicked]. Callback
+// recovery logs a fixed panic class and a stack trace.
+//
 // # Usage
 //
 //	runner := uow.New(mongo, logger,

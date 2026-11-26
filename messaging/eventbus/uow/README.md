@@ -49,6 +49,8 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | `ErrScopeClosed`        | ctx carries a unit that ended: retained after `Run` returned, or of an attempt the driver aborted and retried   |
 | `ErrUnknownOutcome`     | Matched by `*UnknownOutcomeError`; the writes may or may not have committed                                       |
 
+Effects that panic return an error matching `ErrCallbackPanicked`. Callback recovery records a stack trace and a fixed panic class.
+
 ## Semantics
 
 | Situation                                        | Behavior                                                                                                    |
