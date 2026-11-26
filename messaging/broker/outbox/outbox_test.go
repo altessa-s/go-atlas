@@ -278,6 +278,8 @@ func TestDispatch_ClosedConnectionLeavesEventRetryable(t *testing.T) {
 	require.Equal(t, dataoutbox.StatusFailed, written[0].Status)
 	require.Zero(t, written[0].Attempts)
 	require.Positive(t, written[0].RetryAfter)
+	require.NotNil(t, written[0].LastError)
+	require.Equal(t, dataoutbox.ErrDispatchInterrupted.Error()+": "+pub.err.Error(), *written[0].LastError)
 
 	pub.err = nil
 	store.served = false
@@ -319,6 +321,7 @@ func TestDispatch_ClosedConnectionStopsNewSends(t *testing.T) {
 			t.Fatalf("dispatch finished before filling the worker pool: %v", err)
 		}
 	}
+	// Each interrupted worker stops admissions before Process checks for more work.
 	close(release)
 	require.NoError(t, <-done)
 	require.Empty(t, started)

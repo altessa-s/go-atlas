@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -162,7 +163,7 @@ func (bp brokerPayload) publish(ctx context.Context, publisher Publisher, event 
 		Topic:    event.Key,
 	})
 	if errors.Is(err, broker.ErrConnectionClosed) && !errors.Is(err, ErrUndeliverable) {
-		return errors.Join(outbox.ErrDispatchInterrupted, err)
+		return fmt.Errorf("%w: %w", outbox.ErrDispatchInterrupted, err)
 	}
 	return err
 }
