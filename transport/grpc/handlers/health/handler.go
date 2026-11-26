@@ -66,7 +66,7 @@ func (h *Handler) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequ
 func (h *Handler) List(ctx context.Context, _ *grpc_health_v1.HealthListRequest) (*grpc_health_v1.HealthListResponse, error) {
 	statuses, err := h.coordinator.ListStatuses(ctx)
 	if err != nil {
-		return nil, err
+		return nil, listError(err)
 	}
 
 	resp := &grpc_health_v1.HealthListResponse{Statuses: make(map[string]*grpc_health_v1.HealthCheckResponse, len(statuses))}
@@ -123,15 +123,19 @@ func (h *Handler) Watch(req *grpc_health_v1.HealthCheckRequest, stream stdGrpc.S
 	}
 }
 
+// listError maps a [HealthWatcher.ListStatuses] failure to a sanitized gRPC status.
+func listError(err error) error {
+	if errors.Is(err, health.ErrCoordinatorShutdown) {
+		return status.Error(codes.Unavailable, "health coordinator is shut down")
+	}
+	return status.Error(codes.Internal, "internal error")
+}
+
 // subscribeError maps a [HealthWatcher.Subscribe] failure to a gRPC
 // status.
 func subscribeError(err error, service string) error {
-	switch {
-	case errors.Is(err, health.ErrWatcherLimitExceeded):
+	if errors.Is(err, health.ErrWatcherLimitExceeded) {
 		return status.Errorf(codes.ResourceExhausted, "too many watchers for service: %s", service)
-	case errors.Is(err, health.ErrCoordinatorShutdown):
-		return status.Error(codes.Unavailable, "health coordinator is shut down")
-	default:
-		return status.Error(codes.Internal, "internal error")
 	}
+	return listError(err)
 }
