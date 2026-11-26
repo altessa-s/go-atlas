@@ -156,3 +156,29 @@ func TestReadFlightCancellationDuringDecode(t *testing.T) {
 		require.LessOrEqual(t, calls.Load(), int32(3), "canceled reader must skip the remaining document")
 	})
 }
+
+func TestRepositoryEmptyResults(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		settings []FilterEncoding
+	}{
+		{name: "borrowed"},
+		{name: "shared", settings: []FilterEncoding{{Registry: bson.NewRegistry()}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			empty := cursorBatchReply("db.items")
+			coll := dedupTestCollection(t, options.Client(), empty, empty)
+			m, err := New("db", WithClient(coll.Database().Client()))
+			require.NoError(t, err)
+			_, err = GetEntity[flightModel, flightModel](t.Context(), m, coll, bson.D{}, tt.settings...)
+			require.Equal(t, mongo.ErrNoDocuments, err)
+
+			got, err := GetEntities[flightModel, flightModel](t.Context(), m, coll, bson.D{}, tt.settings...)
+			require.NoError(t, err)
+			require.Equal(t, []flightModel{}, got)
+		})
+	}
+}

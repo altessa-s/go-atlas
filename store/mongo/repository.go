@@ -7,6 +7,7 @@ package mongo
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"reflect"
@@ -109,6 +110,9 @@ func readQuery(ctx context.Context, col *mongo.Collection, filter bson.Raw, sing
 		// FindOne keeps the driver's server-side maxTimeMS calculation enabled.
 		result := col.FindOne(queryCtx, filter)
 		raw, err := result.Raw()
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return mongo.ErrNoDocuments
+		}
 		if err != nil {
 			return coreerrs.WrapOperation(err, "execute query")
 		}
@@ -143,7 +147,7 @@ func readRepository[T, E any](
 	if len(settings) > 0 {
 		encoding = settings[len(settings)-1]
 	}
-	var entities []E
+	entities := []E{}
 	decode := func(decodeModel func(any) error) error {
 		if err := ctx.Err(); err != nil {
 			return err
