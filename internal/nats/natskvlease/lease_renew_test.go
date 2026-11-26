@@ -491,6 +491,127 @@ func TestLease_RejectsLateCreateAcknowledgment(t *testing.T) {
 	})
 }
 
+func TestLease_RejectsCreateAtRenewalDeadline(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = 100*time.Millisecond + time.Nanosecond
+		kv := &ambiguousWriteKV{
+			memKV: &memKV{entries: map[string]memEntry{}},
+			afterCreate: func(context.Context) error {
+				time.Sleep(ttl - ttl/10)
+				return nil
+			},
+		}
+		lease := natskvlease.NewLease(kv, testLeaseKey, ttl, []byte(testLeaseOwner))
+		defer lease.StopCamping()
+		acquired, err := lease.RunCamping(t.Context(), ttl)
+		require.ErrorIs(t, err, natskvlease.ErrLeaseNotHeld)
+		require.False(t, acquired)
+		_, err = kv.Get(t.Context(), testLeaseKey)
+		require.ErrorIs(t, err, jetstream.ErrKeyNotFound)
+		require.Equal(t, 1, kv.checkedDeletes)
+	})
+}
+
+func TestLease_OnLostCanRelease(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		kv := &ambiguousWriteKV{
+			memKV: &memKV{entries: map[string]memEntry{}},
+			afterUpdate: func(ctx context.Context) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}
+		released := make(chan error, 1)
+		var lease *natskvlease.Lease
+		lease = natskvlease.NewLease(kv, testLeaseKey, time.Second, []byte(testLeaseOwner),
+			natskvlease.WithLeaseCallbacks(natskvlease.LeaseCallbacks{OnLost: func() {
+				released <- lease.Release(t.Context())
+			}}))
+		acquired, err := lease.RunCamping(t.Context(), time.Second)
+		require.NoError(t, err)
+		require.True(t, acquired)
+		select {
+		case err := <-released:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Error("Release waited for its own OnLost callback")
+			return
+		}
+		_, err = kv.Get(t.Context(), testLeaseKey)
+		require.ErrorIs(t, err, jetstream.ErrKeyNotFound)
+		require.Equal(t, 1, kv.checkedDeletes)
+	})
+}
+
+func TestLease_CreateRetryRecoversLostReply(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		kv := &ambiguousWriteKV{
+			memKV: &memKV{entries: map[string]memEntry{}},
+			afterCreate: func(context.Context) error {
+				return nats.ErrNoResponders
+			},
+		}
+		lease := natskvlease.NewLease(kv, testLeaseKey, 5*time.Second, []byte(testLeaseOwner))
+		acquired, err := lease.Acquire(t.Context())
+		require.NoError(t, err)
+		require.True(t, acquired)
+		entry, err := kv.Get(t.Context(), testLeaseKey)
+		require.NoError(t, err)
+		require.Equal(t, uint64(2), entry.Revision(), "recovery must check and refresh the stored owner")
+	})
+}
+
+type unavailableAcquireKV struct {
+	jetstream.KeyValue
+}
+
+func (unavailableAcquireKV) Create(ctx context.Context, _ string, _ []byte, _ ...jetstream.KVCreateOpt) (uint64, error) {
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+
+func (unavailableAcquireKV) Get(ctx context.Context, _ string) (jetstream.KeyValueEntry, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestLease_FailedAcquisitionBoundsCleanup(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const acquireTimeout = 100 * time.Millisecond
+		lease := natskvlease.NewLease(unavailableAcquireKV{}, testLeaseKey, time.Minute, []byte(testLeaseOwner))
+		start := time.Now()
+		acquired, err := lease.RunCamping(t.Context(), acquireTimeout)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.False(t, acquired)
+		require.LessOrEqual(t, time.Since(start), acquireTimeout+time.Second)
+	})
+}
+
+type leaseResults []string
+
+func (r *leaseResults) RecordOperation(op, result string) { *r = append(*r, op+"/"+result) }
+func (*leaseResults) SetHeld(bool)                        {}
+
+func TestLease_ContentionDoesNotRecordAcquireSuccess(t *testing.T) {
+	t.Parallel()
+	kv := &memKV{entries: map[string]memEntry{}}
+	var results leaseResults
+	owner := natskvlease.NewLease(kv, testLeaseKey, time.Second, []byte(testLeaseOwner))
+	contender := natskvlease.NewLease(kv, testLeaseKey, time.Second, []byte("contender"),
+		natskvlease.WithLeaseObserver(&results))
+	acquired, err := owner.Acquire(t.Context())
+	require.NoError(t, err)
+	require.True(t, acquired)
+	acquired, err = contender.Acquire(t.Context())
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.NotContains(t, results, "acquire/success")
+}
+
 func TestLease_UnconfirmedRenewalStillReleases(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {

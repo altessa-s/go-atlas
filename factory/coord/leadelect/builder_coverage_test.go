@@ -18,7 +18,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -36,7 +35,7 @@ func TestBuild_RejectsMissingNodeID(t *testing.T) {
 		UseProvider(cfg.Provider, func(context.Context, *lockconfig.LeaderElector, *slog.Logger, metrics.Meter) (providers.Provider, error) {
 			return fakeProvider{}, nil
 		}).Build(t.Context())
-	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 func TestBuild_RequiresConfigAndRegisteredProvider(t *testing.T) {

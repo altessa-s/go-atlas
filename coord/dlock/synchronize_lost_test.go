@@ -122,7 +122,11 @@ func TestSynchronize_LogsAFailedRelease(t *testing.T) {
 }
 
 func TestSynchronize_PanicReturnsErrorAndReleasesOnce(t *testing.T) {
-	t.Parallel()
+	// This test replaces the global slog logger used by the core panic handler.
+	var logs bytes.Buffer
+	defaultLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
 	lk := &lostLock{releaseErr: errors.New("release failed")}
 	dl := dlock.New(lostProvider{lock: lk})
 
@@ -130,6 +134,11 @@ func TestSynchronize_PanicReturnsErrorAndReleasesOnce(t *testing.T) {
 	require.ErrorIs(t, err, dlock.ErrPanicked)
 	require.ErrorIs(t, err, lk.releaseErr)
 	require.Equal(t, 1, lk.releases)
+	require.Contains(t, err.Error(), "(string)")
+	require.NotContains(t, err.Error(), "callback panic")
+	require.Contains(t, logs.String(), "observed a panic")
+	require.Contains(t, logs.String(), "stacktrace")
+	require.NotContains(t, logs.String(), "callback panic")
 }
 
 func TestSynchronize_JoinsReleaseErrorWithLossAndCallbackError(t *testing.T) {
