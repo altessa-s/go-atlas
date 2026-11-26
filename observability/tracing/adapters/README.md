@@ -10,12 +10,14 @@ fails, and the failures are returned joined with `errors.Join`.
 
 ## Key types
 
-| Type            | Description                                                  |
-|-----------------|--------------------------------------------------------------|
-| `Adapter`       | Interface: `Name`, `ExportSpans`, `Shutdown`, `ForceFlush`   |
-| `ExportResult`  | Span-level `Accepted` and `Rejected` counts returned by `ExportSpans` |
-| `MultiAdapter`  | Calls every adapter in order; aggregates `ExportResult` and joins errors |
-| `SpanData`      | Exported span information passed to adapters                 |
+| Type | Description |
+|------|-------------|
+| `Adapter` | Interface: `Name`, `ExportSpans`, `Shutdown`, `ForceFlush` |
+| `ExportResult` | Span-level `Accepted` and `Rejected` counts returned by `ExportSpans` |
+| `ExporterOutcome` | Per-exporter normalized acceptance, rejection, and failure status from `ExportBatch` |
+| `ExportBatch` | Broadcasts a batch across adapters and aggregates span-level acceptance and errors |
+| `MultiAdapter` | Calls every adapter in order; aggregates `ExportResult` and joins errors |
+| `SpanData` | Exported span information passed to adapters |
 
 ## Subpackages
 

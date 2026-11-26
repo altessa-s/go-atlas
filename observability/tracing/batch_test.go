@@ -5,7 +5,9 @@
 package tracing_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -16,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
+	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
 )
 
 type batchAdapter struct {
@@ -654,5 +657,74 @@ func TestShutdownDeadlineGateNoDoubleCount(t *testing.T) {
 				require.Contains(t, []float64{0, batchSize}, exported)
 			})
 		}
+	})
+}
+
+type oneLineThenFailWriter struct {
+	sawLine bool
+	err     error
+}
+
+func (w *oneLineThenFailWriter) Write(p []byte) (int, error) {
+	if w.sawLine {
+		return 0, w.err
+	}
+	if bytes.IndexByte(p, '\n') >= 0 {
+		w.sawLine = true
+	}
+	return len(p), nil
+}
+
+func TestBatchPartialAcceptanceOnExporterError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("single_console_exporter", func(t *testing.T) {
+		t.Parallel()
+		errWrite := errors.New("disk full")
+		exp := console.New(
+			console.WithWriter(&oneLineThenFailWriter{err: errWrite}),
+			console.WithPrettyPrint(false),
+		)
+		meter := metricstest.NewTestCollector()
+		tr := tracing.New(
+			tracing.WithAdapter(exp),
+			tracing.WithMeter(meter),
+			tracing.WithScheduledDelay(time.Hour),
+		)
+		defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+		rec := tr.Recorder("svc")
+		endSpan(rec, t.Context())
+		endSpan(rec, t.Context())
+
+		require.ErrorIs(t, tr.ForceFlush(t.Context()), errWrite)
+		require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
+		require.Equal(t, 1.0, metricstest.GetCounterValue(t, meter, "test_tracing_export_failures_total", "exporter", "console"))
+	})
+
+	t.Run("multi_exporter_with_healthy_and_partial_failure", func(t *testing.T) {
+		t.Parallel()
+		errWrite := errors.New("disk full")
+		exp := console.New(
+			console.WithWriter(&oneLineThenFailWriter{err: errWrite}),
+			console.WithPrettyPrint(false),
+		)
+		healthy := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		meter := metricstest.NewTestCollector()
+		tr := tracing.New(
+			tracing.WithAdapter(adapters.NewMultiAdapter(healthy, exp)),
+			tracing.WithMeter(meter),
+			tracing.WithScheduledDelay(time.Hour),
+		)
+		defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+		rec := tr.Recorder("svc")
+		endSpan(rec, t.Context())
+		endSpan(rec, t.Context())
+
+		require.ErrorIs(t, tr.ForceFlush(t.Context()), errWrite)
+		require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
+		require.Equal(t, 1.0, metricstest.GetCounterValue(t, meter, "test_tracing_export_failures_total", "exporter", "console"))
+		require.Equal(t, 0.0, metricstest.GetCounterValue(t, meter, "test_tracing_export_failures_total", "exporter", "multi"))
 	})
 }

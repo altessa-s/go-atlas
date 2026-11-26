@@ -392,7 +392,7 @@ func (p *batchProcessor) export(ctx context.Context, count int) {
 			return
 		}
 		exportCtx, cancel := context.WithTimeout(ctx, p.timeout)
-		outcomes, acceptedByAll, err := p.exportToExporters(exportCtx, batch)
+		res, outcomes, err := adapters.ExportBatch(exportCtx, p.exporters, batch)
 		cancel()
 
 		if err != nil {
@@ -408,7 +408,7 @@ func (p *batchProcessor) export(ctx context.Context, count int) {
 		}
 
 		if p.metrics != nil {
-			p.metrics.completeBatch(&b.state, acceptedByAll, outcomes)
+			p.metrics.completeBatch(&b.state, res.Accepted, outcomes)
 		} else {
 			b.state.CompareAndSwap(batchInflight, batchDone)
 		}
@@ -420,25 +420,4 @@ func (p *batchProcessor) export(ctx context.Context, count int) {
 
 		count--
 	}
-}
-
-func (p *batchProcessor) exportToExporters(ctx context.Context, batch []adapters.SpanData) ([]exporterOutcome, int, error) {
-	outcomes := make([]exporterOutcome, len(p.exporters))
-	var errs []error
-	var maxUnaccepted int
-	for i, exp := range p.exporters {
-		res, err := exp.ExportSpans(ctx, batch)
-		if err != nil {
-			errs = append(errs, err)
-			outcomes[i] = exporterOutcome{failed: true}
-			maxUnaccepted = len(batch)
-			continue
-		}
-		rej := min(max(res.Rejected, 0), len(batch))
-		outcomes[i] = exporterOutcome{rejected: rej}
-		if rej > maxUnaccepted {
-			maxUnaccepted = rej
-		}
-	}
-	return outcomes, len(batch) - maxUnaccepted, errors.Join(errs...)
 }

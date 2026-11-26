@@ -5,6 +5,7 @@
 package adapters_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
+	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
 )
 
 func TestTraceIDAndSpanID(t *testing.T) {
@@ -214,4 +216,37 @@ func TestMultiAdapterEmpty(t *testing.T) {
 	require.Equal(t, adapters.ExportResult{}, res)
 	require.NoError(t, m.ForceFlush(t.Context()))
 	require.NoError(t, m.Shutdown(t.Context()))
+}
+
+type oneSpanWriter struct {
+	wroteLine bool
+	err       error
+}
+
+func (w *oneSpanWriter) Write(p []byte) (int, error) {
+	if w.wroteLine {
+		return 0, w.err
+	}
+	if bytes.IndexByte(p, '\n') >= 0 {
+		w.wroteLine = true
+	}
+	return len(p), nil
+}
+
+func TestMultiAdapterPreservesPartialAcceptanceOnError(t *testing.T) {
+	t.Parallel()
+
+	errWrite := errors.New("write failed on second span")
+	partial := console.New(
+		console.WithWriter(&oneSpanWriter{err: errWrite}),
+		console.WithPrettyPrint(false),
+	)
+	healthy := &recordingAdapter{name: "healthy"}
+	m := adapters.NewMultiAdapter(healthy, partial)
+
+	spans := []adapters.SpanData{{Name: "first"}, {Name: "second"}}
+	res, err := m.ExportSpans(t.Context(), spans)
+	require.ErrorIs(t, err, errWrite)
+	require.Equal(t, adapters.ExportResult{Accepted: 1, Rejected: 0}, res)
+	require.Equal(t, 2, healthy.exported)
 }

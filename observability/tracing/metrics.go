@@ -21,11 +21,6 @@ type exporterCounters struct {
 	failures metrics.Counter
 }
 
-type exporterOutcome struct {
-	rejected int
-	failed   bool
-}
-
 type exportMetrics struct {
 	exported     metrics.Counter
 	dropped      metrics.Counter
@@ -122,7 +117,7 @@ func (m *exportMetrics) abandonAndDisable(drain func() uint64) {
 // completeBatch transitions state from batchInflight to batchDone and records
 // per-exporter outcomes while holding m.mu, preventing double counting against
 // concurrent shutdown deadline abandonment.
-func (m *exportMetrics) completeBatch(state *atomic.Int32, acceptedByAll int, outcomes []exporterOutcome) {
+func (m *exportMetrics) completeBatch(state *atomic.Int32, acceptedByAll int, outcomes []adapters.ExporterOutcome) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.disabled {
@@ -135,10 +130,11 @@ func (m *exportMetrics) completeBatch(state *atomic.Int32, acceptedByAll int, ou
 		m.exported.Add(float64(acceptedByAll))
 	}
 	for i, o := range outcomes {
-		if o.failed {
+		if o.Failed {
 			m.perExporter[i].failures.Inc()
-		} else if o.rejected > 0 {
-			m.perExporter[i].rejected.Add(float64(o.rejected))
+		}
+		if o.Rejected > 0 {
+			m.perExporter[i].rejected.Add(float64(o.Rejected))
 		}
 	}
 }
