@@ -23,25 +23,37 @@ type inflightLoads struct {
 type loadGuard struct {
 	// gate is held across provider writes so overlapping mutations have a
 	// consistent order. A waiting caller can leave on context cancellation.
-	gate        chan struct{}
-	invalidated bool
+	gate chan struct{}
 
 	refs  int    // guarded by inflightLoads.mu
-	epoch uint64 // guarded by inflightLoads.mu; advanced by every invalidation
+	epoch uint64 // guarded by inflightLoads.mu; advanced by every write that invalidates loads
 }
 
-// flightKey returns the singleflight key of a load of ek. It carries the key's
-// epoch, so a reader starting after an invalidation never joins a flight that
-// read the source before it. The epoch lives as long as a load or mutation
-// holds the guard, which covers every flight that could still be running.
-func (l *inflightLoads) flightKey(ek string) string {
+// epochOf returns the current epoch of g. A load remembers the epoch it began
+// under and does not store its result once the epoch has moved on.
+func (l *inflightLoads) epochOf(g *loadGuard) uint64 {
 	l.mu.Lock()
-	var epoch uint64
-	if g := l.loads[ek]; g != nil {
-		epoch = g.epoch
+	defer l.mu.Unlock()
+	return g.epoch
+}
+
+// advance moves the epoch of every guard on, which invalidates the loads that
+// began under the previous one and separates later flights from them.
+func (l *inflightLoads) advance(guards ...*loadGuard) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, g := range guards {
+		g.epoch++
 	}
-	l.mu.Unlock()
-	return strconv.FormatUint(epoch, 10) + ":" + ek
+}
+
+// flightKey returns the singleflight key of a load of ek under g. It carries
+// the epoch of g, so a reader starting after an invalidation never joins a
+// flight that read the source before it. The caller holds g (see begin) until
+// the flight and every waiter on it have returned, so the epoch cannot reset
+// while a flight keyed by it can still be joined.
+func (l *inflightLoads) flightKey(ek string, g *loadGuard) string {
+	return strconv.FormatUint(l.epochOf(g), 10) + ":" + ek
 }
 
 func (g *loadGuard) lock(ctx context.Context) error {
@@ -117,11 +129,6 @@ func (l *inflightLoads) invalidate(ctx context.Context, keys []string, remove fu
 	}
 	err := remove()
 	// A failed delete may have reached storage or removed part of a batch.
-	l.mu.Lock()
-	for _, guard := range guards {
-		guard.invalidated = true
-		guard.epoch++
-	}
-	l.mu.Unlock()
+	l.advance(guards...)
 	return err
 }

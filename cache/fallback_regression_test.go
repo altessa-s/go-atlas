@@ -34,39 +34,138 @@ func TestGetWithFallback_ReaderAfterDeleteDoesNotJoinOldFlight(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	done := make(chan string, 1)
+	type result struct {
+		value string
+		err   error
+	}
+	done := make(chan result, 1)
 	go func() {
-		v, _ := cache.GetWithFallbackT(ctx, c, key, func(context.Context) (string, time.Duration, error) {
+		v, loadErr := cache.GetWithFallbackT(ctx, c, key, func(context.Context) (string, time.Duration, error) {
 			close(started)
 			<-release
 			return "old", cache.TTLUseDefault, nil
 		})
-		done <- v
+		done <- result{v, loadErr}
 	}()
 
 	<-started
 	require.NoError(t, c.Delete(ctx, key))
 
-	second := make(chan string, 1)
+	// The second reader either runs its own fallback (signals ran) or joined
+	// the old flight and is released only with it.
+	ran := make(chan struct{})
+	second := make(chan result, 1)
 	go func() {
-		v, _ := cache.GetWithFallbackT(ctx, c, key, func(context.Context) (string, time.Duration, error) {
+		v, loadErr := cache.GetWithFallbackT(ctx, c, key, func(context.Context) (string, time.Duration, error) {
+			close(ran)
 			return "new", cache.TTLUseDefault, nil
 		})
-		second <- v
+		second <- result{v, loadErr}
 	}()
 
 	select {
-	case v := <-second:
-		require.Equal(t, "new", v)
-	case <-time.After(200 * time.Millisecond):
-		// The second reader joined the old flight and waits for it.
+	case <-ran:
+	case res := <-second:
 		close(release)
-		require.Equal(t, "old", <-done)
-		require.Fail(t, "reader after Delete joined the invalidated flight", "got %q", <-second)
+		require.NoError(t, res.err)
+		require.Equal(t, "new", res.value, "a reader after Delete must not receive the old flight's value")
+		require.Equal(t, "old", (<-done).value)
 		return
 	}
+	res := <-second
+	require.NoError(t, res.err)
+	require.Equal(t, "new", res.value)
+
 	close(release)
-	require.Equal(t, "old", <-done)
+	old := <-done
+	require.NoError(t, old.err)
+	require.Equal(t, "old", old.value)
+}
+
+// TestGetWithFallback_FreshFlightAfterDeleteIsCached pins that a load that
+// began after Delete stores its result although an older load of the key is
+// still running.
+func TestGetWithFallback_FreshFlightAfterDeleteIsCached(t *testing.T) {
+	t.Parallel()
+
+	storage, err := lru.New(16)
+	require.NoError(t, err)
+	c := cache.New(storage)
+	ctx := t.Context()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = cache.GetWithFallbackT(ctx, c, "k", func(context.Context) (string, time.Duration, error) {
+			close(started)
+			<-release
+			return "old", cache.TTLUseDefault, nil
+		})
+	}()
+	<-started
+	require.NoError(t, c.Delete(ctx, "k"))
+
+	got, err := cache.GetWithFallbackT(ctx, c, "k", func(context.Context) (string, time.Duration, error) {
+		return "new", cache.TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "new", got)
+
+	var cached string
+	require.NoError(t, c.Get(ctx, "k", &cached))
+	require.Equal(t, "new", cached)
+
+	close(release)
+	<-done
+}
+
+// TestSave_InvalidatesOverlappingLoadFlights pins that a Save separates later
+// readers from a load that read the source before it.
+func TestSave_InvalidatesOverlappingLoadFlights(t *testing.T) {
+	t.Parallel()
+
+	storage, err := lru.New(16)
+	require.NoError(t, err)
+	c := cache.New(storage)
+	ctx := t.Context()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = cache.GetWithFallbackT(ctx, c, "k", func(context.Context) (string, time.Duration, error) {
+			close(started)
+			<-release
+			return "old", cache.TTLUseDefault, nil
+		})
+	}()
+	<-started
+	require.NoError(t, c.Save(ctx, "k", "saved"))
+	require.NoError(t, c.Delete(ctx, "k"))
+
+	ran := make(chan struct{})
+	res := make(chan string, 1)
+	go func() {
+		v, _ := cache.GetWithFallbackT(ctx, c, "k", func(context.Context) (string, time.Duration, error) {
+			close(ran)
+			return "new", cache.TTLUseDefault, nil
+		})
+		res <- v
+	}()
+	select {
+	case <-ran:
+	case v := <-res:
+		close(release)
+		require.Equal(t, "new", v)
+		<-done
+		return
+	}
+	require.Equal(t, "new", <-res)
+	close(release)
+	<-done
 }
 
 type user struct{ Name string }
@@ -144,4 +243,17 @@ func TestFailClosed_EntryRejectedReturnsLoadedValue(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, big, got)
 	}
+}
+
+// TestFailClosed_TTLOutOfRangeReturnsLoadedValue pins that a fallback TTL the
+// storage cannot represent does not fail the read.
+func TestFailClosed_TTLOutOfRangeReturnsLoadedValue(t *testing.T) {
+	t.Parallel()
+
+	c := cache.New(freecache.New())
+	got, err := cache.GetWithFallbackT(t.Context(), c, "k", func(context.Context) (string, time.Duration, error) {
+		return "v", freecache.MaxTTL + time.Hour, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "v", got)
 }

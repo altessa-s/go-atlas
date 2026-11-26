@@ -21,8 +21,9 @@ import (
 // for FreeCache's uint32 absolute Unix deadline until 2096.
 const MaxTTL = 10 * 365 * 24 * time.Hour
 
-// ErrTTLOutOfRange indicates a positive TTL above [MaxTTL].
-var ErrTTLOutOfRange = errors.New("freecache: TTL out of range")
+// ErrTTLOutOfRange indicates a positive TTL above [MaxTTL]. It also matches
+// [storages.ErrEntryRejected]: no retry of the same write can succeed.
+var ErrTTLOutOfRange = fmt.Errorf("freecache: TTL out of range: %w", storages.ErrEntryRejected)
 
 // Storage is an in-memory cache provider using FreeCache.
 // It provides high-performance caching with zero GC overhead.
@@ -101,8 +102,11 @@ func (p *Storage) Delete(_ context.Context, key string) error {
 
 // DeleteMany removes multiple keys. The deletes are in-process and cheap, so a
 // plain loop beats a worker pool.
-func (p *Storage) DeleteMany(_ context.Context, keys ...string) error {
+func (p *Storage) DeleteMany(ctx context.Context, keys ...string) error {
 	for _, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		p.cache.Del(storageKey(key))
 	}
 	return nil
