@@ -137,7 +137,8 @@ func TestSynchronize_PanicReturnsErrorAndReleasesOnce(t *testing.T) {
 	require.Contains(t, err.Error(), "(string)")
 	require.NotContains(t, err.Error(), "callback panic")
 	require.Contains(t, logs.String(), "observed a panic")
-	require.Contains(t, logs.String(), "stacktrace")
+	require.Contains(t, logs.String(), "category=recovered_panic")
+	require.NotContains(t, logs.String(), "stacktrace")
 	require.NotContains(t, logs.String(), "callback panic")
 }
 

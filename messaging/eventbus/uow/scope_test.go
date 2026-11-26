@@ -659,8 +659,8 @@ func TestApply_CallbackPanicRedactsLogs(t *testing.T) {
 	require.ErrorIs(t, err, uow.ErrCallbackPanicked)
 	require.NotContains(t, err.Error(), marker)
 	require.NotContains(t, logs.String(), marker)
-	require.Equal(t, 3, bytes.Count(logs.Bytes(), []byte("stacktrace=")))
-	require.Contains(t, logs.String(), "TestApply_CallbackPanicRedactsLogs")
+	require.Equal(t, 3, bytes.Count(logs.Bytes(), []byte("category=recovered_panic")))
+	require.NotContains(t, logs.String(), "stacktrace")
 }
 
 func TestApply_EffectPanicStillCompensatesAndRunsHooks(t *testing.T) {

@@ -343,9 +343,7 @@ func TestWatchStopJoinsWorker(t *testing.T) {
 				stopped := make(chan error, 1)
 				go func() {
 					if viaHooks {
-						ctx, cancel := context.WithCancel(t.Context())
-						cancel()
-						stopped <- hooks.Shutdown(ctx)
+						stopped <- hooks.Shutdown(t.Context())
 					} else {
 						ob.StopWatch()
 						stopped <- nil

@@ -270,10 +270,8 @@ func TestBuildSQLPurgeLoopStopsOnShutdown(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, queue.Delete(t.Context(), "k"))
 		<-entered
-		ended, cancel := context.WithCancel(t.Context())
-		cancel()
 		stopped := make(chan error, 1)
-		go func() { stopped <- hooks.Shutdown(ended) }()
+		go func() { stopped <- hooks.Shutdown(t.Context()) }()
 		synctest.Wait()
 		premature := len(stopped)
 		close(release)
@@ -284,6 +282,8 @@ func TestBuildSQLPurgeLoopStopsOnShutdown(t *testing.T) {
 		default:
 			require.FailNow(t, "purge still running")
 		}
+		ended, cancel := context.WithCancel(t.Context())
+		cancel()
 		require.NoError(t, queue.(*sqlstore.Store[payload]).Close(ended), "worker exit is already acknowledged")
 	})
 }
