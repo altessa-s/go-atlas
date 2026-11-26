@@ -167,7 +167,7 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 
 func (l *Lease) acquireAt(ctx context.Context, started time.Time) (bool, error) {
 	revision, err := l.tryAcquire(ctx)
-	if err == nil && revision != 0 && time.Since(started) >= l.ttl {
+	if err == nil && revision != 0 && time.Since(started) >= l.ttl-l.safetyMargin() {
 		err = ErrLeaseNotHeld
 	}
 	l.record("acquire", err)
