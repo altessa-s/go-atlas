@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -69,10 +68,10 @@ func (b *LeaderBuilder) Build(ctx context.Context) (*leadelect.Leader, error) {
 		return nil, corefactory.ErrConfigRequired
 	}
 	if b.key == "" {
-		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "leader election key is required")
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "leader election key is required")
 	}
 	if b.nodeId == "" {
-		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "leader election node ID is required")
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "leader election node ID is required")
 	}
 
 	provider, err := b.createProvider(ctx)
