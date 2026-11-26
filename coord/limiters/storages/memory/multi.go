@@ -82,11 +82,21 @@ func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []
 ) {
 	now := p.options.clock.Now()
 	missing := p.resolveLocked(limits, idx, buckets)
-	for all && missing > p.freeSlots() && p.purgeDue(now) {
-		if p.reclaimLocked(now, missing-p.freeSlots()) == 0 {
-			break
+	if deficit := missing - p.freeSlots(); all && deficit > 0 && p.purgeDue(now) {
+		members := make(map[*bucket]int, len(buckets)-missing)
+		for i, b := range buckets {
+			if b != nil {
+				members[b] = i
+			}
 		}
-		missing = p.resolveLocked(limits, idx, buckets)
+		p.reclaimLocked(now, deficit, func(b *bucket) bool {
+			i, member := members[b]
+			if member {
+				buckets[i] = nil
+				missing++
+			}
+			return member
+		})
 	}
 
 	// Check every window before taking anything.

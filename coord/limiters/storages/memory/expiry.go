@@ -52,12 +52,13 @@ func (p *Provider) refreshExpiry(sh *shard, b *bucket) {
 	p.lowerExpiry(expiry)
 }
 
-// reclaimLocked frees up to needed empty windows and refreshes the global
-// expiry bound. The caller holds all shard locks. Each shard contributes at
-// most one inspected head in addition to the buckets actually removed.
-func (p *Provider) reclaimLocked(now time.Time, needed int) int {
+// reclaimLocked frees expired windows until needed slots are available.
+// If consume is set, it reports whether a removed bucket will be reinserted
+// by the current call and therefore does not free a slot. The caller holds
+// all shard locks. Each shard contributes at most one inspected head in
+// addition to the buckets removed.
+func (p *Provider) reclaimLocked(now time.Time, needed int, consume func(*bucket) bool) {
 	next := int64(math.MaxInt64)
-	freed := 0
 	for i := range p.shards {
 		sh := &p.shards[i]
 		for len(sh.expiries) > 0 {
@@ -71,10 +72,10 @@ func (p *Provider) reclaimLocked(now time.Time, needed int) int {
 			}
 			key, _ := b.lruElem.Value.(string) //nolint:errcheck // lru holds only string keys
 			p.removeLocked(sh, key)
-			needed--
-			freed++
+			if consume == nil || !consume(b) {
+				needed--
+			}
 		}
 	}
 	p.nextExpiry.Store(next)
-	return freed
 }

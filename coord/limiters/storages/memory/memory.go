@@ -198,7 +198,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 func (p *Provider) admitAtCapLocked(sh *shard, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	now := p.options.clock.Now()
 	if p.purgeDue(now) {
-		p.reclaimLocked(now, 1)
+		p.reclaimLocked(now, 1, nil)
 	}
 	if !p.reserveSlot() {
 		if p.options.eviction == EvictionReject {

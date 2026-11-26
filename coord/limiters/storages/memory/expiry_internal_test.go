@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/time/clock"
+	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 )
 
 func TestProvider_AtCapacityVisitsBoundedBuckets(t *testing.T) {
@@ -43,6 +44,32 @@ func TestProvider_AtCapacityVisitsBoundedBuckets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProvider_AllowAllAtCapacityVisitsBoundedBuckets(t *testing.T) {
+	t.Parallel()
+	const members = 100
+	fake := clock.NewFake(time.Now())
+	p := New(WithClock(fake), WithMaxBuckets(members+1), WithShards(1))
+	limits := make([]storages.Limit, 0, members+1)
+	for i := range members {
+		key := strconv.Itoa(i)
+		_, err := p.Allow(t.Context(), key, 1, time.Second)
+		require.NoError(t, err)
+		limits = append(limits, storages.Limit{Key: key, Limit: 1, Period: time.Second})
+	}
+	_, err := p.Allow(t.Context(), "bystander", 1, 2*time.Second)
+	require.NoError(t, err)
+	fake.Advance(2 * time.Second)
+	limits = append(limits, storages.Limit{Key: "new", Limit: 1, Period: time.Second})
+
+	visits := 0
+	p.visitReclaimBucket = func() { visits++ }
+	infos, err := p.AllowAll(t.Context(), limits)
+	require.NoError(t, err)
+	require.Len(t, infos, len(limits))
+	require.False(t, p.tracked("bystander"))
+	require.LessOrEqual(t, visits, members+1+len(p.shards))
 }
 
 func BenchmarkProvider_Allow_ReclaimAtCapacity(b *testing.B) {
