@@ -85,7 +85,7 @@ func mockStartupOptions() *options.ClientOptions {
 	opts.Deployment = drivertest.NewMockDeployment(
 		ok, // ping
 		bson.D{{Key: "ok", Value: 1}, {Key: "version", Value: "8.0"}, {Key: "versionArray", Value: bson.A{int32(8), int32(0)}}},
-		write, write, // seed and acquire the migration lock
+		write, write, write, // seed, acquire and verify the migration lock
 		cursorBatchReply("db.$cmd.listCollections"),
 		ok, // create the migration collection
 		cursorBatchReply("db.migrations"),
