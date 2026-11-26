@@ -95,19 +95,19 @@ type Storage struct {
 
 	// Memory holds bounded in-memory ring buffer configuration.
 	// Optional when Type is empty or "memory".
-	Memory *StorageMemory `yaml:"memory" default:"-"`
+	Memory *StorageMemory `yaml:"memory"`
 
 	// Mongo holds MongoDB-specific storage configuration.
 	// Required when Type is "mongo".
-	Mongo *StorageMongo `yaml:"mongo" default:"-"`
+	Mongo *StorageMongo `yaml:"mongo"`
 
 	// ClickHouse holds ClickHouse-specific storage configuration.
 	// Required when Type is "clickhouse".
-	ClickHouse *StorageClickHouse `yaml:"clickhouse" default:"-"`
+	ClickHouse *StorageClickHouse `yaml:"clickhouse"`
 
 	// SQL holds SQL-specific storage configuration.
 	// Required when Type is "sqldb".
-	SQL *StorageSQL `yaml:"sqldb" default:"-"`
+	SQL *StorageSQL `yaml:"sqldb"`
 }
 
 // DefaultMemoryMaxEvents is the default ring buffer capacity for in-memory audit storage,
@@ -280,19 +280,14 @@ func (a *Config) Validate() error {
 	)
 }
 
-func (s *Storage) hasPersistentBlock() bool {
-	return s.Mongo != nil || s.ClickHouse != nil || s.SQL != nil
-}
-
 // Validate performs validation of the audit storage configuration.
 func (s *Storage) Validate() error {
 	return validationconfig.ValidateStruct(s,
 		validation.Field(&s.Type,
-			validation.When(s.hasPersistentBlock(), validation.Required),
 			validation.When(s.Type != "" && !slices.Contains(s.AllowedTypes(), s.Type),
 				validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL)),
 		),
-		validation.Field(&s.Memory),
+		validation.Field(&s.Memory, validation.Skip.When(s.Type != "" && s.Type != StorageTypeMemory)),
 		validation.Field(&s.Mongo, validation.When(s.Type == StorageTypeMongo, validation.Required)),
 		validation.Field(&s.ClickHouse, validation.When(s.Type == StorageTypeClickHouse, validation.Required)),
 		validation.Field(&s.SQL, validation.When(s.Type == StorageTypeSQL, validation.Required)),

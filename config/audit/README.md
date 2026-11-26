@@ -21,7 +21,7 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 
 Omitting `storage.type` falls back to the bounded in-memory ring buffer (`memory`, default `maxEvents: 10000`, oldest evicted) and causes
 [`factory/audit`](../../factory/audit) to log a startup warning. Explicit `storage.type: memory` selects the same bounded ring buffer without the
-default-fallback warning. Setting a persistent backend block (`mongo`, `clickhouse`, `sqldb`) while leaving `storage.type` empty fails validation.
+default-fallback warning.
 
 The `paging` section of event queries is the shared [`config/paging`](../paging) schema (nil disables page tokens).
 
