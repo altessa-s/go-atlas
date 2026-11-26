@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/coord/limiters"
+	"github.com/altessa-s/go-atlas/coord/limiters/budget"
+	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -54,4 +57,67 @@ func TestProvider_RejectsLimitAbovePayloadCapacity(t *testing.T) {
 	}
 	_, err = p.Allow(t.Context(), "fits", capacity, time.Hour)
 	require.ErrorIs(t, err, limiters.ErrLimitExceeded)
+}
+
+func TestProvider_AdoptedBucketPayloadCapacity(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	nc, js := natstest.ConnectJetStream(t, ns)
+	const maxValueSize = 2048
+	require.Greater(t, nc.MaxPayload(), int64(maxValueSize))
+	kv, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
+		Bucket: "small-value", TTL: limitnats.DefaultMaxAge,
+		Storage: jetstream.FileStorage, MaxValueSize: maxValueSize,
+	})
+	require.NoError(t, err)
+	p, err := limitnats.New(t.Context(), js, limitnats.WithBucket(kv.Bucket()))
+	require.NoError(t, err)
+
+	const quota = 1000
+	for _, tc := range []struct {
+		name  string
+		check func() error
+	}{
+		{"budget", func() error {
+			_, err := budget.New(quota, time.Hour, p)
+			return err
+		}},
+		{"token-bucket default", func() error {
+			_, err := tokenbucket.New(tokenbucket.RateLimitSettings{Limit: quota, Period: time.Hour}, p)
+			return err
+		}},
+		{"token-bucket target", func() error {
+			_, err := tokenbucket.New(tokenbucket.RateLimitSettings{Limit: 1, Period: time.Hour}, p,
+				tokenbucket.WithRules(&tokenbucket.RateLimitRule{Target: "192.0.2.1",
+					RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: quota, Period: time.Hour}}))
+			return err
+		}},
+		{"direct admission", func() error {
+			_, err := p.Allow(t.Context(), "large-quota", quota, time.Hour)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.ErrorIs(t, tc.check(), coreerrs.ErrInvalidArgument)
+		})
+	}
+	_, err = kv.Get(t.Context(), "large-quota")
+	require.ErrorIs(t, err, jetstream.ErrKeyNotFound)
+	_, err = budget.New(1, time.Hour, p)
+	require.NoError(t, err)
+	_, err = p.Allow(t.Context(), "fits", 1, time.Hour)
+	require.NoError(t, err)
+}
+
+type unknownPayloadJetStream struct{ jetstream.JetStream }
+
+func (unknownPayloadJetStream) Conn() *nats.Conn { return &nats.Conn{} }
+
+func TestNew_RejectsUnknownMaxPayload(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+
+	_, err := limitnats.New(t.Context(), unknownPayloadJetStream{js}, limitnats.WithBucket("unknown-payload"))
+	require.ErrorContains(t, err, "NATS MaxPayload is not yet known")
 }

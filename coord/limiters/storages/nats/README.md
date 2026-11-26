@@ -46,7 +46,8 @@ and the caller decides whether to fail open or closed. Through the budget and to
 
 ## Payload limit
 
-`Allow` rejects a limit above the connected NATS server's `max_payload` budget with `ErrInvalidArgument` before reading or writing the key.
+`Allow` rejects a limit above the lower of the server's `max_payload` and the bucket's positive `MaxValueSize` with `ErrInvalidArgument` before accessing the key.
+Budget and token-bucket limiters check their configured quotas at construction. Provider creation requires a known connection payload limit.
 The bound reserves space for JSON metadata, a worst-case decimal timestamp per request and the JetStream revision header. Serialization work
 grows with the number of recorded requests.
 

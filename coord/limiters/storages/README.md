@@ -14,6 +14,7 @@ bucket, budget) to supply the underlying rate tracking mechanism.
 |--------------------------|-----------------------------------------------------------------------------------|
 | `Storage`                | Interface: Allow, Reset                                                           |
 | `PeriodValidator`        | Optional interface for backend period constraints checked at limiter construction |
+| `LimitValidator`         | Optional interface for backend quota constraints checked at limiter construction  |
 | `MultiStorage`           | Optional interface: `Storage` plus `AllowAll`, atomic admission against many keys |
 | `Limit`                  | One key of a multi-key admission: `Key`, `Limit`, `Period`                        |
 | `LimitInfo`              | Rate limit state with Remaining count and Reset timestamp                         |

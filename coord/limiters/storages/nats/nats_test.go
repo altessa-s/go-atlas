@@ -58,21 +58,34 @@ func TestNew_CanceledContextAbortsBucketCreation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+type replicaCapture struct {
+	jetstream.JetStream
+	config jetstream.KeyValueConfig
+}
+
+func (c *replicaCapture) CreateKeyValue(ctx context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	c.config = cfg
+	cfg.Replicas = 1 // The embedded test server has one node.
+	return c.JetStream.CreateKeyValue(ctx, cfg)
+}
+
 // TestNew_ReplicasWiredToBucketConfig pins that WithReplicas reaches the
 // jetstream.KeyValueConfig used for bucket creation. A capture double is used
 // because a single-node test server cannot create buckets with replicas > 1.
 func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	t.Parallel()
 
-	capture := &natstest.JetStreamKVCapture{}
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	capture := &replicaCapture{JetStream: js}
 
 	_, err := limitnats.New(t.Context(), capture,
 		limitnats.WithBucket("rate-limiter-replicas"),
 		limitnats.WithReplicas(3))
 	require.NoError(t, err)
 
-	require.Equal(t, "rate-limiter-replicas", capture.KVConfig.Bucket)
-	require.Equal(t, 3, capture.KVConfig.Replicas)
+	require.Equal(t, "rate-limiter-replicas", capture.config.Bucket)
+	require.Equal(t, 3, capture.config.Replicas)
 }
 
 func TestProvider_Allow_UnderLimit(t *testing.T) {

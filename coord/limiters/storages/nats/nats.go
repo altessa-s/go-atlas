@@ -62,9 +62,10 @@ const (
 // Provider implements a NATS JetStream KeyValue-based rate limiting provider using sliding window algorithm.
 type Provider struct {
 	natsbase.Base
-	options    *options
-	casPolicy  *retry.Policy
-	maxPayload func() int64
+	options      *options
+	casPolicy    *retry.Policy
+	maxPayload   func() int64
+	maxValueSize int64
 }
 
 // Ensure Provider implements Storage interface
@@ -74,7 +75,8 @@ var _ storages.Storage = (*Provider)(nil)
 // Accepts a JetStream context and optional configuration options.
 // Automatically creates the bucket on ctx if it doesn't exist.
 //
-// Returns an error if the JetStream context is nil or bucket creation fails.
+// Returns an error if the JetStream context is nil, the connection's
+// MaxPayload is unknown, or the bucket cannot be provisioned or inspected.
 //
 // Example:
 //
@@ -89,6 +91,11 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 		return nil, fmt.Errorf("JetStream context cannot be nil")
 	}
 
+	maxPayload := js.Conn().MaxPayload
+	if maxPayload() == 0 {
+		return nil, errMaxPayloadUnknown
+	}
+
 	config := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(ctx, js, bucketConfig(config), nil)
@@ -96,12 +103,20 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
 
+	status, err := natskvlease.Retry(ctx, func() (jetstream.KeyValueStatus, error) {
+		return base.KV().Status(ctx)
+	})
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "read NATS KeyValue bucket status")
+	}
+
 	return &Provider{
 		Base:      base,
 		options:   config,
 		casPolicy: newCASPolicy(config.maxCASAttempts, config.maxCASBackoff),
 		// The connected server's limit can change on reconnect.
-		maxPayload: func() int64 { return js.Conn().MaxPayload() },
+		maxPayload:   maxPayload,
+		maxValueSize: int64(status.Config().MaxValueSize),
 	}, nil
 }
 
@@ -157,6 +172,24 @@ func (p *Provider) ValidatePeriod(period time.Duration) error {
 	return nil
 }
 
+var errMaxPayloadUnknown = errors.New("NATS MaxPayload is not yet known")
+
+// ValidateLimit checks that a full window fits within the connection and bucket payload limits.
+func (p *Provider) ValidateLimit(limit int64) error {
+	payload := p.maxPayload()
+	if payload == 0 {
+		return errMaxPayloadUnknown
+	}
+	if p.maxValueSize > 0 {
+		payload = min(payload, p.maxValueSize)
+	}
+	maxRequests := max(payload-int64(casHeaderBytes+bucketMetadataBytes), 0) / bytesPerRequest
+	if limit > maxRequests {
+		return fmt.Errorf("%w: rate limit %d exceeds NATS payload capacity of %d requests", coreerrs.ErrInvalidArgument, limit, maxRequests)
+	}
+	return nil
+}
+
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // The read-modify-write cycle uses NATS KeyValue revision-based CAS:
@@ -181,10 +214,8 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	if err != nil {
 		return nil, err
 	}
-
-	maxRequests := max(p.maxPayload()-int64(casHeaderBytes+bucketMetadataBytes), 0) / bytesPerRequest
-	if limit > maxRequests {
-		return nil, fmt.Errorf("%w: rate limit %d exceeds NATS payload capacity of %d requests", coreerrs.ErrInvalidArgument, limit, maxRequests)
+	if err = p.ValidateLimit(limit); err != nil {
+		return nil, err
 	}
 
 	// Windows are tracked in whole milliseconds; a sub-millisecond period
