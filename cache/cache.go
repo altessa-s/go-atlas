@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/cache/storages/noop"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // NoTTL is the TTL value indicating that a cache item will not expire.
@@ -230,8 +231,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		if err != nil {
 			return err
 		}
-		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
-		return nil
+		return assignResult(dst, fv)
 	}
 
 	// Namespace the key for both the backend and singleflight so concurrent
@@ -243,8 +243,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		if fErr != nil {
 			return fErr
 		}
-		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
-		return nil
+		return assignResult(dst, fv)
 	}
 
 	data, found, err := c.lookupRaw(ctx, ek)
@@ -270,8 +269,26 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		dst.SetZero()
 		return c.deserialize(ld.data, value)
 	}
-	dst.Set(reflect.Indirect(reflect.ValueOf(ld.value)))
+	return assignResult(dst, ld.value)
+}
 
+// assignResult stores a fallback result in dst. A result assignable to dst is
+// set as is, so a pointer destination receives a pointer result. A pointer
+// result is dereferenced only when dst is the pointed-to type. Anything else is
+// [coreerrs.ErrInvalidArgument].
+func assignResult(dst reflect.Value, result any) error {
+	v := reflect.ValueOf(result)
+	switch {
+	case !v.IsValid():
+		return fmt.Errorf("cache: %w: nil fallback result for destination %s", coreerrs.ErrInvalidArgument, dst.Type())
+	case v.Type().AssignableTo(dst.Type()):
+		dst.Set(v)
+	case v.Kind() == reflect.Pointer && !v.IsNil() && v.Elem().Type().AssignableTo(dst.Type()):
+		dst.Set(v.Elem())
+	default:
+		return fmt.Errorf("cache: %w: fallback result %T is not assignable to destination %s",
+			coreerrs.ErrInvalidArgument, result, dst.Type())
+	}
 	return nil
 }
 
@@ -469,7 +486,7 @@ type loaded struct {
 // rejected with [ErrOverloaded] runs the fallback directly in the caller,
 // without sharing it.
 func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
-	v, err := c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
+	v, err := c.group.Do(ctx, c.loads.flightKey(ek), func(sharedCtx context.Context) (any, error) {
 		return c.loadAndStore(sharedCtx, ek, fallback)
 	})
 	if !c.failOpen || !errors.Is(err, ErrOverloaded) {
@@ -534,6 +551,13 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 	}
 
 	if fErr = c.storeLoaded(ctx, guard, ek, encodePayload(cacheData), cacheTtl); fErr != nil {
+		if errors.Is(fErr, storages.ErrEntryRejected) {
+			// The storage refuses this entry deterministically: retrying
+			// the write cannot succeed, so the loaded value is returned and
+			// the store is skipped, whatever the fail-open mode.
+			c.metrics.errors.Inc()
+			return &loaded{value: val, data: cacheData}, nil
+		}
 		if !c.failOpen {
 			return nil, fErr
 		}

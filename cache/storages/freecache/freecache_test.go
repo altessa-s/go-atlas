@@ -184,3 +184,11 @@ func TestGetEmptyValue(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string][]byte{"empty": nil}, values)
 }
+
+func TestProvider_SaveLargeEntryIsRejected(t *testing.T) {
+	t.Parallel()
+
+	p := freecache.New(freecache.WithMaxSize(1 << 20))
+	err := p.Save(t.Context(), "big", make([]byte, 2048), time.Minute)
+	require.ErrorIs(t, err, storages.ErrEntryRejected)
+}

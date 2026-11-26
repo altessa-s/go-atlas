@@ -5,6 +5,7 @@
 package freecache_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -61,5 +62,20 @@ func BenchmarkProvider_Exists_LargeValue(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = p.Exists(ctx, "bench-key")
+	}
+}
+
+func BenchmarkProvider_DeleteMany(b *testing.B) {
+	p := freecache.New()
+	ctx := b.Context()
+	keys := make([]string, 50)
+	for i := range keys {
+		keys[i] = "key:" + strconv.Itoa(i)
+	}
+
+	for b.Loop() {
+		if err := p.DeleteMany(ctx, keys...); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

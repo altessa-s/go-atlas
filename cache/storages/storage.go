@@ -64,3 +64,9 @@ type InProcess interface {
 
 // ErrMissing is returned when a cache key is not found.
 var ErrMissing = errors.New("no cache found")
+
+// ErrEntryRejected is wrapped by a [Storage.Save] error when the storage
+// rejects the entry itself, so a retry cannot succeed, for example a value
+// above the storage's entry size limit. The cache skips the store and still
+// returns the loaded value.
+var ErrEntryRejected = errors.New("cache entry rejected by storage")

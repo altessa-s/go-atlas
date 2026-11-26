@@ -7,6 +7,7 @@ package cache
 import (
 	"context"
 	"slices"
+	"strconv"
 	"sync"
 )
 
@@ -25,7 +26,22 @@ type loadGuard struct {
 	gate        chan struct{}
 	invalidated bool
 
-	refs int // guarded by inflightLoads.mu
+	refs  int    // guarded by inflightLoads.mu
+	epoch uint64 // guarded by inflightLoads.mu; advanced by every invalidation
+}
+
+// flightKey returns the singleflight key of a load of ek. It carries the key's
+// epoch, so a reader starting after an invalidation never joins a flight that
+// read the source before it. The epoch lives as long as a load or mutation
+// holds the guard, which covers every flight that could still be running.
+func (l *inflightLoads) flightKey(ek string) string {
+	l.mu.Lock()
+	var epoch uint64
+	if g := l.loads[ek]; g != nil {
+		epoch = g.epoch
+	}
+	l.mu.Unlock()
+	return strconv.FormatUint(epoch, 10) + ":" + ek
 }
 
 func (g *loadGuard) lock(ctx context.Context) error {
@@ -101,8 +117,11 @@ func (l *inflightLoads) invalidate(ctx context.Context, keys []string, remove fu
 	}
 	err := remove()
 	// A failed delete may have reached storage or removed part of a batch.
+	l.mu.Lock()
 	for _, guard := range guards {
 		guard.invalidated = true
+		guard.epoch++
 	}
+	l.mu.Unlock()
 	return err
 }

@@ -8,12 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/coocood/freecache"
 
-	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/cache/storages"
 )
 
@@ -49,7 +49,13 @@ func (p *Storage) Save(_ context.Context, key string, value []byte, ttl time.Dur
 	if err != nil {
 		return err
 	}
-	return p.cache.Set(storageKey(key), value, seconds)
+	if err := p.cache.Set(storageKey(key), value, seconds); err != nil {
+		if errors.Is(err, freecache.ErrLargeEntry) {
+			return fmt.Errorf("%w: %w", storages.ErrEntryRejected, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func ttlSeconds[T int | int32 | int64](ttl time.Duration) (T, error) {
@@ -93,14 +99,13 @@ func (p *Storage) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-// DeleteMany removes multiple keys concurrently using [concurrency.Process].
-func (p *Storage) DeleteMany(ctx context.Context, key ...string) error {
-	// Use parallel processing for better performance with multiple keys.
-	// freecache is thread-safe and highly concurrent.
-	return concurrency.Process(ctx, key, func(_ context.Context, k string) error {
-		p.cache.Del(storageKey(k))
-		return nil
-	})
+// DeleteMany removes multiple keys. The deletes are in-process and cheap, so a
+// plain loop beats a worker pool.
+func (p *Storage) DeleteMany(_ context.Context, keys ...string) error {
+	for _, key := range keys {
+		p.cache.Del(storageKey(key))
+	}
+	return nil
 }
 
 // GetMany retrieves the values of the keys that are present and not expired.
