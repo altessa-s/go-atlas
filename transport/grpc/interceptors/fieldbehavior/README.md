@@ -64,7 +64,7 @@ classified `KindSkip`. The handler-error path skips response stripping because g
 |-----------------------------------------|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WithMethodKind(fullMethod, kind)`      | --                          | Override classification for `info.FullMethod`. Accumulates across calls.                                                                                                                        |
 | `WithSkipResponse()`                    | off                         | Disable the automatic response strip (e.g. if the handler already does it).                                                                                                                     |
-| `WithMaxStripDepth(n)`                  | `DefaultMaxStripDepth` (32) | Cap on descriptor traversal depth passed to every Strip* call.                                                                                                                                  |
+| `WithMaxStripDepth(n)`                  | `DefaultMaxStripDepth` (32) | Cap on request strip traversal and on the full protobuf response tree. |
 | `WithIgnoreMethods(...string)`          | --                          | Fully-qualified method names to bypass entirely.                                                                                                                                                |
 | `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`   | Regex patterns to bypass (default skips reflection and health probes).                                                                                                                          |
 | `WithUpdateNormalizer(n)`               | `updatemask.New()`          | How an Update request's `update_mask` is located and applied; pass `fieldmask.UpdateNormalizer(...)` with the fieldmask options (the server factory does).                                     |
@@ -98,9 +98,9 @@ so the validator never sees client-supplied `OUTPUT_ONLY` fields the strip is ab
 
 ## Streaming
 
-The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport. Both
-unary responses and outgoing stream messages are stripped on a `proto.Clone` copy, so handler-owned or shared messages are never mutated. Method
-classification is computed once at call start from `info.FullMethod` and reused for every frame.
+The interceptor strips received messages in `PostMsgReceive` and sanitizes outgoing messages in `PreMsgSend`. Unary and stream responses
+are checked against the depth limit before copying. The interceptor forwards the original response when it has no populated `INPUT_ONLY`
+fields and strips a copy otherwise. Method classification is computed once at call start and reused for every frame.
 
 ## Errors
 

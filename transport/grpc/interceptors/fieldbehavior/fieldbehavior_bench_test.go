@@ -79,6 +79,24 @@ func BenchmarkServerInterceptor_ResponseOnly(b *testing.B) {
 	}
 }
 
+func BenchmarkServerInterceptor_ResponseWithoutInputOnly(b *testing.B) {
+	uni := benchUnary(b)
+	info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/ListResources"}
+	resp := &pb.Resource{Aliases: make([]*pb.Profile, 1024)}
+	for i := range resp.Aliases {
+		resp.Aliases[i] = &pb.Profile{}
+	}
+	handler := func(context.Context, any) (any, error) { return resp, nil }
+	ctx := b.Context()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := uni(ctx, nil, info, handler); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkClassifyMethod(b *testing.B) {
 	method := "/x.v1.X/UpdateBucket"
 

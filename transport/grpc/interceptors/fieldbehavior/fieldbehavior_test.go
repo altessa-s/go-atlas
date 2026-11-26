@@ -19,6 +19,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	pbfieldbehavior "github.com/altessa-s/go-aip/fieldbehavior"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
@@ -204,6 +206,66 @@ func TestServerInterceptor_StripResponse(t *testing.T) {
 	require.Empty(t, got.GetPassword(), "INPUT_ONLY cleared on response")
 	require.Equal(t, "id-1", got.GetId(), "IDENTIFIER preserved on response")
 	require.Equal(t, "2026-01-01T00:00:00Z", got.GetCreateTime(), "OUTPUT_ONLY preserved on response")
+}
+
+func TestServerDrivenInterceptor_StripsResponse(t *testing.T) {
+	t.Parallel()
+
+	driven, ok := fieldbehavior.ServerInterceptor().(driver.DrivenInterceptor)
+	require.True(t, ok)
+	uni := interceptors.ServerDrivenInterceptor(driven).ServerUnaryInterceptor()
+	resp := fullResource()
+	_, got, err := runUnary(t, uni, "/x.v1.X/GetResource", nil, resp, nil)
+	require.NoError(t, err)
+	require.Empty(t, got.(*pb.Resource).GetPassword())
+	require.Equal(t, "secret", resp.GetPassword())
+}
+
+func TestServerInterceptor_UnaryReusesResponseWithoutInputOnly(t *testing.T) {
+	t.Parallel()
+
+	resp := &pb.Resource{Profile: &pb.Profile{}}
+	_, got, err := runUnary(t, newUnary(t), "/x.v1.X/GetResource", nil, resp, nil)
+	require.NoError(t, err)
+	require.Same(t, resp, got)
+}
+
+func TestServerInterceptor_UnaryRejectsDeepResponse(t *testing.T) {
+	t.Parallel()
+
+	resp := &structpb.Struct{Fields: map[string]*structpb.Value{"child": structpb.NewStringValue("value")}}
+	uni := newUnary(t, fieldbehavior.WithMaxStripDepth(0))
+	_, got, err := runUnary(t, uni, "/x.v1.X/GetResource", nil, resp, nil)
+	require.Nil(t, got)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.ErrorIs(t, err, pbfieldbehavior.ErrMaxDepthExceeded)
+}
+
+func TestServerInterceptor_UnaryRejectsCyclicResponse(t *testing.T) {
+	t.Parallel()
+
+	resp := &structpb.ListValue{}
+	resp.Values = []*structpb.Value{structpb.NewListValue(resp)}
+	_, got, err := runUnary(t, newUnary(t), "/x.v1.X/GetResource", nil, resp, nil)
+	require.Nil(t, got)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.ErrorIs(t, err, pbfieldbehavior.ErrMaxDepthExceeded)
+}
+
+type panickingResponse struct{}
+
+func (panickingResponse) ProtoReflect() protoreflect.Message {
+	panic("response reflection failed")
+}
+
+func TestServerInterceptor_UnaryRecoversResponseReflection(t *testing.T) {
+	t.Parallel()
+
+	require.NotPanics(t, func() {
+		_, got, err := runUnary(t, newUnary(t), "/x.v1.X/GetResource", nil, panickingResponse{}, nil)
+		require.Nil(t, got)
+		require.Equal(t, codes.Internal, status.Code(err))
+	})
 }
 
 var sharedPackageResource = fullResource()

@@ -47,9 +47,9 @@
 // values. The same handling applies outside the resource. Formats are checked
 // on all retained values. These fallback/outside values require handler checks.
 //
-// The response of every method whose handler returns successfully is passed
-// through StripResponse, so INPUT_ONLY fields (passwords, one-shot tokens)
-// never leak through the read path. Disable that with [WithSkipResponse].
+// Successful responses are checked for depth and populated INPUT_ONLY fields
+// such as passwords and one-shot tokens. The interceptor strips a copy only
+// when it finds such fields. Disable response checking with [WithSkipResponse].
 //
 // # Overrides
 //
