@@ -159,24 +159,45 @@ func parseTag(tag, field string) ([]Kind, error) {
 
 // walkableType reports whether [Strip] may find behavior-tagged fields nested
 // inside a field of type t. It unwraps pointers, slices, arrays, and maps to
-// their element type and bottoms out at a struct with exported fields. Opaque
-// structs (no exported fields, e.g. time.Time or optional.Optional), interfaces
-// (the dynamic type is unknown), and scalars are leaves.
+// their element type and bottoms out at a struct with exported fields, direct
+// or promoted through embedded structs. Opaque structs (no exported fields,
+// e.g. time.Time or optional.Optional), interfaces (the dynamic type is
+// unknown), and scalars are leaves. A recursive collection type
+// (type Tree []Tree) never reaches a struct and is a leaf.
 func walkableType(t reflect.Type) bool {
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
-		return walkableType(t.Elem())
-	case reflect.Struct:
-		return hasExportedField(t)
-	default:
-		return false
+	return walkable(t, nil)
+}
+
+func walkable(t reflect.Type, seen []reflect.Type) bool {
+	for {
+		if slices.Contains(seen, t) {
+			return false
+		}
+		seen = append(seen, t)
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			t = t.Elem()
+		case reflect.Struct:
+			return hasPromotedExportedField(t, seen)
+		default:
+			return false
+		}
 	}
 }
 
-func hasExportedField(t reflect.Type) bool {
+// hasPromotedExportedField reports whether struct type t has an exported field, directly or promoted through an embedded struct
+// (by value or pointer, even of an unexported type). It is the traversability counterpart of [collectFields]; seen guards embedding
+// cycles.
+func hasPromotedExportedField(t reflect.Type, seen []reflect.Type) bool {
 	for field := range t.Fields() {
 		if field.IsExported() {
 			return true
+		}
+		if field.Anonymous {
+			if et := indirectStructType(field.Type); et != nil && !slices.Contains(seen, et) &&
+				hasPromotedExportedField(et, append(seen, et)) {
+				return true
+			}
 		}
 	}
 	return false

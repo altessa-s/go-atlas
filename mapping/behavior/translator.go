@@ -305,9 +305,14 @@ func descend(f *Field, fv reflect.Value, o *options, a *arena, depth int) error 
 // bottom struct type, or nil when none. Used by schema-walk to resolve a
 // representative element from a collection's element type.
 func structElemType(t reflect.Type) reflect.Type {
+	var seen []reflect.Type
 	for {
 		switch t.Kind() {
 		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			if slices.Contains(seen, t) {
+				return nil // A recursive collection type never reaches a struct.
+			}
+			seen = append(seen, t)
 			t = t.Elem()
 		case reflect.Struct:
 			return t
