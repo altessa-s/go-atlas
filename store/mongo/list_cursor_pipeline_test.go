@@ -160,13 +160,15 @@ func TestBuildSortStage(t *testing.T) {
 
 func TestBuildMatchStage(t *testing.T) {
 	t.Run("no filter no cursor", func(t *testing.T) {
-		got := buildMatchStage(nil, nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildMatchStage(nil, nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		require.NoError(t, err)
 		require.Empty(t, got)
 	})
 
 	t.Run("filter only", func(t *testing.T) {
 		filter := bson.M{"status": "active"}
-		got := buildMatchStage(mustPrepareFilter(t, filter), nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildMatchStage(mustPrepareFilter(t, filter), nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		require.NoError(t, err)
 		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.Raw)
@@ -176,7 +178,8 @@ func TestBuildMatchStage(t *testing.T) {
 	t.Run("cursor only", func(t *testing.T) {
 		oid := bson.NewObjectID()
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
+		require.NoError(t, err)
 		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
@@ -187,7 +190,8 @@ func TestBuildMatchStage(t *testing.T) {
 		oid := bson.NewObjectID()
 		cursor := &Cursor{CursorId: oid.Hex()}
 		filter := bson.M{"status": "active"}
-		got := buildMatchStage(mustPrepareFilter(t, filter), cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildMatchStage(mustPrepareFilter(t, filter), cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
+		require.NoError(t, err)
 		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
@@ -196,7 +200,8 @@ func TestBuildMatchStage(t *testing.T) {
 
 	t.Run("zero cursor treated as no cursor", func(t *testing.T) {
 		cursor := &Cursor{} // zero cursor
-		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
+		require.NoError(t, err)
 		require.Empty(t, got, "expected empty pipeline for zero cursor")
 	})
 }
@@ -205,18 +210,21 @@ func TestBuildCursorFilter(t *testing.T) {
 	oid := bson.NewObjectID()
 
 	t.Run("nil cursor returns empty", func(t *testing.T) {
-		got := buildCursorFilter(nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildCursorFilter(nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		require.NoError(t, err)
 		require.Empty(t, got)
 	})
 
 	t.Run("zero cursor returns empty", func(t *testing.T) {
-		got := buildCursorFilter(&Cursor{}, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildCursorFilter(&Cursor{}, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		require.NoError(t, err)
 		require.Empty(t, got)
 	})
 
 	t.Run("descending sort uses $lt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got, err := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
+		require.NoError(t, err)
 		cursorFilter, ok := got["cursor_id"].(bson.M)
 		require.True(t, ok, "expected cursor_id filter, got %v", got)
 		require.Contains(t, cursorFilter, "$lt", "expected $lt for descending sort")
@@ -224,7 +232,8 @@ func TestBuildCursorFilter(t *testing.T) {
 
 	t.Run("ascending sort uses $gt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: 1}})
+		got, err := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: 1}})
+		require.NoError(t, err)
 		cursorFilter, ok := got["cursor_id"].(bson.M)
 		require.True(t, ok, "expected cursor_id filter, got %v", got)
 		require.Contains(t, cursorFilter, "$gt", "expected $gt for ascending sort")
@@ -234,14 +243,21 @@ func TestBuildCursorFilter(t *testing.T) {
 		sortVal, err := encodeSortValue(int64(1234567890))
 		require.NoError(t, err, "encodeSortValue")
 		cursor := &Cursor{CursorId: oid.Hex(), SortValue: sortVal}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "updated_at", Value: -1}})
+		got, err := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "updated_at", Value: -1}})
+		require.NoError(t, err)
 		require.Contains(t, got, "$or", "expected $or filter for compound sort")
 	})
 
-	t.Run("invalid cursor id returns empty", func(t *testing.T) {
-		cursor := &Cursor{CursorId: "invalid-hex"}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		require.Empty(t, got, "expected empty filter for invalid cursor id")
+	t.Run("malformed cursor boundary fails closed", func(t *testing.T) {
+		sort := bson.D{{Key: "rank", Value: 1}}
+		for _, cursor := range []*Cursor{
+			{CursorId: "invalid-hex"},
+			{CursorId: oid.Hex(), SortValue: "invalid-base64"},
+		} {
+			filter, err := buildCursorFilter(cursor, "position", sort)
+			require.ErrorIs(t, err, ErrInvalidCursor)
+			require.Nil(t, filter)
+		}
 	})
 }
 
@@ -258,7 +274,8 @@ func TestBuildCursorPipeline(t *testing.T) {
 			includeTotal:  true,
 		}
 
-		pipeline := buildCursorPipeline(opts, testCollectionName)
+		pipeline, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		require.GreaterOrEqual(t, len(pipeline), 3)
 		require.Contains(t, pipeline[0].(bson.M), "$match", "first stage should be $match")
@@ -279,7 +296,8 @@ func TestBuildCursorPipeline(t *testing.T) {
 		}
 		originalSortLen := len(opts.sort)
 
-		buildCursorPipeline(opts, testCollectionName)
+		_, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		require.Len(t, opts.sort, originalSortLen, "opts.sort was mutated")
 	})
@@ -292,7 +310,8 @@ func TestBuildCursorPipeline(t *testing.T) {
 			cursorIdField: "cursor_id",
 		}
 
-		pipeline := buildCursorPipeline(opts, testCollectionName)
+		pipeline, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		sortStage := pipeline[0].(bson.M)["$sort"].(bson.D) // $sort is first when no filter/cursor
 		require.Len(t, sortStage, 2, "sort should still have 2 fields")
@@ -301,7 +320,8 @@ func TestBuildCursorPipeline(t *testing.T) {
 	t.Run("includeTotal=false omits $unionWith and $replaceRoot tag", func(t *testing.T) {
 		opts := baseCursorOpts()
 
-		pipeline := buildCursorPipeline(opts, testCollectionName)
+		pipeline, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		require.Less(t, findStageIndex(pipeline, "$unionWith"), 0, "$unionWith must not be present when includeTotal is false")
 		require.Less(t, findStageIndex(pipeline, "$replaceRoot"), 0, "$replaceRoot tag must not be present when includeTotal is false")
@@ -318,7 +338,8 @@ func TestBuildCursorPipeline(t *testing.T) {
 		opts.prepared = mustPrepareFilter(t, bson.M{"status": "active"})
 		opts.includeTotal = true
 
-		pipeline := buildCursorPipeline(opts, testCollectionName)
+		pipeline, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		assertStageOrder(t, pipeline, "$match", "$sort")
 		assertStageOrder(t, pipeline, "$sort", "$limit")
@@ -338,7 +359,8 @@ func TestBuildCursorPipeline_WithStages(t *testing.T) {
 	opts.includeTotal = true
 	opts.stages = bson.A{lookupStage, unwindStage}
 
-	pipeline := buildCursorPipeline(opts, testCollectionName)
+	pipeline, err := buildCursorPipeline(opts, testCollectionName)
+	require.NoError(t, err)
 
 	// Custom stages sit between $sort and $limit.
 	assertStageOrder(t, pipeline, "$sort", "$lookup")
@@ -356,7 +378,8 @@ func TestBuildCursorPipeline_CustomStagesDoNotLeakIntoCountSubPipeline(t *testin
 	opts.includeTotal = true
 	opts.stages = bson.A{unwind}
 
-	pipeline := buildCursorPipeline(opts, testCollectionName)
+	pipeline, err := buildCursorPipeline(opts, testCollectionName)
+	require.NoError(t, err)
 
 	unionIdx := findStageIndex(pipeline, "$unionWith")
 	require.GreaterOrEqual(t, unionIdx, 0, "$unionWith stage not found")
@@ -375,11 +398,13 @@ func TestBuildCursorPipeline_CursorFilterDoesNotLeakIntoCountSubPipeline(t *test
 	cursor := &Cursor{CursorId: oid.Hex()}
 
 	opts := baseCursorOpts()
+	opts.sort = bson.D{{Key: opts.cursorIdField, Value: -1}}
 	opts.prepared = mustPrepareFilter(t, bson.M{"status": "active"})
 	opts.cursor = cursor
 	opts.includeTotal = true
 
-	pipeline := buildCursorPipeline(opts, testCollectionName)
+	pipeline, err := buildCursorPipeline(opts, testCollectionName)
+	require.NoError(t, err)
 
 	// Main pipeline's $match has user_filter AND cursor_filter (combined with $and).
 	mainMatch := pipeline[0].(bson.M)["$match"].(bson.M)
@@ -402,7 +427,8 @@ func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 	opts := baseCursorOpts()
 	opts.decorationStages = bson.A{decoration}
 
-	pipeline := buildCursorPipeline(opts, testCollectionName)
+	pipeline, err := buildCursorPipeline(opts, testCollectionName)
+	require.NoError(t, err)
 
 	// Decoration stage should sit between $limit and the final shaping stages.
 	assertStageOrder(t, pipeline, "$limit", "$lookup")
@@ -423,7 +449,8 @@ func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
 	opts.stages = bson.A{stage}
 	opts.decorationStages = bson.A{decoration}
 
-	pipeline := buildCursorPipeline(opts, testCollectionName)
+	pipeline, err := buildCursorPipeline(opts, testCollectionName)
+	require.NoError(t, err)
 
 	// Custom stage (opts.stages) comes between $sort and $limit; decoration ($lookup) comes after $limit.
 	assertStageOrder(t, pipeline, "$sort", "$addFields")
@@ -443,8 +470,10 @@ func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 	optsWith.stages = nil
 	optsWith.decorationStages = nil
 
-	pipelineWithout := buildCursorPipeline(optsWithout, testCollectionName)
-	pipelineWith := buildCursorPipeline(optsWith, testCollectionName)
+	pipelineWithout, err := buildCursorPipeline(optsWithout, testCollectionName)
+	require.NoError(t, err)
+	pipelineWith, err := buildCursorPipeline(optsWith, testCollectionName)
+	require.NoError(t, err)
 
 	require.Len(t, pipelineWith, len(pipelineWithout), "pipelines differ in length")
 }
@@ -541,10 +570,12 @@ func assertStageOrder(t *testing.T, pipeline bson.A, before, after string) {
 // $unionWith.pipeline is the contract — its independence from cursor
 // state is exactly what makes total stable on the wire.
 func TestBuildCursorPipeline_CountSubPipelineIsIdenticalAcrossPages(t *testing.T) {
+	sortValue, err := encodeSortValue(int32(1))
+	require.NoError(t, err)
 	cursors := []*Cursor{
-		nil,                                  // page 1: no cursor yet
-		{CursorId: bson.NewObjectID().Hex()}, // page 2
-		{CursorId: bson.NewObjectID().Hex()}, // page 3
+		nil, // page 1: no cursor yet
+		{CursorId: bson.NewObjectID().Hex(), SortValue: sortValue}, // page 2
+		{CursorId: bson.NewObjectID().Hex(), SortValue: sortValue}, // page 3
 	}
 
 	countSubPipelines := make([]bson.A, 0, len(cursors))
@@ -554,7 +585,8 @@ func TestBuildCursorPipeline_CountSubPipelineIsIdenticalAcrossPages(t *testing.T
 		opts.cursor = cur
 		opts.includeTotal = true
 
-		pipeline := buildCursorPipeline(opts, testCollectionName)
+		pipeline, err := buildCursorPipeline(opts, testCollectionName)
+		require.NoError(t, err)
 
 		unionIdx := findStageIndex(pipeline, "$unionWith")
 		require.GreaterOrEqual(t, unionIdx, 0, "every paginated call must include the $unionWith count branch")

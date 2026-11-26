@@ -65,7 +65,7 @@ func TestSignedCursor_RoundTrip(t *testing.T) {
 			require.True(t, isValidCursorId(opts.cursor.CursorId))
 			value, err := decodeSortValue(opts.cursor.SortValue)
 			require.NoError(t, err)
-			require.Equal(t, "alice", value)
+			require.Equal(t, "alice", value.StringValue())
 		})
 	}
 }

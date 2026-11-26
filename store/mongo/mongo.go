@@ -92,7 +92,7 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		},
 		repo: repository{
 			metrics:       metrics,
-			singleFlight:  singleflight.New[string, any](),
+			singleFlight:  singleflight.New[readFlightKey, []bson.Raw](),
 			dedupIdentity: cfg.dedupIdentity,
 			converterOpts: append([]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)}, cfg.ConverterOptions...),
 		},
@@ -134,29 +134,24 @@ func New(database string, opts ...Option) (*Mongo, error) {
 // Returns:
 //   - error: Error if any step of the connection process fails
 //
-// Note: If an error occurs, the connection is automatically cleaned up by calling Close().
+// A failed connection attempt cleans up the resources it opened.
 func (m *Mongo) Connect(ctx context.Context) (err error) {
 	m.conn.connectMu.Lock()
 	defer m.conn.connectMu.Unlock()
 
-	// Claim the connection atomically so a repeated call after a successful
-	// connection is a no-op. connectMu makes callers wait for an in-flight attempt.
-	if !m.conn.connected.CompareAndSwap(false, true) {
+	if m.conn.closing.Load() != 0 {
+		return mongo.ErrClientDisconnected
+	}
+	if m.conn.connected {
 		return nil
 	}
 
 	stop := m.conn.metrics.connectDuration.Start()
 	defer stop()
-
-	defer func() { //nolint:contextcheck // Close() creates its own context internally
-		if err == nil {
-			return
+	defer func() {
+		if err != nil {
+			m.closeLocked(ctx)
 		}
-
-		// connected is already true (claimed above), so Close's own
-		// CompareAndSwap(true,false) wins: it releases the claim and cleans up
-		// the partially-established connection.
-		m.Close()
 	}()
 
 	if err = m.conn.open(ctx); err != nil {
@@ -176,7 +171,14 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 	if err = m.encryption.open(ctx, m.Client()); err != nil {
 		return err
 	}
-	return m.schema.migrate(ctx, m.Database())
+	if err = m.schema.migrate(ctx, m.Database()); err != nil {
+		return err
+	}
+	if m.conn.closing.Load() != 0 {
+		return mongo.ErrClientDisconnected
+	}
+	m.conn.connected = true
+	return nil
 }
 
 // DatabaseName returns the name of the MongoDB database being used.
@@ -200,5 +202,5 @@ func (m *Mongo) Database() *mongo.Database {
 // Returns:
 //   - *mongo.Client: The MongoDB client instance to use for operations
 func (m *Mongo) Client() *mongo.Client {
-	return m.conn.client
+	return m.conn.client.Load()
 }

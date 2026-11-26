@@ -12,100 +12,52 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo/internal/pipeline"
 )
 
-// buildCursorFilter constructs a MongoDB filter for cursor-based pagination using cursor_id.
-// Since cursor_id (ObjectID) is lexicographically sortable and contains timestamp, we only need
-// to compare cursor_id values without separate timestamp comparison.
-//
-// When SortValue is present in the cursor, uses compound filter for correct pagination.
-// This handles cases where sort field order differs from cursor_id order.
-//
-// Parameters:
-//   - cursor: The pagination cursor containing cursor_id from the last item
-//   - cursorIdField: The MongoDB field name containing the cursor ID (e.g., "cursor_id", "_id")
-//   - sort: MongoDB sort specification as bson.D
-//
-// Returns:
-//   - Empty bson.M if cursor is nil or zero
-//   - Filter using $lt/$gt on cursor_id field based on sort direction
-//   - Compound filter if SortValue is present
-//
-// Example output for descending sort:
-//
-//	{"cursor_id": {"$lt": "01HQVZX3M8..."}}
-//
-// Example output for ascending sort:
-//
-//	{"cursor_id": {"$gt": "01HQVZX3M8..."}}
-//
-// Example output with SortValue (compound filter):
-//
-//	{"$or": [
-//	    {"updated_at": {"$lt": 1234567890}},
-//	    {"$and": [
-//	        {"updated_at": {"$eq": 1234567890}},
-//	        {"cursor_id": {"$lt": "01HQVZX3M8..."}}
-//	    ]}
-//	]}
-func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M {
-	if cursor == nil || cursor.IsZero() {
-		return bson.M{}
+// buildCursorFilter resumes after a validated boundary. MongoDB's comparison
+// operators only match within the boundary's BSON type, so null and missing
+// values need explicit branches when entering or leaving the null segment.
+func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) (bson.M, error) {
+	if cursor.IsZero() {
+		return bson.M{}, nil
 	}
-
-	sortDirection := getSortDirection(sort)
-
-	// Determine comparison operator based on sort direction
-	// For descending sort: we want items BEFORE the cursor (cursor_id < cursor)
-	// For ascending sort: we want items AFTER the cursor (cursor_id > cursor)
-	var op string
-	if sortDirection == sortDirectionDescending {
-		op = "$lt" // $lt for descending
-	} else {
-		op = "$gt" // $gt for ascending
-	}
-
-	// At this point, cursor.CursorId is already validated by ValidateChecksum,
-	// so ObjectIDFromHex should never fail. If it does, it indicates a serious bug.
 	oid, err := bson.ObjectIDFromHex(cursor.CursorId)
 	if err != nil {
-		// Defensive: return empty filter to fail gracefully instead of crashing.
-		// This should never happen since cursor was validated, but library code
-		// must not panic. Returning empty filter will cause pagination to restart.
-		return bson.M{}
+		return nil, fmt.Errorf("%w: malformed cursor ID", ErrInvalidCursor)
+	}
+	descending := getSortDirection(sort) == sortDirectionDescending
+	op := "$gt"
+	if descending {
+		op = "$lt"
+	}
+	idComparison := bson.M{op: oid}
+	if len(sort) == 0 || sort[0].Key == cursorIdField {
+		return bson.M{cursorIdField: idComparison}, nil
+	}
+	value, err := decodeSortValue(cursor.SortValue)
+	if err != nil {
+		return nil, fmt.Errorf("%w: malformed cursor sort value", ErrInvalidCursor)
 	}
 
-	// When SortValue is present, use compound filter for correct pagination.
-	// This handles cases where sort field order differs from cursor_id order.
-	// Filter: (sort_field < value) OR (sort_field == value AND cursor_id < id)
-	if cursor.SortValue != "" && len(sort) > 0 {
-		sortFieldName := sort[0].Key
-
-		// Decode sort value from base64 BSON to preserve type precision
-		sortValue, err := decodeSortValue(cursor.SortValue)
-		if err != nil {
-			// Defensive: return empty filter to fail gracefully
-			// This should never happen if cursor was properly created
-			return bson.M{}
+	field := sort[0].Key
+	if value.Type == bson.TypeNull {
+		ties := bson.M{field: nil, cursorIdField: idComparison}
+		if descending {
+			return ties, nil
 		}
-
-		return bson.M{
-			"$or": bson.A{
-				// Items with smaller/larger sort value (depending on direction)
-				bson.M{sortFieldName: bson.M{op: sortValue}},
-				// Items with same sort value but smaller/larger cursor_id (tie-breaker)
-				bson.M{
-					opAnd: bson.A{
-						// Explicit $eq: the value is an operand, never a query expression.
-						bson.M{sortFieldName: bson.M{opEq: sortValue}},
-						bson.M{cursorIdField: bson.M{op: oid}},
-					},
-				},
-			},
-		}
+		return bson.M{"$or": bson.A{ties, bson.M{field: bson.M{"$ne": nil}}}}, nil
 	}
 
-	return bson.M{
-		cursorIdField: bson.M{op: oid},
+	branches := bson.A{
+		bson.M{field: bson.M{op: value}},
+		bson.M{opAnd: bson.A{
+			// Explicit $eq keeps the value in operand position.
+			bson.M{field: bson.M{opEq: value}},
+			bson.M{cursorIdField: idComparison},
+		}},
 	}
+	if descending {
+		branches = append(branches, bson.M{field: nil})
+	}
+	return bson.M{"$or": branches}, nil
 }
 
 // getSortDirection extracts the sort direction from the primary (first) sort field.
@@ -203,10 +155,14 @@ func ensureCursorIdInSort(sort bson.D, cursorIdField string) bson.D {
 //
 // Returns:
 //   - bson.A: Pipeline stages (empty if no filters)
-func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort bson.D) bson.A {
+//   - error: ErrInvalidCursor if the continuation cannot be decoded
+func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort bson.D) (bson.A, error) {
 	// Add cursor filter if cursor is provided
 	if cursor != nil && !cursor.IsZero() {
-		cursorFilter := buildCursorFilter(cursor, cursorIdField, sort)
+		cursorFilter, err := buildCursorFilter(cursor, cursorIdField, sort)
+		if err != nil {
+			return nil, err
+		}
 
 		// Merge cursor filter with existing filter using $and
 		if len(filter) > pipeline.EmptyDocumentSize {
@@ -217,16 +173,16 @@ func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort
 						opAnd: bson.A{filter, cursorFilter},
 					},
 				},
-			}
+			}, nil
 		}
-		return bson.A{bson.M{opMatch: cursorFilter}}
+		return bson.A{bson.M{opMatch: cursorFilter}}, nil
 	}
 
 	if len(filter) > pipeline.EmptyDocumentSize {
-		return bson.A{bson.M{opMatch: filter}}
+		return bson.A{bson.M{opMatch: filter}}, nil
 	}
 
-	return bson.A{}
+	return bson.A{}, nil
 }
 
 // buildSortStage creates the $sort stage.
@@ -265,6 +221,7 @@ func buildSortStage(sort bson.D) bson.A {
 //
 // Returns:
 //   - bson.A: Complete aggregation pipeline ready for execution
+//   - error: ErrInvalidCursor if the continuation cannot be decoded
 //
 // Performance characteristics:
 //   - O(1) pagination depth (unlike offset-based which is O(n))
@@ -273,19 +230,22 @@ func buildSortStage(sort bson.D) bson.A {
 //     ensure the user filter is index-backed — otherwise the count branch costs a full
 //     collection scan in addition to the items branch
 //   - Efficient index usage with proper $match before $sort
-func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A {
+func buildCursorPipeline(opts *listCursorOptions, collectionName string) (bson.A, error) {
 	// Extend sort with cursor_id tiebreaker for deterministic pagination.
 	// A local variable is used intentionally — opts.sort must stay unchanged
 	// because cursor generation and checksum validation depend on the original value.
 	sort := ensureCursorIdInSort(opts.sort, opts.cursorIdField)
 
 	// 1. MATCH - Combine user filter with cursor filter
-	match := buildMatchStage(
+	match, err := buildMatchStage(
 		opts.prepared,
 		opts.cursor,
 		opts.cursorIdField,
 		sort, // local sort with tiebreaker
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// 2. SORT - Order results
 	sortStage := buildSortStage(sort)
@@ -314,5 +274,5 @@ func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A 
 	pipeline = append(pipeline, items...)
 	pipeline = append(pipeline, count...)
 
-	return pipeline
+	return pipeline, nil
 }

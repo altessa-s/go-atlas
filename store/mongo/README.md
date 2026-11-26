@@ -100,28 +100,30 @@ BSON-bound cursors. `ListCursorSeq` captures the prepared filter when iteration 
 
 ## Read deduplication and tenant isolation
 
-`GetEntity` and `GetEntities` collapse concurrent identical reads through a `singleflight` group keyed by `db:collection:hash(filter)`. Two callers
-issuing the **same** filter at the same time run one query and share its result. That is correct only when the result is a pure function of the filter.
-If caller identity affects what a query returns but lives **outside** the filter — e.g. per-tenant CSFLE data keys, a read scope applied by a session,
-or a read preference bound to the caller — then collapsing identical filters across tenants can hand one tenant another's result.
+`GetEntity` and `GetEntities` share an in-flight query when the database, collection handle, model type, operation, prepared BSON filter and caller
+identity match. Reuse the same collection handle across requests to enable deduplication. Each caller decodes and converts its own BSON copy. Provide
+database or collection codec overrides through `FilterEncoding`. On a borrowed handle, pass its registry and any nondefault BSON options to enable
+deduplication. With no explicit settings, borrowed handles use the driver's decoder and issue independent reads.
 
-A read whose context carries a session (inside `WithTransaction` or any `mongo.NewSessionContext`) is never deduplicated: it must see its transaction's
-snapshot, and a read outside the transaction must never see its uncommitted writes.
+When caller identity affects a result outside the filter, identical filters can return different data. Per-tenant CSFLE keys, session-scoped reads,
+and caller-bound read preferences can make it unsafe to share a query across tenants. Reads carrying a driver session always run independently to
+preserve its read scope and snapshot. Distinct collection handles also use distinct queries.
 
-Deduplicated callers wait independently: canceling one waiter does not cancel shared work or other waiters. The shared query keeps the first caller's
-context values and is bounded by `DefaultQueryTimeout`.
+Canceling one waiter does not cancel shared work or other waiters. The shared query keeps the first caller's context values and is bounded by
+`DefaultQueryTimeout`. A deduplicated read may join a query that started before the caller's own acknowledged write. Call either helper with
+`mongo.WithFreshRead(ctx)` or pass `mongo.FilterEncoding{FreshRead: true}` after a write. The collection's read preference and read concern still apply.
 
-**Contract:** in such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
-are then only collapsed when they share an identity:
+In such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
+share a query only when their identities match.
 
 ```go
 m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
     p, _ := principal.FromContext(ctx)
-    return p.Tenant // "" disables prefixing (the default)
+    return p.Tenant // "" leaves the identity segment empty
 }))
 ```
 
-Returning `""` (or leaving the option unset) keeps the key identical to the un-prefixed form, so single-tenant callers are unaffected.
+Returning `""` or leaving the option unset uses an empty identity segment.
 
 `GetEntities` returns a slice and therefore retains the result set. For large or unbounded reads, `GetEntitiesSeq` decodes and converts one document at
 a time and yields the first query, decode, or conversion error through `iter.Seq2`; it does not deduplicate concurrent iterations:
@@ -223,11 +225,10 @@ The cursor is base64 JSON, not encrypted: it shows the client the cursor ID and 
 that encrypts (`pagetoken.WithEncryption`), when the sort field is hidden from the client by a projection.
 `ParseCursor` rejects a token longer than `MaxCursorTokenLength` (16 KiB) before decoding it, and `ErrCursorChecksumMismatch` never spells the sort or
 cursor-ID field the server expects.
-Resuming a sort on an embedded-document or array field is not supported: issuing such a cursor fails with `ErrInvalidCursor`.
-
-For reliable continuation, the primary sort field must be present, non-null and have a consistent BSON type across the result set. The legacy cursor
-format omits a null/missing boundary and falls back to the cursor ID, which can skip items when another field defines the sort order. Scalar validation
-prevents query injection; it does not make null or mixed-type sort boundaries safe for pagination.
+The continuation uses the last item's raw BSON sort value. A missing sort key and BSON null share a segment, ordered by the configured cursor ID.
+Keep the populated sort values within one BSON comparison type. An unsupported boundary such as an array, embedded document, or non-ObjectID
+cursor ID fails with `ErrMissingCursorKey`. A non-ID sort requires a continuation with an explicit boundary and rejects tokens that lack one
+with `ErrInvalidCursor`.
 
 ## Cursor sort shapes
 
@@ -341,6 +342,8 @@ func init() {
 Versions are stored in the same `migrations` collection and format (`{version, description, timestamp}`) as `mongo-migrate`, whose global registry
 (versions taken from file names) is still honored: a migration applied earlier under the same version never runs again. A version registered in both
 registries fails `Connect` with `migrations.ErrInvalidMigration`.
+
+`Close` waits for an in-flight `Connect` to finish, including ping retries and schema migration. The shutdown timeout starts after that wait.
 
 `Connect` applies all pending migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
 it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back the steps this run applied, newest first, while the lease is held; earlier runs' steps are never touched and a step registered with a nil `down` is irreversible (`migrations.ErrIrreversibleMigration`). The underlying

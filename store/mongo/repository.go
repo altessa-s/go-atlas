@@ -5,18 +5,22 @@
 package mongo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"reflect"
+	"slices"
 	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
+	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -26,7 +30,7 @@ import (
 )
 
 type repository struct {
-	singleFlight   *singleflight.Group[string, any]
+	singleFlight   *singleflight.Group[readFlightKey, []bson.Raw]
 	dedupIdentity  DeduplicationIdentityFunc
 	converterOpts  []converter.Option
 	converters     sync.Map
@@ -59,30 +63,230 @@ func (m *Mongo) ConvertToUpdateDocument(ctx context.Context, entity any) (bson.M
 	return m.repo.updateDocument.Translate(ctx, entity)
 }
 
-// deduplicate runs fn through the singleflight group under key, unless ctx
-// carries a session: a read inside a transaction must see that transaction's
-// snapshot, and a read outside it must never see its uncommitted writes, so
-// session-bound reads are never shared in either direction.
-func (r *repository) deduplicate(ctx context.Context, key string, fn func(context.Context) (any, error)) (any, error) {
-	if mongo.SessionFromContext(ctx) != nil {
-		return fn(ctx)
-	}
-	return r.singleFlight.Do(ctx, key, fn)
+type freshReadKey struct{}
+
+// WithFreshRead bypasses concurrent read deduplication for [GetEntity] and
+// [GetEntities]. Use it after a write to avoid joining a read that started
+// before the write. The collection's read preference and concern still apply.
+func WithFreshRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshReadKey{}, true)
 }
 
-// deduplicationKey builds the singleflight key for a read, mixing in the
-// optional per-context identity segment (WithDeduplicationIdentity) ahead of the
-// db:collection base. When no identity func is configured, or it returns "", the
-// key is identical to the un-prefixed form so existing callers are unaffected.
-// The identity segment ensures two callers issuing the same filter concurrently
-// are only collapsed when they share an identity — never across tenants.
-func (r *repository) deduplicationKey(ctx context.Context, base string, filter bson.Raw) string {
+type readFlightKey struct {
+	database, collection string
+	handle               *mongo.Collection
+	model                reflect.Type
+	operation, identity  string
+	filter               string
+}
+
+func (r *repository) deduplicationKey(ctx context.Context, col *mongo.Collection, model reflect.Type, operation string, filter bson.Raw) readFlightKey {
+	key := readFlightKey{
+		database: col.Database().Name(), collection: col.Name(), handle: col,
+		model: model, operation: operation, filter: generateDeduplicationKey("", filter),
+	}
 	if r.dedupIdentity != nil {
-		if id := r.dedupIdentity(ctx); id != "" {
-			base = id + ":" + base
+		key.identity = r.dedupIdentity(ctx)
+	}
+	return key
+}
+
+func (r *repository) deduplicate(
+	ctx context.Context, key readFlightKey, fresh bool, read func(context.Context) ([]bson.Raw, error),
+) ([]bson.Raw, error) {
+	// A session's reads must use its snapshot and cannot share uncommitted data.
+	if fresh || ctx.Value(freshReadKey{}) != nil || mongo.SessionFromContext(ctx) != nil {
+		return read(ctx)
+	}
+	return r.singleFlight.Do(ctx, key, read)
+}
+
+// readQuery visits a document while its bytes and driver decoder are valid.
+func readQuery(ctx context.Context, col *mongo.Collection, filter bson.Raw, single bool, visit func(bson.Raw, func(any) error) error) error {
+	queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	if single {
+		// FindOne keeps the driver's server-side maxTimeMS calculation enabled.
+		result := col.FindOne(queryCtx, filter)
+		raw, err := result.Raw()
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return mongo.ErrNoDocuments
+		}
+		if err != nil {
+			return coreerrs.WrapOperation(err, "execute query")
+		}
+		return visit(raw, result.Decode)
+	}
+
+	cursor, err := col.Find(queryCtx, filter)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "execute query")
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultCursorCloseTimeout)
+		defer closeCancel()
+		_ = cursor.Close(closeCtx)
+	}()
+
+	for cursor.Next(queryCtx) {
+		if err := visit(cursor.Current, cursor.Decode); err != nil {
+			return err
 		}
 	}
-	return generateDeduplicationKey(base, filter)
+	if err := cursor.Err(); err != nil {
+		return coreerrs.WrapOperation(err, "read documents")
+	}
+	return nil
+}
+
+func readRepository[T, E any](
+	ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.Raw, single bool, settings []FilterEncoding,
+) ([]E, error) {
+	var encoding FilterEncoding
+	if len(settings) > 0 {
+		encoding = settings[len(settings)-1]
+	}
+	entities := []E{}
+	decode := func(decodeModel func(any) error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var model T
+		if err := decodeModel(&model); err != nil {
+			return coreerrs.WrapOperation(err, "decode document")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entity, err := convertModel[T, E](sharedConverter[T](&m.repo), model)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "convert document")
+		}
+		entities = append(entities, entity)
+		return ctx.Err()
+	}
+
+	owned := m.conn.externalClient == nil && col.Database().Client() == m.Client()
+	if !owned && encoding.Registry == nil && encoding.BSONOptions == nil {
+		// Preserve the driver's opaque BSON settings on borrowed handles.
+		read := func() ([]E, error) {
+			err := readQuery(ctx, col, filter, single, func(_ bson.Raw, driverDecode func(any) error) error {
+				return decode(driverDecode)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return entities, nil
+		}
+		// A driver session must stay in the caller's goroutine.
+		if mongo.SessionFromContext(ctx) != nil {
+			return read()
+		}
+		return waitForRead(ctx, read)
+	}
+
+	operation := "find"
+	if single {
+		operation = "find_one"
+	}
+	key := m.repo.deduplicationKey(ctx, col, reflect.TypeFor[T](), operation, filter)
+	docs, err := m.repo.deduplicate(ctx, key, encoding.FreshRead, func(workCtx context.Context) ([]bson.Raw, error) {
+		var docs []bson.Raw
+		err := readQuery(workCtx, col, filter, single, func(raw bson.Raw, _ func(any) error) error {
+			docs = append(docs, slices.Clone(raw))
+			return nil
+		})
+		return docs, err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	reg, opts := query.FilterEncoding(col, encoding.Registry, encoding.BSONOptions)
+	return waitForRead(ctx, func() ([]E, error) {
+		entities = make([]E, 0, len(docs))
+		for _, raw := range docs {
+			if err := decode(func(target any) error {
+				return decodeReadDocument(slices.Clone(raw), reg, opts, target)
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return entities, ctx.Err()
+	})
+}
+
+// A BSON decoder or converter can run arbitrary code without taking a context.
+// Allow callers to stop waiting and check cancellation before the next document.
+func waitForRead[E any](ctx context.Context, read func() ([]E, error)) ([]E, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if ctx.Done() == nil {
+		return read()
+	}
+	type result struct {
+		entities []E
+		err      error
+		panicVal any
+	}
+	done := make(chan result, 1)
+	go func() {
+		var r result
+		defer func() {
+			r.panicVal = recover()
+			done <- r
+		}()
+		r.entities, r.err = read()
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-done:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if r.panicVal != nil {
+			panic(r.panicVal)
+		}
+		return r.entities, r.err
+	}
+}
+
+func decodeReadDocument(raw bson.Raw, reg *bson.Registry, opts *options.BSONOptions, target any) error {
+	dec := bson.NewDecoder(bson.NewDocumentReader(bytes.NewReader(raw)))
+	dec.SetRegistry(reg)
+	if opts != nil {
+		if opts.AllowTruncatingDoubles {
+			dec.AllowTruncatingDoubles()
+		}
+		if opts.BinaryAsSlice {
+			dec.BinaryAsSlice()
+		}
+		if opts.DefaultDocumentM {
+			dec.DefaultDocumentM()
+		}
+		if opts.DefaultDocumentMap {
+			dec.DefaultDocumentMap()
+		}
+		if opts.ObjectIDAsHexString {
+			dec.ObjectIDAsHexString()
+		}
+		if opts.UseJSONStructTags {
+			dec.UseJSONStructTags()
+		}
+		if opts.UseLocalTimeZone {
+			dec.UseLocalTimeZone()
+		}
+		if opts.ZeroMaps {
+			dec.ZeroMaps()
+		}
+		if opts.ZeroStructs {
+			dec.ZeroStructs()
+		}
+	}
+	return dec.Decode(target)
 }
 
 // sharedConverter returns the memoized converter for document model type T,
@@ -98,10 +302,12 @@ func sharedConverter[T any](r *repository) *converter.Converter[T, any] {
 
 // GetEntity retrieves a single entity from MongoDB by converting a document model to domain entity.
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
-// The function includes request deduplication using singleflight to prevent duplicate concurrent queries.
-//
-// This function is designed to be used with a Mongo instance for proper singleflight deduplication.
-// The Mongo instance must be fully initialized with a connected singleFlight group.
+// Concurrent reads may share a query started before the caller's own write.
+// Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
+// Each read decodes and converts its own result. Reuse col across requests to
+// deduplicate queries. For database or collection codec overrides, provide
+// FilterEncoding. Borrowed handles use driver decoding and independent queries
+// when their settings are unspecified.
 //
 // Type parameters:
 //   - T: MongoDB document model type
@@ -136,53 +342,21 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 	stopOp := op.duration.Start()
 	defer stopOp()
 
-	// Generate a deduplication key from filter for singleflight request deduplication.
-	// Include database name to prevent cross-database data leakage, and the optional
-	// per-context identity so identical filters from different callers never collapse.
-	deduplicationKey := m.repo.deduplicationKey(ctx, col.Database().Name()+":"+col.Name(), raw)
-
-	// Use singleflight to prevent duplicate concurrent requests
-	data, err := m.repo.deduplicate(ctx, deduplicationKey, func(workCtx context.Context) (any, error) {
-		// Apply timeout for database operation
-		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(workCtx, DefaultQueryTimeout)
-		defer cancel()
-
-		// Find the document in MongoDB
-		var model T
-		result := col.FindOne(ctxWithTimeout, raw)
-		if err := result.Decode(&model); err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				return zero, mongo.ErrNoDocuments
-			}
-			return zero, coreerrs.WrapOperation(err, "decode document")
-		}
-
-		conv := sharedConverter[T](&m.repo)
-		entity, convertErr := convertModel[T, E](conv, model)
-		if convertErr != nil {
-			return zero, coreerrs.WrapOperation(convertErr, "convert document")
-		}
-		return entity, nil
-	})
-
+	entities, err := readRepository[T, E](ctx, m, col, raw, true, settings)
 	if err != nil {
 		return zero, err
 	}
-
-	entity, ok := data.(E)
-	if !ok {
-		return zero, fmt.Errorf("singleflight type assertion failed: got %T, expected %T", data, zero)
-	}
-
-	return entity, nil
+	return entities[0], nil
 }
 
 // GetEntities retrieves multiple entities from MongoDB by converting document models to domain entities.
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
-// The function includes request deduplication using singleflight to prevent duplicate concurrent queries.
-//
-// This function is designed to be used with a Mongo instance for proper singleflight deduplication.
-// The Mongo instance must be fully initialized with a connected singleFlight group.
+// Concurrent reads may share a query started before the caller's own write.
+// Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
+// Each read decodes and converts its own result. Reuse col across requests to
+// deduplicate queries. For database or collection codec overrides, provide
+// FilterEncoding. Borrowed handles use driver decoding and independent queries
+// when their settings are unspecified.
 //
 // Type parameters:
 //   - T: MongoDB document model type
@@ -215,62 +389,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	stopOp := op.duration.Start()
 	defer stopOp()
 
-	// Generate a deduplication key from filter for singleflight request deduplication.
-	// Include database name to prevent cross-database data leakage, and the optional
-	// per-context identity so identical filters from different callers never collapse.
-	deduplicationKey := m.repo.deduplicationKey(ctx, col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, raw)
-
-	// Use singleflight to prevent duplicate concurrent requests
-	data, err := m.repo.deduplicate(ctx, deduplicationKey, func(workCtx context.Context) (any, error) {
-		// Apply timeout for database operation
-		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(workCtx, DefaultQueryTimeout)
-		defer cancel()
-
-		// Execute a query to find matching documents
-		cursor, err := col.Find(ctxWithTimeout, raw)
-		if err != nil {
-			return []E{}, coreerrs.WrapOperation(err, "execute query")
-		}
-		defer func() {
-			closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(workCtx), DefaultCursorCloseTimeout)
-			defer closeCancel()
-			if cerr := cursor.Close(closeCtx); cerr != nil {
-				// Log cursor close error but don't override main error
-				// In production code, you might want to use a proper logger here
-				_ = cerr // Explicitly ignore the error to satisfy linter
-			}
-		}()
-
-		conv := sharedConverter[T](&m.repo)
-		entities := make([]E, 0)
-		for cursor.Next(ctxWithTimeout) {
-			var model T
-			if err = cursor.Decode(&model); err != nil {
-				return nil, coreerrs.WrapOperation(err, "decode document")
-			}
-			entity, convertErr := convertModel[T, E](conv, model)
-			if convertErr != nil {
-				return nil, coreerrs.WrapOperation(convertErr, "convert document")
-			}
-			entities = append(entities, entity)
-		}
-		if err = cursor.Err(); err != nil {
-			return nil, coreerrs.WrapOperation(err, "read documents")
-		}
-
-		return entities, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	entities, ok := data.([]E)
-	if !ok {
-		return nil, fmt.Errorf("singleflight type assertion failed: got %T, expected []%T", data, *new(E))
-	}
-
-	return entities, nil
+	return readRepository[T, E](ctx, m, col, raw, false, settings)
 }
 
 // GetEntitiesSeq streams matching entities without retaining the full result

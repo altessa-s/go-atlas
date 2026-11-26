@@ -143,6 +143,10 @@ func loadStoredCursor(ctx context.Context, token string, storage Storage, filter
 		return nil, coreerrs.WrapOperation(err, "load cursor from storage")
 	}
 
+	if metadata == nil {
+		return nil, ErrCursorNotFound
+	}
+
 	// Validate the cursor was issued for this collection: storages are
 	// shared between endpoints, and a filter hash alone does not tell them apart.
 	if validationErr := metadata.ValidateCollection(collection); validationErr != nil {

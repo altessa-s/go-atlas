@@ -6,6 +6,14 @@
 // transaction handling, and structured logging. Use it for database operations
 // requiring encryption or simplified transaction management.
 //
+// # Repository reads
+//
+// [GetEntity] and [GetEntities] deduplicate eligible reads using the same
+// collection handle. Canceling one waiter does not cancel shared work or
+// other waiters. A caller can join a read started before its
+// own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write
+// to issue an independent query with the collection's read preference and concern.
+//
 // # Cursor pagination
 //
 // ListCursor issues its continuation token in one of three modes, chosen by
@@ -25,6 +33,10 @@
 //     ID field and filter, and its sort value is restricted to BSON scalars,
 //     but the client can choose its own continuation position within that
 //     query and reads the cursor ID and sort value of the last item of a page.
+//
+// Continuations take their boundary from raw BSON. Missing and null sort
+// values share one segment and use the configured cursor ID to break ties.
+// The cursor ID must be a BSON ObjectID.
 //
 // Stateful storage snapshots metadata and returns owned copies. [CursorDeleter]
 // is the optional capability for explicit cleanup.

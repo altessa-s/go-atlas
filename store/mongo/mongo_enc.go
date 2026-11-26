@@ -19,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
@@ -27,12 +28,24 @@ import (
 )
 
 type fieldEncryption struct {
-	provider         kms.MasterKeyProvider
-	vaultDatabase    string
-	vaultCollection  string
-	encryptionClient clientEncryption
-	registry         *bson.Registry
-	dkids            sync.Map
+	provider        kms.MasterKeyProvider
+	vaultDatabase   string
+	vaultCollection string
+	registry        *bson.Registry
+
+	mu      sync.Mutex
+	current *encryptionClientState
+}
+
+// Each connection owns its client and cache until its admitted operations finish.
+type encryptionClientState struct {
+	provider kms.MasterKeyProvider
+	registry *bson.Registry
+	client   clientEncryption
+	dkids    sync.Map
+	active   sync.WaitGroup
+	lifetime context.Context
+	cancel   context.CancelFunc
 }
 
 // clientEncryption is the subset of [mongo.ClientEncryption] the package
@@ -74,15 +87,74 @@ func (m *fieldEncryption) open(ctx context.Context, client *mongo.Client) error 
 	if err != nil {
 		return err
 	}
-	m.encryptionClient = ce
+	m.installClient(ce)
 	return nil
 }
 
+func (m *fieldEncryption) installClient(client clientEncryption) {
+	lifetime, cancel := context.WithCancel(context.Background())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.current = &encryptionClientState{
+		provider: m.provider, registry: m.registry, client: client,
+		lifetime: lifetime, cancel: cancel,
+	}
+}
+
 func (m *fieldEncryption) close(ctx context.Context) error {
-	if m.encryptionClient == nil {
+	m.mu.Lock()
+	state := m.current
+	m.current = nil
+	m.mu.Unlock()
+	if state == nil {
 		return nil
 	}
-	return m.encryptionClient.Close(ctx)
+	defer state.cancel()
+
+	// The driver may stay in a KMS call after cancellation. Finish closing
+	// its client when the last operation exits, without racing the driver.
+	closed := make(chan error, 1)
+	go func() {
+		defer panics.Handle(ctx)
+		state.active.Wait()
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultCloseTimeout)
+		defer cancel()
+		closed <- state.client.Close(closeCtx)
+	}()
+
+	select {
+	case err := <-closed:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func withEncryption[T any](ctx context.Context, m *fieldEncryption, op func(context.Context, *encryptionClientState) (T, error)) (T, error) {
+	var zero T
+	m.mu.Lock()
+	state := m.current
+	if state != nil {
+		state.active.Add(1)
+	}
+	m.mu.Unlock()
+	if state == nil {
+		return zero, ErrEncryptionNotEnabled
+	}
+	defer state.active.Done()
+
+	opCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	//nolint:contextcheck // The client lifetime can also cancel the caller-derived operation context.
+	stop := context.AfterFunc(state.lifetime, cancel)
+	defer stop()
+	if state.lifetime.Err() != nil {
+		cancel()
+	}
+	if err := opCtx.Err(); err != nil {
+		return zero, err
+	}
+	return op(opCtx, state)
 }
 
 // EncryptionAlg represents the encryption algorithm used for field-level encryption.
@@ -154,14 +226,12 @@ func (m *Mongo) IsEncryptionConfigured() bool {
 //		return err
 //	}
 func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
-	return m.encryption.dataKey(ctx, altName, create)
+	return withEncryption(ctx, &m.encryption, func(ctx context.Context, state *encryptionClientState) (*DataKeyId, error) {
+		return state.dataKey(ctx, altName, create)
+	})
 }
 
-func (m *fieldEncryption) dataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
-	if m.provider == nil {
-		return nil, ErrEncryptionNotEnabled
-	}
-
+func (m *encryptionClientState) dataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
 	dkId, ok := m.dkids.Load(altName)
 	if ok {
 		if ret, ok := dkId.(DataKeyId); ok {
@@ -197,14 +267,12 @@ func (m *fieldEncryption) dataKey(ctx context.Context, altName string, create bo
 //   - *DataKeyId: The created or existing data key identifier
 //   - error: Error if encryption is not enabled or key creation fails
 func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
-	return m.encryption.createDataKey(ctx, altName)
+	return withEncryption(ctx, &m.encryption, func(ctx context.Context, state *encryptionClientState) (*DataKeyId, error) {
+		return state.createDataKey(ctx, altName)
+	})
 }
 
-func (m *fieldEncryption) createDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
-	if m.provider == nil {
-		return nil, ErrEncryptionNotEnabled
-	}
-
+func (m *encryptionClientState) createDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
 	ret, err := m.lookupDataKey(ctx, altName)
 	if err == nil {
 		return ret, nil
@@ -221,7 +289,7 @@ func (m *fieldEncryption) createDataKey(ctx context.Context, altName string) (*D
 		dataKeyOpts.SetMasterKey(masterKey)
 	}
 
-	keyId, err := m.encryptionClient.CreateDataKey(ctx, m.provider.Name(), dataKeyOpts)
+	keyId, err := m.client.CreateDataKey(ctx, m.provider.Name(), dataKeyOpts)
 	if err != nil {
 		serr, ok := errors.AsType[mongo.ServerError](err)
 		if !ok || !serr.HasErrorCode(MongoErrorCodeDuplicateKey) {
@@ -247,8 +315,8 @@ func (m *fieldEncryption) createDataKey(ctx context.Context, altName string) (*D
 // lookupDataKey reads the data key stored under altName in the key vault. It
 // returns [ErrDataKeyNotFound] when no key exists and rejects a document
 // whose _id is not a non-empty binary, so an invalid id is never cached.
-func (m *fieldEncryption) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
-	res := m.encryptionClient.GetKeyByAltName(ctx, altName)
+func (m *encryptionClientState) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
+	res := m.client.GetKeyByAltName(ctx, altName)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrDataKeyNotFound
@@ -279,7 +347,11 @@ func (m *fieldEncryption) lookupDataKey(ctx context.Context, altName string) (*D
 // the cached id for the lifetime of the [Mongo] instance and silently
 // defeats key rotation.
 func (m *Mongo) InvalidateDataKey(altName string) {
-	m.encryption.dkids.Delete(altName)
+	m.encryption.mu.Lock()
+	defer m.encryption.mu.Unlock()
+	if state := m.encryption.current; state != nil {
+		state.dkids.Delete(altName)
+	}
 }
 
 // InvalidateAllDataKeys clears every cached DataKeyId. Useful after a
@@ -288,10 +360,11 @@ func (m *Mongo) InvalidateDataKey(altName string) {
 // Functionally equivalent to a full cache flush; the next DataKey call
 // for any altName will re-fetch from the vault.
 func (m *Mongo) InvalidateAllDataKeys() {
-	m.encryption.dkids.Range(func(k, _ any) bool {
-		m.encryption.dkids.Delete(k)
-		return true
-	})
+	m.encryption.mu.Lock()
+	defer m.encryption.mu.Unlock()
+	if state := m.encryption.current; state != nil {
+		state.dkids.Clear()
+	}
 }
 
 // Encrypt explicitly encrypts a value using the specified algorithm and data key.
@@ -318,14 +391,12 @@ func (m *Mongo) InvalidateAllDataKeys() {
 //	// Store in document
 //	doc := bson.M{"user_id": userID, "credit_card": encryptedCC}
 func (m *Mongo) Encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
-	return m.encryption.encrypt(ctx, data, alg, altName)
+	return withEncryption(ctx, &m.encryption, func(ctx context.Context, state *encryptionClientState) (*bson.Binary, error) {
+		return state.encrypt(ctx, data, alg, altName)
+	})
 }
 
-func (m *fieldEncryption) encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
-	if m.provider == nil {
-		return nil, ErrEncryptionNotEnabled
-	}
-
+func (m *encryptionClientState) encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
 	dkid, err := m.dataKey(ctx, altName, true)
 	if err != nil {
 		return nil, err
@@ -334,7 +405,7 @@ func (m *fieldEncryption) encrypt(ctx context.Context, data any, alg EncryptionA
 	if err != nil {
 		return nil, err
 	}
-	ciphertext, err := m.encryptionClient.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyID(bson.Binary(*dkid)))
+	ciphertext, err := m.client.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyID(bson.Binary(*dkid)))
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +414,7 @@ func (m *fieldEncryption) encrypt(ctx context.Context, data any, alg EncryptionA
 
 // encodePlaintext is the registry-aware equivalent of bson.MarshalValue.
 // The enclosing document gives the public driver writer a place to flush one value.
-func (m *fieldEncryption) encodePlaintext(data any) (bson.RawValue, error) {
+func (m *encryptionClientState) encodePlaintext(data any) (bson.RawValue, error) {
 	var buf bytes.Buffer
 	doc, err := bson.NewDocumentWriter(&buf).WriteDocument()
 	if err != nil {
@@ -367,12 +438,11 @@ func (m *fieldEncryption) encodePlaintext(data any) (bson.RawValue, error) {
 }
 
 func (m *fieldEncryption) encryptDocumentField(ctx context.Context, raw bson.RawValue, algorithm, key string) (bson.Binary, error) {
-	if m.provider == nil || m.encryptionClient == nil {
-		return bson.Binary{}, ErrEncryptionNotEnabled
-	}
-	alg, err := EncryptionAlgFromAlias(algorithm)
-	if err != nil {
-		return bson.Binary{}, err
-	}
-	return m.encryptionClient.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyAltName(key))
+	return withEncryption(ctx, m, func(ctx context.Context, state *encryptionClientState) (bson.Binary, error) {
+		alg, err := EncryptionAlgFromAlias(algorithm)
+		if err != nil {
+			return bson.Binary{}, err
+		}
+		return state.client.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyAltName(key))
+	})
 }

@@ -70,10 +70,13 @@ func TestPreparedCursorWire(t *testing.T) {
 	data, err := os.ReadFile("testdata/listcursor/prepared.json")
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &wire))
-	const id = "6553f1000000000000000001"
+	first, err := bson.ObjectIDFromHex("6553f1000000000000000001")
+	require.NoError(t, err)
+	second, err := bson.ObjectIDFromHex("6553f1000000000000000002")
+	require.NoError(t, err)
 	batch := bson.A{bson.M{"items": bson.A{
-		bson.M{"cursor_id": id, "name": "alice"},
-		bson.M{"cursor_id": "6553f1000000000000000002", "name": "bob"},
+		bson.M{"cursor_id": first, "name": "alice"},
+		bson.M{"cursor_id": second, "name": "bob"},
 	}}}
 	signer := newCursorSigner(t, 1, pagetoken.WithClock(func() time.Time { return time.Unix(1700000000, 0) }))
 	for _, mode := range []string{"unsigned", "signed", "stored"} {

@@ -81,7 +81,7 @@ func TestBsonLookup(t *testing.T) {
 		},
 	}
 
-	// Marshal to BSON then unmarshal to bson.M (same as extractCursorDataFromItem)
+	// Marshal to BSON for raw and decoded path lookups.
 	itemBytes, err := bson.Marshal(item)
 	require.NoError(t, err, "Marshal failed")
 
@@ -102,10 +102,9 @@ func TestBsonLookup(t *testing.T) {
 	// Test missing key
 	require.Nil(t, BsonLookup(itemMap, "missing.key"), "BsonLookup(missing.key): expected nil")
 
-	// Test extractCursorDataFromItem uses BsonLookup internally
 	sort := bson.D{{Key: "sort_fields.value", Value: 1}, {Key: "cursor_id", Value: 1}}
-	cursorId, sortValue, err := extractCursorDataFromItem(item, "cursor_id", sort)
-	require.NoError(t, err, "extractCursorDataFromItem failed")
-	require.NotEmpty(t, cursorId, "cursorId is empty")
-	require.NotNil(t, sortValue, "sortValue is nil, expected 'Agent'")
+	cursorId, sortValue, err := extractCursorBoundary(itemBytes, "cursor_id", sort)
+	require.NoError(t, err)
+	require.Equal(t, item.CursorId.Hex(), cursorId)
+	require.Equal(t, "Agent", sortValue.(bson.RawValue).StringValue())
 }

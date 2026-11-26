@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -163,6 +164,8 @@ func TestPreparedEntityDeduplication(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			calls := 0
 			release := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
 			coll := mockReadCollection(t, func(_ context.Context, e *event.CommandStartedEvent) {
 				if e.CommandName == "find" {
 					calls++
@@ -171,14 +174,15 @@ func TestPreparedEntityDeduplication(t *testing.T) {
 			}, bson.A{bson.M{"name": "alice"}})
 			m, err := New("testdb")
 			require.NoError(t, err)
+			encoding := FilterEncoding{Registry: bson.NewRegistry()}
 			result := make(chan error, 2)
 			read := func(filter any) {
 				if many {
-					_, err := GetEntities[readDocument, readDocument](t.Context(), m, coll, filter)
+					_, err := GetEntities[readDocument, readDocument](t.Context(), m, coll, filter, encoding)
 					result <- err
 					return
 				}
-				_, err := GetEntity[readDocument, readDocument](t.Context(), m, coll, filter)
+				_, err := GetEntity[readDocument, readDocument](t.Context(), m, coll, filter, encoding)
 				result <- err
 			}
 			go read(bson.M{"b": 2, "a": 1})
@@ -186,7 +190,7 @@ func TestPreparedEntityDeduplication(t *testing.T) {
 			go read(bson.D{{Key: "a", Value: 1}, {Key: "b", Value: 2}})
 			synctest.Wait()
 			require.Equal(t, 1, calls)
-			close(release)
+			unblock()
 			require.NoError(t, <-result)
 			require.NoError(t, <-result)
 		})
@@ -217,7 +221,7 @@ func TestListCursorBindsBSONType(t *testing.T) {
 	t.Parallel()
 	coll := newDetachedCollection(t)
 	for _, stored := range []bool{false, true} {
-		req := []ListCursorOption{WithListCursorFilter(bson.M{"n": int32(3)}), WithListCursorSigner(newCursorSigner(t, 1))}
+		req := []ListCursorOption{WithListCursorSort("cursor_id"), WithListCursorFilter(bson.M{"n": int32(3)}), WithListCursorSigner(newCursorSigner(t, 1))}
 		if stored {
 			req = append(req, WithListCursorStorage(newFakeCursorStorage()))
 		}

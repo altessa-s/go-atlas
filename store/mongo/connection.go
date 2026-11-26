@@ -53,31 +53,43 @@ type connection struct {
 	transactionOptions TransactionOptions
 	logger             *slog.Logger
 	database           string
-	client             *mongo.Client
+	client             atomic.Pointer[mongo.Client]
 	ownsClient         bool
 	// connectMu makes concurrent callers wait for the entire startup sequence.
 	connectMu sync.Mutex
-	connected atomic.Bool
+	connected bool
+	closing   atomic.Int32 // close calls waiting for or holding connectMu
 	metrics   *mongoMetrics
 }
 
 func (m *connection) open(ctx context.Context) error {
-	if m.externalClient != nil {
-		m.client = m.externalClient
-	} else {
+	if m.closing.Load() != 0 {
+		return mongo.ErrClientDisconnected
+	}
+	client := m.externalClient
+	if client == nil {
 		opts := m.clientOptions
-
 		var err error
-		m.client, err = mongo.Connect(opts)
+		client, err = mongo.Connect(opts)
 		if err != nil {
 			return err
 		}
 
 		m.ownsClient = true
-		query.RegisterClientEncoding(m.client, opts)
+		query.RegisterClientEncoding(client, opts)
 	}
+	m.client.Store(client)
 
-	return m.ping(ctx)
+	if m.closing.Load() != 0 {
+		return mongo.ErrClientDisconnected
+	}
+	if err := m.ping(ctx); err != nil {
+		return err
+	}
+	if m.closing.Load() != 0 {
+		return mongo.ErrClientDisconnected
+	}
+	return nil
 }
 
 func (m *connection) ping(ctx context.Context) error {
@@ -85,7 +97,7 @@ func (m *connection) ping(ctx context.Context) error {
 		pingCtx, pingCtxCancel := corecontext.WithMaxTimeout(ctx, DefaultPingTimeout)
 		defer pingCtxCancel()
 
-		if err := m.client.Ping(pingCtx, readpref.Primary()); err != nil {
+		if err := m.client.Load().Ping(pingCtx, readpref.Primary()); err != nil {
 			if !IsTransientTransaction(err) {
 				return coreerrs.Wrap(err, "ping failed")
 			}
@@ -148,7 +160,7 @@ func (m *connection) executeBuildInfoCommand(ctx context.Context) (bson.M, error
 	cmd := bson.M{BuildInfoCommand: 1}
 	opts := mongoOptions.RunCmd().SetReadPreference(readpref.Primary())
 
-	err := m.client.Database(m.database).RunCommand(ctx, cmd, opts).Decode(&buildInfo)
+	err := m.client.Load().Database(m.database).RunCommand(ctx, cmd, opts).Decode(&buildInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -218,15 +230,28 @@ func (m *Mongo) parseVersionArray(buildInfo bson.M) error {
 //
 // This method is safe to call multiple times and should be called when the
 // MongoDB client is no longer needed, typically in a defer statement.
+// Close waits for an in-flight Connect, including ping retries and migration,
+// before starting its shutdown timeout.
 func (m *Mongo) Close() {
-	if !m.conn.connected.CompareAndSwap(true, false) || m.Client() == nil {
+	m.conn.closing.Add(1)
+	m.conn.connectMu.Lock()
+	defer m.conn.connectMu.Unlock()
+	defer m.conn.closing.Add(-1)
+	if m.conn.connected {
+		m.closeLocked(context.Background())
+	}
+}
+
+// closeLocked tears down a successful or partially established connection.
+func (m *Mongo) closeLocked(ctx context.Context) {
+	m.conn.connected = false
+	if m.Client() == nil {
 		return
 	}
-
 	if m.conn.logger != nil {
 		defer m.conn.logger.Info("mongo connection closed")
 	}
-	ctx, cancel := corecontext.ApplyTimeout(context.Background(), DefaultCloseTimeout)
+	ctx, cancel := corecontext.ApplyTimeout(context.WithoutCancel(ctx), DefaultCloseTimeout)
 	defer cancel()
 	if err := m.encryption.close(ctx); err != nil && m.conn.logger != nil {
 		m.conn.logger.Warn("failed to close encryption client", "error", err)
@@ -240,8 +265,10 @@ func (m *connection) disconnect(ctx context.Context) error {
 	if !m.ownsClient {
 		return nil
 	}
-	query.ForgetClientEncoding(m.client)
-	err := m.client.Disconnect(ctx)
+	client := m.client.Load()
+	m.ownsClient = false
+	query.ForgetClientEncoding(client)
+	err := client.Disconnect(ctx)
 	if errors.Is(err, mongo.ErrClientDisconnected) {
 		return nil
 	}

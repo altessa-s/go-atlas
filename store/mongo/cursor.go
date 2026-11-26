@@ -378,10 +378,6 @@ func decodeSortFromString(encoded string) (bson.D, error) {
 //
 //	encoded, err := encodeSortValue(primitive.DateTime(1234567890000))
 func encodeSortValue(value any) (string, error) {
-	if value == nil {
-		return "", nil
-	}
-
 	// Wrap value in ordered document to marshal it (bson.D avoids map allocation).
 	bsonBytes, err := bson.Marshal(bson.D{{Key: "v", Value: value}})
 	if err != nil {
@@ -410,52 +406,34 @@ func checkSortValueType(t bson.Type) error {
 	}
 }
 
-// decodeSortValue decodes a base64-encoded BSON string back to its original value.
-// Returns the decoded value with its original MongoDB type preserved.
-//
-// Parameters:
-//   - encoded: Base64-encoded BSON string
-//
-// Returns:
-//   - Decoded value with original type (nil if encoded is empty)
-//   - error if decoding or unmarshaling fails
-//
-// Example:
-//
-//	value, err := decodeSortValue(encoded)
-func decodeSortValue(encoded string) (any, error) {
-	if encoded == "" {
-		// Empty string is valid - means no sort value stored
-		return nil, nil //nolint:nilnil
-	}
-
+// decodeSortValue returns the wire value so the collection's encoder cannot
+// reinterpret it when constructing the next page's comparison.
+func decodeSortValue(encoded string) (bson.RawValue, error) {
 	// Decode from base64
 	bsonBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "decode sort value")
+		return bson.RawValue{}, coreerrs.WrapOperation(err, "decode sort value")
 	}
 
 	// The wrapper document must hold exactly one element, "v": a duplicate
 	// key must not let a second value slip past the type check below.
 	elems, err := bson.Raw(bsonBytes).Elements()
 	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "unmarshal sort value")
+		return bson.RawValue{}, coreerrs.WrapOperation(err, "unmarshal sort value")
 	}
 	if len(elems) != 1 || elems[0].Key() != "v" {
-		return nil, coreerrs.Wrap(ErrInvalidCursor, "sort value document must hold exactly the 'v' field")
+		return bson.RawValue{}, coreerrs.Wrap(ErrInvalidCursor, "sort value document must hold exactly the 'v' field")
 	}
 
 	raw := elems[0].Value()
 	if err := checkSortValueType(raw.Type); err != nil {
-		return nil, err
+		return bson.RawValue{}, err
 	}
 
-	var value any
-	if err := raw.Unmarshal(&value); err != nil {
-		return nil, coreerrs.WrapOperation(err, "unmarshal sort value")
+	if err := raw.Validate(); err != nil {
+		return bson.RawValue{}, coreerrs.WrapOperation(err, "validate sort value")
 	}
-
-	return value, nil
+	return raw, nil
 }
 
 // isSortEqual compares two bson.D sort specifications for equality.
@@ -514,7 +492,7 @@ func computeCursorChecksum(sort bson.D, cursorIdField string) (string, error) {
 //   - sort: MongoDB sort specification as bson.D (e.g., bson.D{{"created_at", -1}})
 //   - cursorIdField: MongoDB field name for cursor ID (e.g., "_id")
 //   - filter: MongoDB filter for validation (can be nil/empty, hash will still be computed)
-//   - sortValue: Value of the sort field from the last item (nil if sorting by cursorIdField)
+//   - sortValue: Value of the sort field from the last item (nil represents BSON null for a non-ID sort)
 //
 // Returns an error if:
 //   - cursorId is not a valid MongoDB ObjectID (24 hexadecimal characters)

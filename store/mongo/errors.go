@@ -168,6 +168,10 @@ var (
 	// the cursor-ID field in the same direction.
 	ErrUnsupportedCursorSort = errors.New("unsupported cursor sort")
 
+	// ErrMissingCursorKey is returned when a page ends at a boundary that
+	// cannot be represented in a ListCursor continuation.
+	ErrMissingCursorKey = errors.New("missing or unsupported cursor key")
+
 	// ErrProjectionDropsCursorField is returned by [ListCursor] and
 	// [ListCursorSeq] when the projection does not fully return the cursor-ID
 	// field or the primary sort field. The next-page cursor is read from the

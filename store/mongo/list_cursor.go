@@ -506,7 +506,10 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 		"cursor_provided", opts.cursor != nil)
 
 	// Build optimized pipeline
-	pipeline := buildCursorPipeline(opts, collection.Name())
+	pipeline, err := buildCursorPipeline(opts, collection.Name())
+	if err != nil {
+		return nil, err
+	}
 
 	// Execute explain analysis if requested
 	executeExplainIfRequested(queryCtx, collection, pipeline, opts.hint, opts.explain, opts.logger)
@@ -543,7 +546,13 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 		Total int64 `bson:"total"`
 	}
 
+	var cursorID string
+	var sortValue any
 	if cursor.Next(queryCtx) {
+		cursorID, sortValue, err = readPageBoundary(cursor.Current, opts)
+		if err != nil {
+			return nil, err
+		}
 		if err = cursor.Decode(&pipelineResult); err != nil {
 			return nil, err
 		}
@@ -553,40 +562,17 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 		return nil, err
 	}
 
-	result := &ListCursorResult[T]{
-		Items:      []T{},
-		Total:      pipelineResult.Total,
-		NextCursor: nil,
-	}
-
-	// Check if we have more pages
-	// We fetched limit+1 items, so if we got more than limit, there's a next page
-	hasMore := int64(len(pipelineResult.Items)) > opts.limit
-
-	if hasMore {
-		// Remove the extra item (limit+1)
-		result.Items = pipelineResult.Items[:opts.limit]
-
-		// Create a cursor from the last item
-		lastItem := result.Items[len(result.Items)-1]
-
-		// Extract cursor ID and sort field value from last item
-		cursorId, sortValue, err := extractCursorDataFromItem(lastItem, opts.cursorIdField, opts.sort)
-		if err != nil {
-			// Cursor build failure indicates data inconsistency (e.g., invalid ID format)
-			// Return error instead of silently continuing without pagination
-			return nil, coreerrs.WrapOperation(err, "extract cursor id")
+	result := &ListCursorResult[T]{Items: pipelineResult.Items, Total: pipelineResult.Total}
+	if cursorID != "" {
+		if int64(len(result.Items)) <= opts.limit {
+			return nil, ErrMissingCursorKey
 		}
-
-		// Generate next cursor token (ULID if storage configured, signed if a signer is, base64 JSON otherwise)
-		nextCursorToken, err := opts.nextCursorToken(ctx, cursorId, sortValue, collectionDigest)
+		result.Items = result.Items[:opts.limit]
+		nextCursorToken, err := opts.nextCursorToken(ctx, cursorID, sortValue, collectionDigest)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "generate next cursor")
 		}
 		result.NextCursor = new(nextCursorToken)
-	} else {
-		// No more pages, return all items
-		result.Items = pipelineResult.Items
 	}
 
 	if !opts.includeTotal {
@@ -594,6 +580,27 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 	}
 
 	return result, nil
+}
+
+// readPageBoundary finds the last returned item only if the aggregation
+// includes a lookahead item.
+func readPageBoundary(raw bson.Raw, opts *listCursorOptions) (string, any, error) {
+	items, ok := raw.Lookup("items").ArrayOK()
+	if !ok {
+		return "", nil, nil
+	}
+	if _, err := items.IndexErr(uint(opts.limit)); err != nil { // #nosec G115 -- page limit is positive
+		return "", nil, nil
+	}
+	boundary, err := items.IndexErr(uint(opts.limit - 1)) // #nosec G115 -- page limit is positive
+	if err != nil {
+		return "", nil, ErrMissingCursorKey
+	}
+	doc, ok := boundary.DocumentOK()
+	if !ok {
+		return "", nil, ErrMissingCursorKey
+	}
+	return extractCursorBoundary(doc, opts.cursorIdField, opts.sort)
 }
 
 // resolveCursorOptions loads the cursor the options carry (a storage key or

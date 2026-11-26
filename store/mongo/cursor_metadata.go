@@ -83,7 +83,7 @@ type CursorMetadata struct {
 //   - sort: MongoDB sort specification
 //   - cursorIdField: Field name for cursor ID (e.g., "cursor_id", "_id")
 //   - filter: Original query filter for validation
-//   - sortValue: Value of the sort field from the last item (nil if sorting by cursorIdField)
+//   - sortValue: Value of the sort field from the last item (nil represents BSON null for a non-ID sort)
 //
 // Returns:
 //   - *CursorMetadata: Ready to store in Storage
