@@ -636,3 +636,44 @@ func TestOutcomeClassifierDefinitiveAbort(t *testing.T) {
 	require.ErrorIs(t, err, cause)
 	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
 }
+
+func TestApply_EffectPanicStillCompensatesAndRunsHooks(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	r := uow.New(&uowtest.Fake{}, nil)
+	var runErr error
+	func() {
+		defer func() { _ = recover() }()
+		runErr = r.Run(t.Context(), func(ctx context.Context) error {
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("a", nil, nil)))
+			require.NoError(t, uow.OnCommit(ctx, uow.Effect{Label: "b",
+				Apply: func(context.Context) error { panic("apply") },
+			}))
+			return r.AfterCommit(ctx, func(context.Context) { rec.events = append(rec.events, "hook") })
+		})
+	}()
+	require.Equal(t, []string{"apply:a", "comp:a", "hook"}, rec.events)
+	require.Error(t, runErr)
+}
+
+func TestApply_CompensationPanicStillCompensatesAndRunsHooks(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	r := uow.New(&uowtest.Fake{}, nil)
+	applyErr := errors.New("apply failed")
+	var runErr error
+	func() {
+		defer func() { _ = recover() }()
+		runErr = r.Run(t.Context(), func(ctx context.Context) error {
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("a", nil, nil)))
+			effect := rec.effect("b", nil, nil)
+			effect.Compensate = func(context.Context) error { panic("compensation") }
+			require.NoError(t, uow.OnCommit(ctx, effect))
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("c", applyErr, nil)))
+			return r.AfterCommit(ctx, func(context.Context) { rec.events = append(rec.events, "hook") })
+		})
+	}()
+	require.Equal(t, []string{"apply:a", "apply:b", "apply:c", "comp:a", "hook"}, rec.events)
+	require.ErrorIs(t, runErr, applyErr)
+	require.ErrorContains(t, runErr, "compensate post-commit effect")
+}
