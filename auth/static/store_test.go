@@ -273,16 +273,17 @@ func TestRateLimitedStore_Validate(t *testing.T) {
 			"failed validation must debit the per-key budget exactly once")
 	})
 
-	t.Run("empty key skips limiter", func(t *testing.T) {
+	t.Run("empty key is rejected", func(t *testing.T) {
 		t.Parallel()
 		inner := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{"t": userInfo{}}))
-		limiter := &denyLimiter{allow: false} // would deny if consulted
+		limiter := &denyLimiter{allow: true}
 		s := static.NewRateLimitedStore(inner, limiter, func(context.Context) string { return "" })
 
-		_, err := s.Validate(t.Context(), "t")
-		require.NoError(t, err)
-		require.Empty(t, limiter.failedKeys,
-			"empty key short-circuits BOTH Allow and RecordFailure")
+		data, err := s.Validate(t.Context(), "t")
+		require.ErrorIs(t, err, static.ErrRateLimitKeyEmpty)
+		require.NotErrorIs(t, err, static.ErrRateLimited)
+		require.Nil(t, data)
+		require.Empty(t, limiter.failedKeys, "an empty key must not reach the limiter")
 	})
 
 	t.Run("nil store panics", func(t *testing.T) {

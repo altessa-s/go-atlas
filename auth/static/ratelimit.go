@@ -46,9 +46,11 @@ type RateLimiter interface {
 // KeyFunc derives the rate-limit key for a given context. Typical
 // implementations return the client IP, an API-key prefix, or a tenant id.
 //
-// Returning an empty string causes [RateLimitedStore] to skip the rate-limit
-// check for that request — useful for trusted internal traffic that should
-// not consume per-tenant budget. Returning the SAME non-empty key for every
+// Returning an empty string makes [RateLimitedStore] reject the request with
+// [ErrRateLimitKeyEmpty] before the token is validated (fail closed): a caller
+// that cannot be attributed to a bucket must not bypass the limiter. Trusted
+// internal traffic that should not consume per-tenant budget must be served by
+// an unwrapped [TokenStore] instead. Returning the SAME non-empty key for every
 // request is forbidden by contract: the limiter then becomes a single global
 // bucket and a single attacker can lock out every legitimate user (DoS
 // amplification). Callers MUST partition by an attribute correlated with
@@ -71,6 +73,8 @@ type RateLimitedStore struct {
 // shared bucket would let a single attacker trip [ErrRateLimited] for every
 // legitimate user. The caller MUST partition traffic via [KeyFunc] (client
 // IP, tenant id, API-key prefix, etc.) so per-attacker isolation is real.
+// A [KeyFunc] that returns an empty key causes [RateLimitedStore.Validate] to
+// reject the request with [ErrRateLimitKeyEmpty]; it never skips the limiter.
 func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *RateLimitedStore {
 	if store == nil {
 		panic("auth/static: RateLimitedStore requires a non-nil TokenStore")
@@ -87,7 +91,8 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 // Validate implements [TokenStore].
 //
 // The flow is:
-//  1. Resolve key. Empty key skips both Allow and RecordFailure entirely.
+//  1. Resolve key. An empty key is rejected with [ErrRateLimitKeyEmpty]
+//     (fail closed) before the limiter or the wrapped store is consulted.
 //  2. Call Allow. A false result is surfaced as [ErrRateLimited]; the key
 //     is never embedded in the error text to keep client identifiers out
 //     of logs and gRPC/HTTP error payloads.
@@ -96,12 +101,15 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 //     attempts eventually trip Allow.
 func (s *RateLimitedStore) Validate(ctx context.Context, token string) (any, error) {
 	key := s.keyFn(ctx)
-	if key != "" && !s.limiter.Allow(ctx, key) {
+	if key == "" {
+		return nil, ErrRateLimitKeyEmpty
+	}
+	if !s.limiter.Allow(ctx, key) {
 		return nil, ErrRateLimited
 	}
 
 	data, err := s.store.Validate(ctx, token)
-	if err != nil && key != "" {
+	if err != nil {
 		// Only failures consume budget. Successes intentionally do NOT
 		// touch the limiter — any success-driven reset or refund would
 		// let an attacker holding a single valid token interleave it
