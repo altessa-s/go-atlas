@@ -175,6 +175,59 @@ func TestCamping_WatchFailureFallsBackToTicker(t *testing.T) {
 	<-done
 }
 
+type closedWatchKV struct {
+	fakeKV
+	attempts int
+}
+
+func (kv *closedWatchKV) Watch(ctx context.Context, key string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+	if kv.watchCalls.Load() != 0 {
+		return kv.fakeKV.Watch(ctx, key, opts...)
+	}
+	kv.watchCalls.Add(1)
+	updates := make(chan jetstream.KeyValueEntry, 1)
+	updates <- nil // initial snapshot marker
+	close(updates)
+	return &fakeWatcher{updates: updates}, nil
+}
+
+func (kv *closedWatchKV) Create(ctx context.Context, _ string, _ []byte, _ ...jetstream.KVCreateOpt) (uint64, error) {
+	kv.attempts++
+	if kv.attempts >= 10 {
+		// Bound the old busy loop so the virtual clock can advance.
+		<-ctx.Done()
+	}
+	return 0, errKVDown
+}
+
+func TestCamping_ClosedWatcherFallsBackToTicker(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		kv := &closedWatchKV{}
+		const ttl = time.Second
+		p := fakeProvider(kv, providers.Config{Key: "k", NodeId: "n", TTL: ttl})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go p.camping(ctx)
+
+		time.Sleep(2 * renewIntervalFor(ttl, p.opts.renewRatio))
+		synctest.Wait()
+		require.LessOrEqual(t, kv.attempts, 3)
+		require.EqualValues(t, 2, kv.watchCalls.Load())
+	})
+}
+
+func TestStart_RejectsRenewIntervalRoundedToZero(t *testing.T) {
+	t.Parallel()
+	p := fakeProvider(&fakeKV{}, providers.Config{})
+	p.opts.renewRatio = 1e-12
+	err := p.Start(t.Context(), providers.Config{Key: "k", NodeId: "n", TTL: 10 * time.Second})
+	if err == nil {
+		require.NoError(t, p.Stop(t.Context()))
+	}
+	require.Error(t, err)
+}
+
 func TestNotifications_SlowConsumerEndsOnLatestState(t *testing.T) {
 	t.Parallel()
 

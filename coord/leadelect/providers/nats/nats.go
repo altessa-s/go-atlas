@@ -348,6 +348,10 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 	if cfg.TTL < minTTL {
 		return fmt.Errorf("TTL must be at least %v, got %v", minTTL, cfg.TTL)
 	}
+	interval := renewIntervalFor(cfg.TTL, p.opts.renewRatio)
+	if interval < time.Millisecond || interval >= min(cfg.TTL, DefaultBucketKeysTTL) {
+		return errors.New("renew interval must be at least 1ms and shorter than the lease lifetime")
+	}
 
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
@@ -640,8 +644,12 @@ func (p *Provider) camping(ctx context.Context) {
 				c.renew()
 			}
 			iterStop()
-		case update := <-updates:
-			if c.onKeyUpdate(update) {
+		case update, ok := <-updates:
+			if !ok {
+				_ = watcher.Stop()
+				watcher, updates = nil, nil
+				iterStop()
+			} else if c.onKeyUpdate(update) {
 				iterStop()
 			}
 		case <-ctx.Done():
