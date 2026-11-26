@@ -39,8 +39,8 @@ error that matches `dlock.ErrLockLost` joined with the function's own error. The
 another holder. The signal comes from locks that implement `providers.LostNotifier`; the `mongo` and `sqldb` providers do, while under `nats`, `noop`
 and third-party providers without it the function runs to the end as before, so guard its writes with the fencing token.
 
-The release after the function returns does not inherit the caller's cancellation and is bounded by `WithReleaseTimeout`. A release that fails is
-logged and not counted in `locks_released_total`; the lease then lapses after its TTL.
+The release uses its own timeout from `WithReleaseTimeout` and runs even when the function panics. A panic returns `dlock.ErrPanicked`. Release
+failures are logged and joined with the function error, panic, or lease loss.
 
 ## Metrics
 
