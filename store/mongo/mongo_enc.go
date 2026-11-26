@@ -19,11 +19,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -145,6 +145,7 @@ func withEncryption[T any](ctx context.Context, m *fieldEncryption, op func(cont
 
 	opCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	//nolint:contextcheck // The client lifetime can also cancel the caller-derived operation context.
 	stop := context.AfterFunc(state.lifetime, cancel)
 	defer stop()
 	if state.lifetime.Err() != nil {

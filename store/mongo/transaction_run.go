@@ -13,9 +13,10 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
