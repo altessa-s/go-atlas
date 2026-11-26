@@ -15,12 +15,19 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
 
+type spanLimits struct {
+	maxAttributes int
+	maxEvents     int
+	maxLinks      int
+}
+
 // tracer is the default implementation of TracerProvider.
 type tracer struct {
 	processor *batchProcessor
 	sampler   sampler.Sampler
 	resource  *adapters.Resource // pre-computed, shared across all spans
-	recorders sync.Map           // map[adapters.InstrumentationScope]*recorder
+	limits    spanLimits
+	recorders sync.Map // map[adapters.InstrumentationScope]*recorder
 }
 
 // New creates a new [TracerProvider] with the given options.
@@ -39,6 +46,11 @@ func New(opts ...Option) TracerProvider {
 	return &tracer{
 		processor: newBatchProcessor(cfg),
 		sampler:   cfg.sampler,
+		limits: spanLimits{
+			maxAttributes: cfg.maxAttributes,
+			maxEvents:     cfg.maxEvents,
+			maxLinks:      cfg.maxLinks,
+		},
 		resource: &adapters.Resource{
 			Attributes: []adapters.Attribute{
 				{Key: "service.name", Value: cfg.serviceName},
@@ -113,21 +125,28 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		parentID = parent.SpanID
 	}
 
+	// Filter absent/invalid link contexts and apply link limits before sampling.
+	validLinks, droppedLinks := filterAndCapLinks(cfg.Links(), r.tracer.limits.maxLinks)
+
 	// Check sampling decision
 	shouldSample := r.tracer.sampler.ShouldSample(sampler.SamplingParameters{
-		TraceID:   spanCtx.traceID,
-		SpanID:    spanCtx.spanID,
-		Name:      spanName,
-		Kind:      sampler.SpanKind(cfg.Kind()),
-		ParentCtx: parent,
-		HasRemote: parent != nil && parent.IsRemote,
+		TraceID:    spanCtx.traceID,
+		SpanID:     spanCtx.spanID,
+		Name:       spanName,
+		Kind:       sampler.SpanKind(cfg.Kind()),
+		ParentCtx:  parent,
+		Attributes: toSamplerAttributes(cfg.Attributes()),
+		Links:      toSamplerLinks(validLinks),
+		HasRemote:  parent != nil && parent.IsRemote,
 	})
 
 	if !shouldSample.Decision.IsSampled() {
 		spanCtx.traceFlags = 0
 	}
 	if shouldSample.Tracestate != "" {
-		spanCtx.traceState = shouldSample.Tracestate
+		if parsed, ok := ParseTraceState(shouldSample.Tracestate); ok {
+			spanCtx.traceState = parsed
+		}
 	}
 	if !shouldSample.Decision.IsRecording() {
 		span := nonRecordingSpan{spanContext: &spanCtx}
@@ -136,19 +155,72 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 
 	// Create recording span
 	span := &recordingSpan{
-		recorder:    r,
-		parentID:    parentID,
-		name:        spanName,
-		spanContext: &spanCtx,
-		kind:        cfg.Kind(),
-		startTime:   cfg.Timestamp(),
-		attributes:  cfg.Attributes(),
-		links:       cfg.Links(),
+		recorder:     r,
+		parentID:     parentID,
+		name:         spanName,
+		spanContext:  &spanCtx,
+		kind:         cfg.Kind(),
+		startTime:    cfg.Timestamp(),
+		links:        validLinks,
+		droppedLinks: droppedLinks,
+	}
+	if len(cfg.Attributes()) > 0 {
+		span.putAttributes(cfg.Attributes()...)
+	}
+	if len(shouldSample.Attributes) > 0 {
+		span.putSamplerAttributes(shouldSample.Attributes)
 	}
 	if span.startTime.IsZero() {
 		span.startTime = time.Now()
 	}
 	return ContextWithSpan(ctx, span), span
+}
+
+func filterAndCapLinks(links []Link, maxLinks int) ([]Link, int) {
+	if len(links) == 0 {
+		return nil, 0
+	}
+	valid := make([]Link, 0, len(links))
+	for _, l := range links {
+		if isValidSpanContext(l.SpanContext) {
+			valid = append(valid, l)
+		}
+	}
+	if len(valid) == 0 {
+		return nil, 0
+	}
+	var dropped int
+	if maxLinks > 0 && len(valid) > maxLinks {
+		dropped = len(valid) - maxLinks
+		valid = valid[:maxLinks]
+	}
+	return valid, dropped
+}
+
+func toSamplerAttributes(attrs []Attribute) []sampler.Attribute {
+	if len(attrs) == 0 {
+		return nil
+	}
+	out := make([]sampler.Attribute, len(attrs))
+	for i, a := range attrs {
+		out[i] = sampler.Attribute{Key: a.Key, Value: a.Value}
+	}
+	return out
+}
+
+func toSamplerLinks(links []Link) []sampler.Link {
+	if len(links) == 0 {
+		return nil
+	}
+	out := make([]sampler.Link, len(links))
+	for i, l := range links {
+		out[i] = sampler.Link{
+			TraceID:    traceIDOf(l.SpanContext),
+			SpanID:     spanIDOf(l.SpanContext),
+			Attributes: toSamplerAttributes(l.Attributes),
+		}
+	}
+	return out
 }
 
 // Hex ID sizes.

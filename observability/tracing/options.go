@@ -24,6 +24,13 @@ const (
 	DefaultExportTimeout      = 10 * time.Second
 )
 
+// Default span limit settings (0 means unlimited).
+const (
+	DefaultMaxAttributes = 0
+	DefaultMaxEvents     = 0
+	DefaultMaxLinks      = 0
+)
+
 // options contains configuration for Tracer.
 type options struct {
 	// serviceName is the service name attached to all spans.
@@ -56,4 +63,13 @@ type options struct {
 
 	// meter records exporter metrics under the tracing subsystem.
 	meter metrics.Meter `optgen:"notnil"`
+
+	// maxAttributes limits attributes retained per span (0 means unlimited).
+	maxAttributes int `optgen:"default=DefaultMaxAttributes" optval:"positive=allow_zero"`
+
+	// maxEvents limits events retained per span (0 means unlimited).
+	maxEvents int `optgen:"default=DefaultMaxEvents" optval:"positive=allow_zero"`
+
+	// maxLinks limits links retained per span (0 means unlimited).
+	maxLinks int `optgen:"default=DefaultMaxLinks" optval:"positive=allow_zero"`
 }

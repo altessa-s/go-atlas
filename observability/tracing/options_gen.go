@@ -63,6 +63,30 @@ func WithExportTimeout(v time.Duration) Option {
 	}
 }
 
+// WithMaxAttributes sets the maxAttributes option.
+//
+// maxAttributes limits attributes retained per span (0 means unlimited).
+func WithMaxAttributes(v int) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.maxAttributes = v
+	}
+}
+
+// WithMaxEvents sets the maxEvents option.
+//
+// maxEvents limits events retained per span (0 means unlimited).
+func WithMaxEvents(v int) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.maxEvents = v
+	}
+}
+
 // WithMaxExportBatchSize sets the maxExportBatchSize option.
 //
 // maxExportBatchSize limits spans per adapter call, capped at maxQueueSize.
@@ -72,6 +96,18 @@ func WithMaxExportBatchSize(v int) Option {
 			return
 		}
 		o.maxExportBatchSize = v
+	}
+}
+
+// WithMaxLinks sets the maxLinks option.
+//
+// maxLinks limits links retained per span (0 means unlimited).
+func WithMaxLinks(v int) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.maxLinks = v
 	}
 }
 
@@ -178,7 +214,10 @@ func defaultOptions() *options {
 	return &options{
 		environment:        appinfo.EnvLabel(),
 		exportTimeout:      DefaultExportTimeout,
+		maxAttributes:      DefaultMaxAttributes,
+		maxEvents:          DefaultMaxEvents,
 		maxExportBatchSize: DefaultMaxExportBatchSize,
+		maxLinks:           DefaultMaxLinks,
 		maxQueueSize:       DefaultMaxQueueSize,
 		scheduledDelay:     DefaultScheduledDelay,
 		serviceName:        appinfo.Name,

@@ -34,7 +34,15 @@ option types; a custom `Tracer`, `Recorder` or `Span` resolves them with `ApplyR
 | `SpanEndOption`   | `WithEndTimestamp`                                                   | `Span.End`        |
 | `EventOption`     | `WithEventTimestamp`, `WithEventAttributes`, `WithStackTrace`        | `Span.AddEvent`   |
 
-`WithAttributes`, `WithLinks` and `WithEventAttributes` accumulate across repeated options; the others are last-wins.
+`WithAttributes`, `WithLinks` and `WithEventAttributes` accumulate across repeated options; the others are last-wins. On a recording span,
+`SetAttributes` (as well as start and sampler-returned attributes) deduplicates keys with last-wins semantics. `WithStackTrace(true)` attaches the
+caller stack under `exception.stacktrace` on both `Span.RecordError` and `Span.AddEvent`.
+
+| Span limit option | Default | Description |
+|-------------------|---------|-------------|
+| `WithMaxAttributes` | 0 (unlimited) | Cap distinct attributes retained per span; overflow increments `SpanData.DroppedAttributeCount` |
+| `WithMaxEvents` | 0 (unlimited) | Cap events retained per span; overflow increments `SpanData.DroppedEventCount` |
+| `WithMaxLinks` | 0 (unlimited) | Cap valid links retained per span; overflow increments `SpanData.DroppedLinkCount` |
 
 ## Batch export
 
@@ -61,10 +69,13 @@ indefinitely needs its own I/O deadline.
 
 Span, event and link attributes of the built-in slice types are copied for export. Custom reference-valued attributes must remain immutable through export.
 
-Pass `WithMeter(meter)`, or `UseMeter(meter)` on the factory builder, to record successful spans, queue-full drops, failed export calls and
-queue length. The meter samples queue pressure once per second, including during a stalled export, and again at flush.
+Pass `WithMeter(meter)`, or `UseMeter(meter)` on the factory builder, to record spans accepted by every exporter (`spans_exported_total`),
+per-exporter partial rejections (`spans_rejected_total{exporter}`), per-exporter failed export calls (`export_failures_total{exporter}`), queue-full
+and shutdown-deadline drops (`spans_dropped_total`), and waiting queue length (`queue_length`). The meter samples queue pressure once per second,
+including during a stalled export, and again at flush.
 Call `tracer.Shutdown(ctx)` before shutting down its `metrics.Collector`. Shutdown waits for the worker and sampler or returns the context error
-after fencing both from the collector. An instrument call already in progress must finish before Shutdown can return.
+after accounting for remaining queued and unfinished in-flight spans and fencing both writers from the collector. An instrument call already in
+progress must finish before Shutdown can return.
 See the [metric names](../../docs/metrics.md#tracing).
 
 ## Subpackages
