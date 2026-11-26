@@ -12,10 +12,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
 )
 
 func TestTransactionDiagnosticsRedactPayload(t *testing.T) {
@@ -30,16 +26,10 @@ func TestTransactionDiagnosticsRedactPayload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var output bytes.Buffer
-			opts := options.Client()
-			opts.Deployment = drivertest.NewMockDeployment(bson.D{{Key: "ok", Value: 1}})
-			client, err := mongo.Connect(opts)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
-			m, err := New("db", WithLogger(slog.New(slog.NewTextHandler(&output, nil))))
-			require.NoError(t, err)
+			m := connectMockMongo(t, WithLogger(slog.New(slog.NewTextHandler(&output, nil))))
 
 			callbackErr := errors.New(marker)
-			err = m.conn.withTransaction(t.Context(), client, func(context.Context) error {
+			err := m.WithTransaction(t.Context(), func(context.Context) error {
 				if panics {
 					panic(marker)
 				}
@@ -53,6 +43,12 @@ func TestTransactionDiagnosticsRedactPayload(t *testing.T) {
 			}
 			require.Contains(t, output.String(), "transaction failed")
 			require.NotContains(t, output.String(), marker)
+			if panics {
+				require.Contains(t, output.String(), "stacktrace=")
+				require.Contains(t, output.String(), "error_class=transaction_panicked")
+			} else {
+				require.Contains(t, output.String(), "error_class=callback_error")
+			}
 		})
 	}
 }

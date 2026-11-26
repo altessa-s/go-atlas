@@ -6,13 +6,16 @@ package mongo
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -87,23 +90,28 @@ func (m *connection) withTransaction(ctx context.Context, client *mongo.Client, 
 		txnOpts.SetReadPreference(m.transactionOptions.ReadPreference)
 	}
 
-	var panicErr error
+	var panicErr, callbackErr error
 	_, err = sess.WithTransaction(ctxWithTimeout, func(sessCtx context.Context) (_ any, txErr error) {
-		// A recovered panic must abort the transaction: the driver commits
-		// whenever the callback returns a nil error, so the panic becomes the
-		// callback's error through the named result.
-		// Recover locally so generic panic hooks never receive the payload.
+		// Forward a safe sentinel to the global hooks while preserving the
+		// stack and making the driver's transaction callback fail.
+		defer panics.HandleWithOpts(sessCtx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
+			panicErr = ErrTransactionPanicked
+			txErr = panicErr
+			if m.logger != nil {
+				m.logger.ErrorContext(ctx, "transaction panicked", "stacktrace", string(debug.Stack()))
+			}
+		})
 		defer func() {
 			if recover() != nil {
-				panicErr = ErrTransactionPanicked
-				txErr = panicErr
+				panic(ErrTransactionPanicked)
 			}
 		}()
 
-		if handlerErr := handler(sessCtx); handlerErr != nil {
-			return nil, handlerErr
+		callbackErr = handler(sessCtx)
+		if callbackErr != nil {
+			return nil, callbackErr
 		}
-		return struct{}{}, nil // Return empty struct instead of nil value
+		return struct{}{}, nil
 	}, txnOpts)
 
 	// Panic errors take priority over regular errors
@@ -115,8 +123,8 @@ func (m *connection) withTransaction(ctx context.Context, client *mongo.Client, 
 		m.metrics.transactionErrors.Inc()
 
 		if m.logger != nil {
-			m.logger.ErrorContext(ctx, "transaction failed", "error_class", fmt.Sprintf("%T", err),
-				"duration_ms", time.Since(startTime).Milliseconds())
+			m.logger.LogAttrs(ctx, slog.LevelError, "transaction failed",
+				transactionErrorClass(err, callbackErr), slog.Int64("duration_ms", time.Since(startTime).Milliseconds()))
 		}
 		return err
 	}
@@ -127,4 +135,26 @@ func (m *connection) withTransaction(ctx context.Context, client *mongo.Client, 
 	}
 
 	return nil
+}
+
+// transactionErrorClass reports only fixed classifications or numeric database codes.
+func transactionErrorClass(err, callbackErr error) slog.Attr {
+	switch {
+	case errors.Is(err, ErrTransactionPanicked):
+		return slog.String("error_class", "transaction_panicked")
+	case errors.Is(err, context.Canceled):
+		return slog.String("error_class", "context_canceled")
+	case errors.Is(err, context.DeadlineExceeded):
+		return slog.String("error_class", "deadline_exceeded")
+	}
+	if command, ok := errors.AsType[mongo.CommandError](err); ok {
+		return slog.Group("error_class", slog.String("kind", "mongo_command"), slog.Int("code", int(command.Code)))
+	}
+	if _, ok := errors.AsType[mongo.ServerError](err); ok {
+		return slog.String("error_class", "mongo_server")
+	}
+	if callbackErr != nil && errors.Is(err, callbackErr) {
+		return slog.String("error_class", "callback_error")
+	}
+	return slog.String("error_class", "transaction_error")
 }
