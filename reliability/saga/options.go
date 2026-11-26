@@ -96,12 +96,15 @@ type options struct {
 	recoveryTaskID    string // "" → RecoveryTaskIDPrefix + definition name
 
 	// retention is how long a terminal instance is kept after its last update
-	// before the retention cycle deletes it; 0 disables retention. It stays
-	// hand-written ([WithRetention]) because the generated setter treats a
-	// non-positive value as "keep the default" and could not express "off".
-	retention          time.Duration `optgen:"manual,default=DefaultRetention"`
-	retentionSchedule  string        `optgen:"default=DefaultRetentionSchedule"`
-	retentionBatchSize int           `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
+	// before the retention cycle deletes it. WithRetention(0) disables
+	// retention; a negative value is ignored. The default applies to named
+	// definitions only: retentionSet records an explicit call.
+	retention time.Duration `optcheck:"min=0" optgen:"default=DefaultRetention,onfail=skip,enables=retentionSet"`
+	// retentionSet is the target of the generated WithRetention (enables=):
+	// no option writes it directly.
+	retentionSet       bool   `opt:"-"`
+	retentionSchedule  string `optgen:"default=DefaultRetentionSchedule"`
+	retentionBatchSize int    `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
 
 	scheduler     schedtask.Registrar `optgen:"notnil"`
 	leaderElector LeaderElector       `optgen:"notnil"`
@@ -117,17 +120,4 @@ type options struct {
 	// cancellation is always treated as non-retryable regardless of this hook.
 	// Passing nil restores the default (retry every error).
 	shouldRetry func(error) bool `opt:"ShouldRetry" optgen:"allownull"`
-}
-
-// WithRetention sets how long a terminal instance is kept after its last
-// update before the retention cycle deletes it. The default is
-// [DefaultRetention]; 0 disables retention and keeps terminal instances
-// forever. A negative value is ignored.
-func WithRetention(d time.Duration) Option {
-	return func(o *options) {
-		if d < 0 {
-			return
-		}
-		o.retention = d
-	}
 }

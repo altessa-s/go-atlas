@@ -663,6 +663,22 @@ func TestRetentionRejectsEmptyDefinitionName(t *testing.T) {
 	require.ErrorIs(t, orch.RegisterTasks(t.Context()), saga.ErrEmptyDefinitionName)
 }
 
+// The 30-day default applies to named definitions only: an unnamed one gets
+// retention off, so recovery registration keeps working with default options.
+func TestUnnamedDefinitionHasNoDefaultRetention(t *testing.T) {
+	t.Parallel()
+	reg := &recordingRegistrar{}
+	orch := saga.New(memory.New(), oneStepDefNamed("", &recorder{}), fastOpts(saga.WithScheduler(reg))...)
+
+	require.NoError(t, orch.RegisterRecovery(t.Context()))
+	require.NoError(t, orch.RegisterRetention(t.Context()))
+	require.NoError(t, orch.RunRetentionCycle(t.Context()))
+	require.Len(t, reg.tasks, 1, "only the recovery task is registered")
+
+	explicit := saga.New(memory.New(), oneStepDefNamed("", &recorder{}), fastOpts(saga.WithScheduler(reg), saga.WithRetention(saga.DefaultRetention))...)
+	require.ErrorIs(t, explicit.RegisterRetention(t.Context()), saga.ErrEmptyDefinitionName, "an explicit retention needs a name")
+}
+
 func TestRetentionBatchSizeNonPositiveFallsBackToDefault(t *testing.T) {
 	t.Parallel()
 	rec := &recorder{}

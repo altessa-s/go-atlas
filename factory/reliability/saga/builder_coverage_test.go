@@ -109,6 +109,20 @@ func TestBuild_RetentionRegistration(t *testing.T) {
 	}
 }
 
+// An unnamed definition builds with the default config: the 30-day retention
+// default applies to named definitions only.
+func TestBuild_UnnamedDefinitionWithDefaults(t *testing.T) {
+	t.Parallel()
+	def := saga.NewDefinition[order]("").
+		Step("a", func(context.Context, *order) error { return nil }).ReadOnly().
+		MustBuild()
+	cfg := sagaconfig.Default()
+	reg := &testhelpers.MockTaskRegistrar{}
+	_, err := sagafactory.New(&cfg, def).UseScheduler(reg).Build(t.Context())
+	require.NoError(t, err)
+	require.Len(t, reg.Tasks(), 1, "no retention task for an unnamed definition")
+}
+
 func TestBuild_RecoveryRegistrationFailure(t *testing.T) {
 	t.Parallel()
 	boom := errors.New("registrar down")

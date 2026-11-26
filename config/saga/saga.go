@@ -292,7 +292,9 @@ type Config struct {
 
 	// Retention is how long a terminal instance is kept after its last update
 	// before a scheduled retention cycle deletes it. Defaults to 30 days; an
-	// explicit zero keeps instances forever and registers no retention task.
+	// explicit zero keeps instances forever and registers no retention task. The
+	// default applies to named definitions only; an unnamed one keeps retention
+	// off unless the factory is given a window other than the default.
 	Retention time.Duration `yaml:"retention" default:"720h"`
 	// RetentionSchedule is the cron expression for the retention cycle.
 	RetentionSchedule string `yaml:"retentionSchedule" default:"@every 1h"`

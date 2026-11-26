@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/saga"
@@ -164,7 +165,7 @@ func (b *Builder[T]) buildSQLStore(ctx context.Context, cfg *sagaconfig.SQLStora
 // unset dependencies and zero values are safely ignored.
 func (b *Builder[T]) orchestratorOptions() []saga.Option {
 	cfg := b.cfg
-	return []saga.Option{
+	opts := []saga.Option{
 		saga.WithLogger(b.Logger()),
 		saga.WithMeter(b.collector),
 		saga.WithScheduler(b.scheduler),
@@ -186,8 +187,10 @@ func (b *Builder[T]) orchestratorOptions() []saga.Option {
 		saga.WithRecoverySchedule(cfg.RecoverySchedule),
 		saga.WithRecoveryBatchSize(cfg.RecoveryBatchSize),
 		saga.WithRecoveryTaskID(cfg.RecoveryTaskID),
-		saga.WithRetention(cfg.Retention),
 		saga.WithRetentionSchedule(cfg.RetentionSchedule),
 		saga.WithRetentionBatchSize(cfg.RetentionBatchSize),
 	}
+	// The 30-day default applies to named definitions only: an unnamed one
+	// keeps retention off unless the config sets a window other than the default.
+	return slices.AppendIf(opts, b.def.Name() != "" || cfg.Retention != saga.DefaultRetention, saga.WithRetention(cfg.Retention))
 }
