@@ -7,6 +7,7 @@ package outbox
 import (
 	"cmp"
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -16,8 +17,10 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 
+	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -213,9 +216,21 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 // while the inner loop burns several. Spacing between attempts is instead
 // expressed as [Event.RetryAfter] and enforced by the store, which keeps the
 // backoff durable across restarts and consistent across instances.
-func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
+func (o *Outbox) dispatchEvent(ctx context.Context, event Event) (err error) {
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
+
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(context.Context, any) {
+		o.metrics.eventsDispatchFail.Inc()
+		err = ErrHandlerPanicked
+	})
+	// HandleWithOpts forwards the recovered value to global panic handlers.
+	// Replace the payload before it reaches them.
+	defer func() {
+		if recover() != nil {
+			panic(ErrHandlerPanicked.Error())
+		}
+	}()
 
 	event.dispatching = true
 	if err := o.handler(ctx, event); err != nil {
@@ -233,7 +248,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 // so it always counts as transient, whatever the caller's predicate says.
 // Otherwise a broker outage would dead-letter perfectly good events.
 func (o *Outbox) isRetryable(err error) bool {
-	if coreerrs.IsContextCanceled(err) || coreerrs.IsContextDeadlineExceeded(err) {
+	if errors.Is(err, ErrHandlerPanicked) || coreerrs.IsContextCanceled(err) || coreerrs.IsContextDeadlineExceeded(err) {
 		return true
 	}
 	if o.shouldRetry != nil {
@@ -326,6 +341,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error
 		// Mark skipped events with appropriate status.
 		for i := range skippedEvents {
 			skippedEvents[i].setSkippedStatus()
+			skippedEvents[i].LockedOn = time.Time{}
 		}
 
 		o.metrics.eventsSkipped.Add(float64(len(skippedEvents)))
@@ -339,82 +355,128 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error
 		events = toPublish
 	}
 
-	// The transform never returns an error, and that is load-bearing:
-	// ProcessCollect drops the transformed value of any item whose function
-	// failed. Signaling a failed dispatch through the error return therefore
-	// discarded exactly the events whose new state mattered most — the failure
-	// was never written back, so attempts never grew, the error was never
-	// recorded, and no event could ever reach a terminal status. The outcome
-	// travels on the event's own status instead; per-event errors are logged
-	// where they happen.
-	processedEvents, err := concurrency.ProcessCollect(ctx, events, func(ctx context.Context, event Event) (Event, error) {
-		event.nextAttempt() // Increment attempts etc. on the copy
-
-		logger := o.logger.With(
-			slog.Group("event", "id", event.Id, "key", event.Key, "attempts", event.Attempts),
-		)
-
-		// Attempt to dispatch the event using the context.
-		if err := o.dispatchEvent(ctx, event); err != nil {
-			event.setErrorStatus(err)
-
-			switch {
-			case !o.isRetryable(err):
-				// Repeating a permanent failure cannot fix it and would only
-				// delay the operator seeing it, so dead-letter immediately
-				// instead of spending the remaining attempt budget.
-				event.setRejectedStatus()
-				o.metrics.eventsRejected.Inc()
-				logger.ErrorContext(ctx, "event rejected as permanently undeliverable", slog.Any("error", diagnostics.LogError(err)))
-
-			case !event.isReadyForRetry(o.retryMaxAttempts):
-				event.setStatusMaxAttemptReached()
-				o.metrics.maxRetriesExhausted.Inc()
-				logger.ErrorContext(ctx, "event dead-lettered after exhausting the retry budget", slog.Any("error", diagnostics.LogError(err)))
-
-			default:
-				// Exponential backoff with jitter, keyed off the attempt
-				// count. It travels to the store as a duration so the
-				// deadline is anchored to the backend clock.
-				event.RetryAfter = o.retryBackoff(int(event.Attempts)-1, err)
-				o.metrics.dispatchRetries.Inc()
-				logger.WarnContext(ctx, "failed to dispatch event, scheduling retry",
-					slog.Any("error", diagnostics.LogError(err)),
-					slog.Duration("next_try_in", event.RetryAfter),
-				)
-			}
-
-			return event, nil
-		}
-
-		// Success
-		event.setSentStatus()
-		logger.DebugContext(ctx, "event has been dispatched")
-		return event, nil
-	})
-
-	if err != nil {
-		// Not a dispatch failure — the transform cannot fail. This is the
-		// batch being cut short (a canceled cycle), so some events were never
-		// attempted. They keep their lock and return to the queue when the
-		// unlock sweeper reclaims them.
-		o.logger.WarnContext(ctx, "batch processing stopped before every event was attempted", slog.Any("error", err))
-	}
-
-	// Combine processed and skipped events for store update.
-	processedEvents = append(processedEvents, skippedEvents...)
-
-	// Update the final statuses of all processed events in the store.
-	if len(processedEvents) == 0 {
-		o.logger.DebugContext(ctx, "handleEvents finished, no events were collected for update") // Should not happen if events were passed in
+	updates := o.dispatchBatch(ctx, events)
+	updates = append(updates, skippedEvents...)
+	if len(updates) == 0 {
 		return false, nil
 	}
 
 	updateCtx, cancelUpdate := context.WithTimeout(context.WithoutCancel(ctx), o.updateTimeout)
 	defer cancelUpdate()
 
-	if updateErr := o.store.UpdateEvents(updateCtx, processedEvents...); updateErr != nil {
-		return false, coreerrs.WrapOperation(updateErr, "update processed event statuses")
+	if err := o.store.UpdateEvents(updateCtx, updates...); err != nil {
+		return false, coreerrs.WrapOperation(err, "update processed event statuses")
 	}
-	return slices.ContainsFunc(processedEvents, func(e Event) bool { return e.Status != StatusFailed }), nil
+	return slices.ContainsFunc(updates, func(e Event) bool {
+		switch e.Status {
+		case StatusSent, StatusSkipped, StatusRejected, StatusMaxAttemptReached:
+			return true
+		default:
+			return false
+		}
+	}), nil
+}
+
+func (o *Outbox) dispatchBatch(ctx context.Context, events []Event) []Event {
+	handleCtx, cancelHandle := corectx.WithMaxTimeout(ctx, o.handleTimeout)
+	defer cancelHandle()
+
+	// A downstream interruption stops new admissions while in-flight sends
+	// retain their original deadline and can still confirm delivery.
+	workCtx, stopWork := context.WithCancel(handleCtx)
+	defer stopWork()
+
+	updates := make([]Event, len(events))
+	indices := make([]int, len(events))
+	for i, event := range events {
+		indices[i] = i
+		event.Status = StatusPending
+		event.LockedOn = time.Time{}
+		event.RetryAfter = 0
+		updates[i] = event
+	}
+
+	// Each claim starts with its release state and has at most one worker
+	// writing the outcome. Process waits for all started work before returning.
+	_ = concurrency.Process(workCtx, indices, func(workCtx context.Context, i int) error {
+		// A worker can observe its handler's cancellation before the
+		// cancellation has propagated to the context that admits work.
+		if workCtx.Err() != nil || handleCtx.Err() != nil || ctx.Err() != nil {
+			return nil
+		}
+
+		claim := events[i]
+		event := claim
+		event.nextAttempt()
+		err := o.dispatchEvent(handleCtx, event)
+		interrupted := errors.Is(err, ErrDispatchInterrupted)
+		if interrupted {
+			stopWork()
+		}
+
+		if err == nil {
+			event.setSentStatus()
+		} else {
+			canceled := canceledByCycle(ctx, handleCtx, err)
+			if interrupted || canceled {
+				event.Attempts = claim.Attempts
+				event.LastAttemptOn = claim.LastAttemptOn
+			}
+			o.recordDispatchFailure(handleCtx, &event, err, interrupted, canceled)
+		}
+
+		updates[i] = event
+		return nil
+	})
+	return updates
+}
+
+// canceledByCycle identifies an error from the parent rather than the local
+// handling deadline, which uses the same DeadlineExceeded sentinel.
+func canceledByCycle(parent, handleCtx context.Context, err error) bool {
+	parentErr := parent.Err()
+	if parentErr == nil || handleCtx.Err() != parentErr {
+		return false
+	}
+	if parentErr == context.DeadlineExceeded {
+		parentDeadline, _ := parent.Deadline()
+		handleDeadline, _ := handleCtx.Deadline()
+		if handleDeadline.Before(parentDeadline) {
+			return false
+		}
+	}
+	return errors.Is(err, parentErr) || errors.Is(err, context.Cause(parent))
+}
+
+func (o *Outbox) recordDispatchFailure(ctx context.Context, event *Event, err error, interrupted, canceled bool) {
+	event.setErrorStatus(err)
+	event.RetryAfter = 0
+	logger := o.logger.With(slog.Group("event", "id", event.Id, "key", event.Key, "attempts", event.Attempts))
+
+	switch {
+	case interrupted:
+		// Use the first backoff interval during a downstream outage, regardless
+		// of how many deliveries were previously attempted.
+		event.RetryAfter = o.retryBackoff(0, err)
+	case canceled:
+		// The next cycle can retry immediately.
+	case !o.isRetryable(err):
+		event.setRejectedStatus()
+		o.metrics.eventsRejected.Inc()
+		logger.ErrorContext(ctx, "event rejected as permanently undeliverable", slog.Any("error", diagnostics.LogError(err)))
+		return
+	case !event.isReadyForRetry(o.retryMaxAttempts):
+		event.setStatusMaxAttemptReached()
+		o.metrics.maxRetriesExhausted.Inc()
+		logger.ErrorContext(ctx, "event dead-lettered after exhausting the retry budget", slog.Any("error", diagnostics.LogError(err)))
+		return
+	default:
+		event.RetryAfter = o.retryBackoff(int(event.Attempts)-1, err)
+	}
+
+	o.metrics.dispatchRetries.Inc()
+	logger.WarnContext(ctx, "failed to dispatch event, scheduling retry",
+		slog.Any("error", diagnostics.LogError(err)),
+		slog.Duration("next_try_in", event.RetryAfter),
+	)
 }

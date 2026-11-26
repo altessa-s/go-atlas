@@ -55,11 +55,9 @@ err := b.Publish(sqldb.WithTx(ctx, tx), *m)
 
 ## Error classification
 
-A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight
-to `rejected` instead of consuming its whole retry budget. The predicate also reports `broker.ErrConnectionClosed` as permanent, so an event whose
-publish fails on a closed connection is rejected as well; every other error stays transient and is retried with backoff. Providers mark their driver's
-closed-connection error with that sentinel (the NATS provider does); a custom `Publisher` that returns a raw driver error such as
-`nats.ErrConnectionClosed` must wrap it with `broker.ErrConnectionClosed` to keep it permanent.
+The adapter marks a stored payload it cannot decode with `ErrUndeliverable`. The event moves directly to `rejected`. A provider error matching
+`broker.ErrConnectionClosed` stops new sends in the current cycle and reschedules the failed event without spending an attempt. Sends already in
+progress can still finish. Other publish errors are transient and follow the ordinary retry budget.
 
 ## Methods
 

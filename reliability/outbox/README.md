@@ -94,10 +94,12 @@ releases the next event. Other keys can dispatch concurrently. Serialize writes 
 
 ## Retries and dead-lettering
 
-Each cycle spends exactly one attempt per event; spacing comes from an exponential backoff with jitter that the store anchors to its own clock. Errors
-are classified by `WithShouldRetry`: transient ones are rescheduled, permanent ones (a malformed payload, an unrejectable subject) go straight to
-`rejected` rather than burning the whole budget first. Context cancellation and timeouts always count as transient, so a broker outage never rejects
-healthy events outright; an outage that outlasts the attempt budget still ends in `max-attempt-reached`.
+Each cycle caps handling time at `WithHandleTimeout` or the caller deadline, whichever comes first. Failed attempts, including handler panics and handling
+timeouts, count toward the retry budget. The store anchors retry backoff to its own clock. The `WithShouldRetry` predicate can send a permanent failure
+straight to `rejected`; an event that exhausts its budget moves to `max-attempt-reached`.
+
+The dispatcher records confirmed deliveries under a separate storage timeout, even during shutdown. It releases unstarted claims and preserves the
+attempt count for handlers interrupted by the caller's cancellation or by a downstream outage reported with `ErrDispatchInterrupted`.
 
 ## Observability
 

@@ -155,20 +155,22 @@ func (bp brokerPayload) publish(ctx context.Context, publisher Publisher, event 
 		bp.Metadata[msg.MetaKeyDeduplicateId] = event.Id
 	}
 
-	return publisher.Publish(ctx, msg.Message{
+	err := publisher.Publish(ctx, msg.Message{
 		Metadata: msg.MetaFromMap(bp.Metadata),
 		Data:     bp.Data,
 		TTL:      bp.TTL,
 		Topic:    event.Key,
 	})
+	if errors.Is(err, broker.ErrConnectionClosed) && !errors.Is(err, ErrUndeliverable) {
+		return errors.Join(outbox.ErrDispatchInterrupted, err)
+	}
+	return err
 }
 
 // ShouldRetry is the broker retry predicate for [outbox.WithShouldRetry]:
-// [ErrUndeliverable] and [broker.ErrConnectionClosed] are permanent, every
-// other error is transient. Providers mark their driver's closed-connection
-// error with [broker.ErrConnectionClosed]; a raw driver error is transient.
+// [ErrUndeliverable] is permanent. Every other error is transient.
 func ShouldRetry(err error) bool {
-	return !errors.Is(err, ErrUndeliverable) && !errors.Is(err, broker.ErrConnectionClosed)
+	return !errors.Is(err, ErrUndeliverable)
 }
 
 // Publish saves a single message to the outbox store for later publishing.

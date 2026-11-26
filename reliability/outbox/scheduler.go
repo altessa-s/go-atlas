@@ -177,9 +177,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 // — see [Outbox.Watch]; the scheduled cycle ignores both and comes back on its
 // own tick.
 func (o *Outbox) dispatchOnce(ctx context.Context) (fetched int, advanced bool, err error) {
-	// A cycle started on a context that has already ended would lock a batch —
-	// the fetch below is detached from cancellation — and attempt none of it,
-	// leaving the events locked until the unlock sweeper reclaims them.
+	// Avoid claiming work when there is already a shutdown or deadline.
 	if ctx.Err() != nil {
 		return 0, false, nil
 	}
@@ -209,11 +207,7 @@ func (o *Outbox) dispatchOnce(ctx context.Context) (fetched int, advanced bool, 
 
 	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
 
-	// Create context for handleEvents with its own timeout, derived from the *main* context.
-	handleCtx, handleCtxCancel := corectx.ApplyTimeout(ctx, o.handleTimeout)
-	defer handleCtxCancel()
-
-	advanced, err = o.handleEvents(handleCtx, events...)
+	advanced, err = o.handleEvents(ctx, events...)
 	return len(events), advanced, err
 }
 

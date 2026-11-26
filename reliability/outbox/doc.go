@@ -56,10 +56,15 @@
 //
 // # Retries and dead-lettering
 //
-// Each dispatch cycle spends exactly one attempt per event. A failure is classified by the
-// predicate from [WithShouldRetry]: transient failures are rescheduled with exponential
-// backoff and jitter, and permanent ones move straight to [StatusRejected]. An event that
-// exhausts [WithRetryMaxAttempts] becomes [StatusMaxAttemptReached].
+// A cycle gives its handlers at most [WithHandleTimeout]. Failed attempts,
+// including handler panics and handling timeouts, follow the retry budget.
+// [WithShouldRetry] classifies a permanent failure as [StatusRejected]; an
+// event that exhausts [WithRetryMaxAttempts] becomes [StatusMaxAttemptReached].
+//
+// The cycle records confirmed deliveries under a separate storage timeout,
+// even during shutdown. It releases unstarted claims and preserves the
+// retry budget when the parent's cancellation interrupts a handler or when
+// the handler returns [ErrDispatchInterrupted].
 //
 // Both terminal states form the dead-letter queue. They are deliberately excluded from
 // cleanup, so they accumulate until an operator acts. Schedule the stats cycle and alert on
