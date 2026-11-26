@@ -207,6 +207,9 @@ func IssuerValidator(names ...pkix.Name) (CertValidator, error) {
 func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismatch error) (CertValidator, error) {
 	allowed := make([]pkix.Name, 0, len(names))
 	for _, n := range names {
+		if n.CommonName != "" && strings.TrimSpace(n.CommonName) == "" {
+			return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "blank certificate common name")
+		}
 		if n.CommonName == "" && n.SerialNumber == "" &&
 			len(n.Country)+len(n.Organization)+len(n.OrganizationalUnit)+len(n.Locality)+
 				len(n.Province)+len(n.StreetAddress)+len(n.PostalCode)+len(n.Names)+len(n.ExtraNames) == 0 {

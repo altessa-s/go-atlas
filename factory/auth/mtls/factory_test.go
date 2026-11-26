@@ -197,7 +197,9 @@ func TestBlankPinsRejected(t *testing.T) {
 		set  func(*authconfig.MTLS)
 	}{
 		{"subject CN", func(c *authconfig.MTLS) { c.AllowedSubjectCNs = []string{""} }},
+		{"whitespace subject CN", func(c *authconfig.MTLS) { c.AllowedSubjectCNs = []string{" \t"} }},
 		{"issuer CN", func(c *authconfig.MTLS) { c.AllowedIssuerCNs = []string{""} }},
+		{"whitespace issuer CN", func(c *authconfig.MTLS) { c.AllowedIssuerCNs = []string{" \t"} }},
 		{"issuer key ID", func(c *authconfig.MTLS) { c.IssuerKeyIDs = []string{""} }},
 		{"DNS name", func(c *authconfig.MTLS) { c.AllowedDNSNames = []string{""} }},
 	} {
@@ -205,9 +207,13 @@ func TestBlankPinsRejected(t *testing.T) {
 			t.Parallel()
 			cfg := &authconfig.MTLS{AllowAnyTrustDomain: true}
 			tc.set(cfg)
-			_, err := factory.New(cfg).Options()
-			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-			require.Error(t, cfg.Validate())
+			t.Run("factory", func(t *testing.T) {
+				_, err := factory.New(cfg).Options()
+				require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			})
+			t.Run("config", func(t *testing.T) {
+				require.Error(t, cfg.Validate())
+			})
 		})
 	}
 }
