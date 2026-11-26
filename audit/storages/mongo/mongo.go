@@ -6,22 +6,27 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
+	"net"
+	"slices"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
-	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/audit"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// MongoDB field names and server error codes.
+// MongoDB field names, batching bounds, and server error codes.
 const (
 	fieldID               = "_id"
 	fieldType             = "type"
@@ -36,6 +41,24 @@ const (
 	fieldContextTraceID   = "context.trace_id"
 
 	duplicateKeyErrorCode = 11000
+
+	// maxInsertBatchDocs and maxInsertBatchBytes bound each InsertMany call so
+	// the driver never splits one call across multiple OP_MSG wire batches
+	// (well below MongoDB's 100,000-document maxWriteBatchSize, 48 MB
+	// maxMessageSizeBytes, and 2 MiB CSFLE split threshold), preventing
+	// mongo-driver v2.10.1 from overwriting an earlier batch's WriteConcernError.
+	maxInsertBatchDocs  = 1000
+	maxInsertBatchBytes = 2_000_000
+
+	// Conservative BSON framing estimates used by approxEventBytes.
+	bsonEventEnvelopeBytes = 512
+	bsonChangesHeaderBytes = 64
+	bsonErrorHeaderBytes   = 32
+	bsonElemHeaderBytes    = 16
+	bsonKeyNullBytes       = 4
+	bsonLengthNullBytes    = 8
+	bsonScalarBytes        = 16
+	bsonUnknownValueBytes  = 256
 )
 
 var _ audit.Storage = (*Storage)(nil)
@@ -43,6 +66,7 @@ var _ audit.Storage = (*Storage)(nil)
 // Storage implements audit.Storage using MongoDB.
 type Storage struct {
 	collection *mongo.Collection
+	verifyColl *mongo.Collection
 	opts       *options
 }
 
@@ -58,16 +82,31 @@ func New(ctx context.Context, db *mongo.Database, opts ...Option) (*Storage, err
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "mongo database is required")
 	}
 
+	coll := db.Collection(o.collectionName)
 	s := &Storage{
-		collection: db.Collection(o.collectionName),
+		collection: coll,
+		verifyColl: newVerifyCollection(coll),
 		opts:       o,
 	}
 
 	if err := s.createIndexes(ctx); err != nil {
-		return nil, coreerrs.WrapOperation(err, "create audit indexes")
+		return nil, safeMongoError("create audit indexes", err)
 	}
 
 	return s, nil
+}
+
+func newVerifyCollection(coll *mongo.Collection) *mongo.Collection {
+	return coll.Clone(mongoOptions.Collection().
+		SetReadPreference(readpref.Primary()).
+		SetReadConcern(readconcern.Majority()))
+}
+
+func (s *Storage) verifyCollection() *mongo.Collection {
+	if s.verifyColl != nil {
+		return s.verifyColl
+	}
+	return newVerifyCollection(s.collection)
 }
 
 func validateTTL(ttl time.Duration) error {
@@ -78,21 +117,42 @@ func validateTTL(ttl time.Duration) error {
 	return nil
 }
 
-// Store inserts a single audit event into MongoDB. Replaying an event whose ID
-// already exists in the collection succeeds without duplicating it.
+// Store inserts a single audit event into MongoDB. A nil event fails with
+// [coreerrs.ErrInvalidArgument].
+//
+// Replay detection is keyed by Event.ID (_id) only: when MongoDB reports code
+// 11000 and a document with that _id is confirmed on the primary under majority
+// read concern, Store succeeds without modifying the stored document. Callers
+// using Storage directly without [audit.Auditor] must supply unique IDs.
+// Unverified unique-index conflicts wrap [coreerrs.ErrConflict] and
+// write-concern failures wrap [coreerrs.ErrUnavailable].
 func (s *Storage) Store(ctx context.Context, event *audit.Event) error {
 	if event == nil {
 		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
 	}
 	_, err := s.collection.InsertOne(ctx, toModel(event))
-	return s.handleInsertError(ctx, []*audit.Event{event}, err)
+	if err == nil {
+		return nil
+	}
+	wce, writeErrs, ok := extractWriteException(err)
+	if !ok {
+		return safeMongoError("store audit events", err)
+	}
+	return s.resolveWriteFailures(ctx, []*audit.Event{event}, wce, writeErrs)
 }
 
-// StoreBatch inserts multiple audit events into MongoDB in a single unordered
-// InsertMany call. Events whose ID already exists in the collection (or earlier
-// in the same batch) are verified by reading back their _id and acknowledged as
-// replays; write-concern errors, non-duplicate write errors, and duplicate
-// errors on another unique index propagate as safe count-only errors.
+// StoreBatch inserts multiple audit events into MongoDB using unordered
+// InsertMany sub-batches bounded so each call fits in one wire batch. A nil
+// element rejects the whole batch with [coreerrs.ErrInvalidArgument] before any
+// write is sent.
+//
+// Replay detection is keyed by Event.ID (_id) only: duplicate-key (11000)
+// errors are verified by reading _id from the primary with majority read
+// concern and acknowledged only when every rejected ID exists. Any
+// write-concern failure across any sub-batch fails the call with
+// [coreerrs.ErrUnavailable], unverified unique-constraint failures wrap
+// [coreerrs.ErrConflict], and non-duplicate write errors wrap
+// [coreerrs.ErrFailedPrecondition], always with safe count-only descriptions.
 func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -106,25 +166,70 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 		models[i] = toModel(e)
 	}
 
-	_, err := s.collection.InsertMany(ctx, models, mongoOptions.InsertMany().SetOrdered(false))
-	return s.handleInsertError(ctx, events, err)
-}
+	var (
+		firstWCE     *mongo.WriteConcernError
+		allWriteErrs []mongo.WriteError
+	)
 
-func (s *Storage) handleInsertError(ctx context.Context, events []*audit.Event, err error) error {
-	if err == nil {
+	for start := 0; start < len(events); {
+		end := nextBatchEnd(events, start)
+		_, err := s.collection.InsertMany(ctx, models[start:end], mongoOptions.InsertMany().SetOrdered(false))
+		if err != nil {
+			wce, batchWriteErrs, ok := extractWriteException(err)
+			if !ok {
+				return safeMongoError("store audit events", err)
+			}
+			if wce != nil && firstWCE == nil {
+				firstWCE = wce
+			}
+			if wce == nil && len(batchWriteErrs) == 0 {
+				return coreerrs.Wrapf(coreerrs.ErrFailedPrecondition,
+					"store audit events: bulk write failed with 0 write errors (batch=%d)", len(events))
+			}
+			for _, we := range batchWriteErrs {
+				if we.Index >= 0 {
+					we.Index += start
+				}
+				allWriteErrs = append(allWriteErrs, we)
+			}
+		}
+		start = end
+	}
+
+	if firstWCE == nil && len(allWriteErrs) == 0 {
 		return nil
 	}
+	return s.resolveWriteFailures(ctx, events, firstWCE, allWriteErrs)
+}
 
-	wce, writeErrs, ok := extractWriteException(err)
-	if !ok {
-		return coreerrs.WrapOperation(err, "store audit events")
+func nextBatchEnd(events []*audit.Event, start int) int {
+	end := start
+	var batchBytes int
+	for end < len(events) && end-start < maxInsertBatchDocs {
+		docBytes := approxEventBytes(events[end])
+		if end > start && batchBytes+docBytes > maxInsertBatchBytes {
+			break
+		}
+		batchBytes += docBytes
+		end++
 	}
+	return end
+}
+
+func (s *Storage) resolveWriteFailures(
+	ctx context.Context,
+	events []*audit.Event,
+	wce *mongo.WriteConcernError,
+	writeErrs []mongo.WriteError,
+) error {
 	if wce != nil {
-		return fmt.Errorf("store audit events: write concern error (code %d, write_errors=%d, batch=%d)",
+		return coreerrs.Wrapf(coreerrs.ErrUnavailable,
+			"store audit events: write concern failed (code=%d, write_errors=%d, batch=%d)",
 			wce.Code, len(writeErrs), len(events))
 	}
 	if len(writeErrs) == 0 {
-		return fmt.Errorf("store audit events: bulk write failed with 0 write errors (batch=%d)", len(events))
+		return coreerrs.Wrapf(coreerrs.ErrFailedPrecondition,
+			"store audit events: bulk write failed with 0 write errors (batch=%d)", len(events))
 	}
 
 	seen := make(map[string]struct{}, len(writeErrs))
@@ -143,13 +248,14 @@ func (s *Storage) handleInsertError(ctx context.Context, events []*audit.Event, 
 		}
 	}
 	if otherCount > 0 {
-		return fmt.Errorf("store audit events: %d of %d writes failed (%d duplicate_key, %d other)",
+		return coreerrs.Wrapf(coreerrs.ErrFailedPrecondition,
+			"store audit events: %d of %d writes failed (%d duplicate_key, %d other)",
 			len(writeErrs), len(events), dupCount, otherCount)
 	}
 
 	existing, findErr := s.existingIDs(ctx, uniqueIDs)
 	if findErr != nil {
-		return coreerrs.WrapOperation(findErr, "verify duplicate audit events")
+		return safeMongoError("verify duplicate audit events", findErr)
 	}
 
 	var verified, unverified int
@@ -161,7 +267,8 @@ func (s *Storage) handleInsertError(ctx context.Context, events []*audit.Event, 
 		}
 	}
 	if unverified > 0 {
-		return fmt.Errorf("store audit events: %d of %d writes rejected on unique constraint (%d verified_replays, %d unverified)",
+		return coreerrs.Wrapf(coreerrs.ErrConflict,
+			"store audit events: %d of %d writes rejected on unique constraint (%d verified_replays, %d unverified)",
 			len(writeErrs), len(events), verified, unverified)
 	}
 	return nil
@@ -182,31 +289,40 @@ func extractWriteException(err error) (*mongo.WriteConcernError, []mongo.WriteEr
 }
 
 func (s *Storage) existingIDs(ctx context.Context, ids []string) (map[string]struct{}, error) {
-	filter := bson.D{{Key: fieldID, Value: bson.D{{Key: "$in", Value: ids}}}}
+	coll := s.verifyCollection()
+	found := make(map[string]struct{}, len(ids))
 	opts := mongoOptions.Find().
 		SetProjection(bson.D{{Key: fieldID, Value: 1}}).
 		SetCollation(simpleCollation())
 
-	cursor, err := s.collection.Find(ctx, filter, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = cursor.Close(ctx) }()
+	for start := 0; start < len(ids); start += maxInsertBatchDocs {
+		chunk := ids[start:min(start+maxInsertBatchDocs, len(ids))]
+		filter := bson.D{{Key: fieldID, Value: bson.D{{Key: "$in", Value: chunk}}}}
 
-	found := make(map[string]struct{}, len(ids))
+		cursor, err := coll.Find(ctx, filter, opts)
+		if err != nil {
+			return nil, err
+		}
+		err = readCursorIDs(ctx, cursor, found)
+		_ = cursor.Close(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return found, nil
+}
+
+func readCursorIDs(ctx context.Context, cursor *mongo.Cursor, found map[string]struct{}) error {
 	for cursor.Next(ctx) {
 		var doc struct {
 			ID string `bson:"_id"`
 		}
 		if err := cursor.Decode(&doc); err != nil {
-			return nil, err
+			return err
 		}
 		found[doc.ID] = struct{}{}
 	}
-	if err := cursor.Err(); err != nil {
-		return nil, err
-	}
-	return found, nil
+	return cursor.Err()
 }
 
 // Query returns an iterator over events matching the query, ordered by
@@ -241,7 +357,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 
 		cursor, err := s.collection.Find(ctx, filter, opts)
 		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "query audit events"))
+			yield(nil, safeMongoError("query audit events", err))
 			return
 		}
 		defer func() { _ = cursor.Close(ctx) }()
@@ -249,7 +365,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 		for cursor.Next(ctx) {
 			var m eventModel
 			if err := cursor.Decode(&m); err != nil {
-				yield(nil, coreerrs.WrapOperation(err, "decode audit event"))
+				yield(nil, safeMongoError("decode audit event", err))
 				return
 			}
 			if !yield(fromModel(&m), nil) {
@@ -258,7 +374,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 		}
 
 		if err := cursor.Err(); err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "iterate audit events"))
+			yield(nil, safeMongoError("iterate audit events", err))
 		}
 	}
 }
@@ -272,7 +388,7 @@ func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) 
 	filter := buildFilter(query)
 	count, err := s.collection.CountDocuments(ctx, filter, mongoOptions.Count().SetCollation(simpleCollation()))
 	if err != nil {
-		return 0, coreerrs.WrapOperation(err, "count audit events")
+		return 0, safeMongoError("count audit events", err)
 	}
 	return count, nil
 }
@@ -313,24 +429,163 @@ func buildFilter(q *audit.Query) bson.D {
 
 	if q.StartTime != nil || q.EndTime != nil {
 		ts := bson.D{}
-		ts = slices.AppendIfFunc(ts, q.StartTime != nil, func() []bson.E {
+		ts = coreslices.AppendIfFunc(ts, q.StartTime != nil, func() []bson.E {
 			return []bson.E{{Key: "$gte", Value: *q.StartTime}}
 		})
-		ts = slices.AppendIfFunc(ts, q.EndTime != nil, func() []bson.E {
+		ts = coreslices.AppendIfFunc(ts, q.EndTime != nil, func() []bson.E {
 			return []bson.E{{Key: "$lte", Value: *q.EndTime}}
 		})
 		filter = append(filter, bson.E{Key: fieldTimestamp, Value: ts})
 	}
 
-	filter = slices.AppendIf(filter, q.ActorID != "", bson.E{Key: fieldActorID, Value: q.ActorID})
-	filter = slices.AppendIf(filter, q.ActorType != "", bson.E{Key: fieldActorType, Value: q.ActorType})
-	filter = slices.AppendIf(filter, q.ResourceType != "", bson.E{Key: fieldResourceType, Value: q.ResourceType})
-	filter = slices.AppendIf(filter, q.ResourceID != "", bson.E{Key: fieldResourceID, Value: q.ResourceID})
-	filter = slices.AppendIf(filter, q.EventType != "", bson.E{Key: fieldType, Value: string(q.EventType)})
-	filter = slices.AppendIf(filter, q.Action != "", bson.E{Key: fieldAction, Value: string(q.Action)})
-	filter = slices.AppendIf(filter, q.Status != "", bson.E{Key: fieldResultStatus, Value: string(q.Status)})
-	filter = slices.AppendIf(filter, q.RequestID != "", bson.E{Key: fieldContextRequestID, Value: q.RequestID})
-	filter = slices.AppendIf(filter, q.TraceID != "", bson.E{Key: fieldContextTraceID, Value: q.TraceID})
+	filter = coreslices.AppendIf(filter, q.ActorID != "", bson.E{Key: fieldActorID, Value: q.ActorID})
+	filter = coreslices.AppendIf(filter, q.ActorType != "", bson.E{Key: fieldActorType, Value: q.ActorType})
+	filter = coreslices.AppendIf(filter, q.ResourceType != "", bson.E{Key: fieldResourceType, Value: q.ResourceType})
+	filter = coreslices.AppendIf(filter, q.ResourceID != "", bson.E{Key: fieldResourceID, Value: q.ResourceID})
+	filter = coreslices.AppendIf(filter, q.EventType != "", bson.E{Key: fieldType, Value: string(q.EventType)})
+	filter = coreslices.AppendIf(filter, q.Action != "", bson.E{Key: fieldAction, Value: string(q.Action)})
+	filter = coreslices.AppendIf(filter, q.Status != "", bson.E{Key: fieldResultStatus, Value: string(q.Status)})
+	filter = coreslices.AppendIf(filter, q.RequestID != "", bson.E{Key: fieldContextRequestID, Value: q.RequestID})
+	filter = coreslices.AppendIf(filter, q.TraceID != "", bson.E{Key: fieldContextTraceID, Value: q.TraceID})
 
 	return filter
+}
+
+// safeMongoError summarizes a MongoDB driver or server failure without raw
+// server messages (which can echo query filters, event IDs, or connection
+// details). It preserves context cancellation/deadline sentinels by identity
+// and classifies network and timeout errors under [coreerrs.ErrUnavailable].
+func safeMongoError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var sentinels []error
+	for _, s := range []error{context.Canceled, context.DeadlineExceeded} {
+		if chainHolds(err, s) {
+			sentinels = append(sentinels, s)
+		}
+	}
+	_, isNetErr := errors.AsType[net.Error](err)
+	if !slices.Contains(sentinels, context.Canceled) && (isNetErr || mongo.IsNetworkError(err) || mongo.IsTimeout(err)) {
+		sentinels = append(sentinels, coreerrs.ErrUnavailable)
+	}
+
+	msg := fmt.Sprintf("failed to %s (%T)", op, err)
+	if cmdErr, ok := errors.AsType[mongo.CommandError](err); ok && cmdErr.Code != 0 {
+		msg = fmt.Sprintf("failed to %s (%T, code=%d)", op, err, cmdErr.Code)
+	}
+	return &mongoSafeError{msg: msg, sentinels: sentinels}
+}
+
+type mongoSafeError struct {
+	msg       string
+	sentinels []error
+}
+
+func (e *mongoSafeError) Error() string { return e.msg }
+
+func (e *mongoSafeError) Is(target error) bool {
+	return slices.Contains(e.sentinels, target)
+}
+
+func chainHolds(err, target error) bool {
+	for err != nil {
+		if err == target { //nolint:errorlint // identity check avoids invoking untrusted custom Is methods
+			return true
+		}
+		switch u := err.(type) { //nolint:errorlint // manual chain walk by design
+		case interface{ Unwrap() []error }:
+			for _, inner := range u.Unwrap() {
+				if chainHolds(inner, target) {
+					return true
+				}
+			}
+			return false
+		case interface{ Unwrap() error }:
+			err = u.Unwrap()
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// approxEventBytes returns a conservative upper bound on the BSON byte size of e
+// without requiring a BSON registry lookup on the fast path.
+func approxEventBytes(e *audit.Event) int {
+	n := bsonEventEnvelopeBytes +
+		len(e.ID) + len(e.Type) + len(e.Action) +
+		len(e.Actor.Type) + len(e.Actor.ID) + len(e.Actor.Name) +
+		len(e.Actor.Email) + len(e.Actor.IP) + len(e.Actor.UserAgent) +
+		len(e.Resource.Type) + len(e.Resource.ID) + len(e.Resource.Name) + len(e.Resource.Path) +
+		len(e.Result.Status) + len(e.Result.Message) +
+		len(e.Context.RequestID) + len(e.Context.TraceID) +
+		len(e.Context.SpanID) + len(e.Context.CorrelationID) +
+		len(e.Service.Name) + len(e.Service.Version) + len(e.Service.Instance) +
+		approxStringSliceBytes(e.Actor.Roles) +
+		approxMapBytes(e.Actor.Metadata) +
+		approxMapBytes(e.Resource.Attributes) +
+		approxMapBytes(e.Metadata)
+	if e.Resource.Changes != nil {
+		n += bsonChangesHeaderBytes +
+			approxMapBytes(e.Resource.Changes.Before) +
+			approxMapBytes(e.Resource.Changes.After) +
+			approxStringSliceBytes(e.Resource.Changes.Fields)
+	}
+	if e.Result.Error != nil {
+		n += bsonErrorHeaderBytes + len(e.Result.Error.Code) + len(e.Result.Error.Message)
+	}
+	return n
+}
+
+func approxStringSliceBytes(items []string) int {
+	if len(items) == 0 {
+		return 0
+	}
+	n := bsonElemHeaderBytes
+	for _, s := range items {
+		n += bsonElemHeaderBytes + len(s)
+	}
+	return n
+}
+
+func approxMapBytes(m map[string]any) int {
+	if len(m) == 0 {
+		return 0
+	}
+	n := bsonElemHeaderBytes
+	for k, v := range m {
+		n += len(k) + bsonKeyNullBytes + approxValueBytes(v)
+	}
+	return n
+}
+
+func approxValueBytes(v any) int {
+	switch x := v.(type) {
+	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, time.Time:
+		return bsonScalarBytes
+	case string:
+		return len(x) + bsonLengthNullBytes
+	case json.Number:
+		return len(x) + bsonElemHeaderBytes
+	case []byte:
+		return len(x) + bsonLengthNullBytes
+	case []string:
+		return approxStringSliceBytes(x)
+	case map[string]any:
+		return approxMapBytes(x)
+	case bson.M:
+		return approxMapBytes(x)
+	case []any:
+		n := bsonElemHeaderBytes
+		for _, elem := range x {
+			n += bsonElemHeaderBytes + approxValueBytes(elem)
+		}
+		return n
+	default:
+		if _, raw, err := bson.MarshalValue(v); err == nil {
+			return len(raw) + bsonElemHeaderBytes
+		}
+		return bsonUnknownValueBytes
+	}
 }

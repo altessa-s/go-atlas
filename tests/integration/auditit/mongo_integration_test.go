@@ -11,11 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	auditmongo "github.com/altessa-s/go-atlas/audit/storages/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -79,6 +82,7 @@ func TestMongoStoreBatchPartialFailure(t *testing.T) {
 		e3 := event("e3", at.Add(2*time.Second))
 
 		writeErr := storagetest.BatchFailure(t, s, []*audit.Event{e1, conflict, e3}, []string{"e1", "e3"})
+		require.ErrorIs(t, writeErr, coreerrs.ErrConflict)
 		require.NotContains(t, writeErr.Error(), "unique-marker@example.com")
 	})
 
@@ -101,6 +105,26 @@ func TestMongoStoreBatchPartialFailure(t *testing.T) {
 		e3 := event("e3", at.Add(2*time.Second))
 
 		writeErr := storagetest.BatchFailure(t, s, []*audit.Event{e1, rejected, e3}, []string{"e1", "e3"})
+		require.ErrorIs(t, writeErr, coreerrs.ErrFailedPrecondition)
 		require.NotContains(t, writeErr.Error(), "boom-marker")
 	})
+}
+
+func TestMongoReplayVerificationSecondaryConfiguredDB(t *testing.T) {
+	t.Parallel()
+
+	primaryDB := livebackend.MongoDatabase(t, "audit_sec")
+	secondaryDB := primaryDB.Client().Database(primaryDB.Name(),
+		mongoOptions.Database().
+			SetReadPreference(readpref.Secondary()).
+			SetReadConcern(readconcern.Local()),
+	)
+	s, err := auditmongo.New(t.Context(), secondaryDB)
+	require.NoError(t, err)
+
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	e1 := event("e1", at)
+	e2 := event("e2", at.Add(time.Second))
+	require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{e1, e2}))
+	require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{e1, e2}))
 }

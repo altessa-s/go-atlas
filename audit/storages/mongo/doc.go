@@ -7,6 +7,13 @@
 // creation for efficient queries by time range, actor, resource, request ID
 // and trace ID. [New] creates the indexes missing from an existing
 // collection too.
+//
 // Store and StoreBatch reject nil events before writing and treat replayed
-// event IDs idempotently via unordered inserts and _id verification.
+// events idempotently by Event.ID (_id) only: duplicate-key (11000) errors are
+// verified against the primary with majority read concern, and direct callers
+// must supply unique IDs. Unverified unique conflicts wrap
+// [github.com/altessa-s/go-atlas-core/errors.ErrConflict], write-concern and
+// transient network failures wrap
+// [github.com/altessa-s/go-atlas-core/errors.ErrUnavailable], and raw server
+// error messages are never exposed.
 package mongo
