@@ -96,28 +96,16 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, exporters []adap
 	return stats
 }
 
-// disable stops metric writers without draining batches (used when a secondary
-// concurrent Shutdown caller cancels while the primary shutdown is still live).
-func (m *exportMetrics) disable() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.disabled {
-		return
-	}
-	m.disabled = true
-	if m.lastLength != 0 {
-		m.length.Add(-float64(m.lastLength))
-		m.lastLength = 0
-	}
-}
-
 // abandonAndDisable atomically claims any remaining waiting/inflight batches via
 // drain, records all pending and abandoned drops, zeroes queue_length, and
 // fences further metric writes. Lock order: m.mu -> p.mu (same as sample).
 func (m *exportMetrics) abandonAndDisable(drain func() uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	extraDrops := drain()
+	var extraDrops uint64
+	if drain != nil {
+		extraDrops = drain()
+	}
 	if m.disabled {
 		return
 	}

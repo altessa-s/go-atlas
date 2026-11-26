@@ -214,10 +214,11 @@ func (p *batchProcessor) take(ctx context.Context) (*spanBatch, []adapters.SpanD
 		spare = b.spans
 	}
 	p.mu.Lock()
-	if len(p.sealed) == 0 || p.sealed[0] != b || !b.state.CompareAndSwap(batchWaiting, batchInflight) {
+	if len(p.sealed) == 0 || p.sealed[0] != b {
 		p.mu.Unlock()
 		return nil, nil
 	}
+	b.state.CompareAndSwap(batchWaiting, batchInflight)
 	if cap(spare) > cap(p.spare) {
 		p.spare = spare
 	}
@@ -232,25 +233,40 @@ func (p *batchProcessor) take(ctx context.Context) (*spanBatch, []adapters.SpanD
 	return b, spans
 }
 
-func (p *batchProcessor) drainUnfinished() uint64 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *batchProcessor) claimUnfinishedLocked() uint64 {
 	var dropped uint64
-	if b := p.inflight; b != nil {
-		if b.state.CompareAndSwap(batchInflight, batchDone) {
-			dropped += uint64(b.count)
-		}
-		p.inflight = nil
+	if b := p.inflight; b != nil && b.state.CompareAndSwap(batchInflight, batchDone) {
+		dropped += uint64(b.count)
 	}
 	for _, b := range p.sealed {
 		if b.state.CompareAndSwap(batchWaiting, batchDone) {
 			dropped += uint64(b.count)
 		}
 	}
+	return dropped
+}
+
+func (p *batchProcessor) countUnfinished() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.claimUnfinishedLocked()
+}
+
+func (p *batchProcessor) drainUnfinished() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	dropped := p.claimUnfinishedLocked()
+	p.inflight = nil
 	p.sealed = nil
 	p.spare = nil
 	p.waiting = 0
 	return dropped
+}
+
+func (p *batchProcessor) fenceMetrics() {
+	if p.metrics != nil {
+		p.metrics.abandonAndDisable(p.countUnfinished)
+	}
 }
 
 func (p *batchProcessor) abandonRemainingAndFence() {
@@ -284,9 +300,7 @@ func (p *batchProcessor) forceFlush(ctx context.Context) error {
 func (p *batchProcessor) shutdown(ctx context.Context) error {
 	select {
 	case <-p.done:
-		if p.metrics != nil {
-			p.metrics.disable()
-		}
+		p.fenceMetrics()
 		return p.shutdownErr
 	default:
 	}
@@ -310,8 +324,8 @@ func (p *batchProcessor) shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		if shutdownCtx != nil && shutdownCtx.Err() != nil {
 			p.abandonRemainingAndFence()
-		} else if p.metrics != nil {
-			p.metrics.disable()
+		} else {
+			p.fenceMetrics()
 		}
 		return ctx.Err()
 	}
@@ -351,6 +365,9 @@ func (p *batchProcessor) run(ctx context.Context, delay time.Duration) {
 	p.abandonRemainingAndFence()
 	p.stopCancel()
 	p.stopCancel = nil
+	p.mu.Lock()
+	p.shutdownCtx = nil
+	p.mu.Unlock()
 }
 
 func (p *batchProcessor) flush(ctx context.Context) error {
