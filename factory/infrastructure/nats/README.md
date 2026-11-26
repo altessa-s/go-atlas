@@ -58,9 +58,13 @@ fields are ignored because credentials are embedded in the URI.
 
 | Method    | Description                                                                                    |
 |-----------|------------------------------------------------------------------------------------------------|
-| `Build()` | Assembles and returns the `*nats.Conn`                                                         |
+| `Build()` | Assembles and returns a `*ManagedConn`                                                         |
 | `NATSOptions()` | Renders the `[]nats.Option` without connecting                                                   |
 | `ConsumerConfig(cfg)` | Package function: maps a `natsconfig.Consumer` to `jetstream.ConsumerConfig`                     |
+
+Call `Close` on the managed connection to close NATS and release its health registration synchronously.
+`Drain` releases the registration when NATS finishes closing. Set a close callback through `ManagedConn.SetClosedHandler`.
+Pass `conn.Conn` to APIs that require a `*nats.Conn`, such as `jetstream.New`.
 
 ## Constants
 

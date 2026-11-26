@@ -116,9 +116,9 @@ func New(cfg *natsconfig.Config) *ConnectionBuilder {
 // When [natsconfig.Config.ConnectionURI] is set, it is used directly as the
 // connection URL. Otherwise, the URL is built by joining the configured Hosts.
 // If a [health.Registrar] was provided via [ConnectionBuilder.UseHealthCoordinator],
-// a health checker is registered under the service name "nats". The NATS
-// closed callback unregisters it after Close or Drain.
-func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
+// a health checker is registered under the service name "nats". The managed
+// connection releases it on Close or when the underlying connection closes.
+func (b *ConnectionBuilder) Build() (*ManagedConn, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -148,24 +148,58 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 		return nil, fmt.Errorf("connect to NATS at %s: %s", redactNATSURL(url), scrubURLCredentials(err.Error(), url))
 	}
 
+	managed := &ManagedConn{Conn: conn}
 	if !nilcheck.IsNil(b.healthCoordinator) {
-		unregister := sync.OnceFunc(health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
+		managed.unregister = sync.OnceFunc(health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
 			conn:   conn,
 			logger: b.Logger(),
 		}))
-		previous := conn.ClosedHandler()
-		conn.SetClosedHandler(func(closed *nats.Conn) {
-			unregister()
-			if previous != nil {
-				previous(closed)
-			}
-		})
-		if conn.IsClosed() {
-			unregister()
-		}
 	}
+	conn.SetClosedHandler(func(closed *nats.Conn) {
+		managed.releaseHealth()
+		if handler := managed.ClosedHandler(); handler != nil {
+			handler(closed)
+		}
+	})
+	if conn.IsClosed() {
+		managed.releaseHealth()
+	}
+	return managed, nil
+}
 
-	return conn, nil
+// ManagedConn owns a NATS connection and its health registration.
+// Use its lifecycle and callback methods when passing the embedded Conn to NATS APIs.
+type ManagedConn struct {
+	*nats.Conn
+	unregister    func()
+	callbackMu    sync.RWMutex
+	closedHandler nats.ConnHandler
+}
+
+// Close closes the connection and synchronously releases its health registration.
+func (c *ManagedConn) Close() {
+	c.Conn.Close()
+	c.releaseHealth()
+}
+
+func (c *ManagedConn) releaseHealth() {
+	if c.unregister != nil {
+		c.unregister()
+	}
+}
+
+// SetClosedHandler sets the caller callback invoked when the connection closes.
+func (c *ManagedConn) SetClosedHandler(handler nats.ConnHandler) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.closedHandler = handler
+}
+
+// ClosedHandler returns the caller callback for connection closure.
+func (c *ManagedConn) ClosedHandler() nats.ConnHandler {
+	c.callbackMu.RLock()
+	defer c.callbackMu.RUnlock()
+	return c.closedHandler
 }
 
 // NATSOptions creates [nats.Option] values from configuration.
