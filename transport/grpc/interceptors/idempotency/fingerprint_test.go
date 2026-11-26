@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -67,7 +66,7 @@ func requireScenario(t *testing.T, err error, code codes.Code, reason string, ms
 func TestRequestFingerprint(t *testing.T) {
 	t.Parallel()
 
-	ic := newTestInterceptor(idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute)))
+	ic := newTestInterceptor(idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute)))
 	require.NoError(t, check(t, ic, t.Context(), wrapperspb.String("pay 10")))
 
 	requireScenario(t, check(t, ic, t.Context(), wrapperspb.String("pay 10")), codes.FailedPrecondition, ReasonIDKAlreadyUsed)
@@ -77,7 +76,7 @@ func TestRequestFingerprint(t *testing.T) {
 func TestRequestFingerprintDisabled(t *testing.T) {
 	t.Parallel()
 
-	ic := newTestInterceptor(idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute)), WithRequestFingerprint(false))
+	ic := newTestInterceptor(idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute)), WithRequestFingerprint(false))
 	require.NoError(t, check(t, ic, t.Context(), wrapperspb.String("pay 10")))
 	requireScenario(t, check(t, ic, t.Context(), wrapperspb.String("pay 99")), codes.FailedPrecondition, ReasonIDKAlreadyUsed)
 }
@@ -85,7 +84,7 @@ func TestRequestFingerprintDisabled(t *testing.T) {
 func TestOwnerForbidden(t *testing.T) {
 	t.Parallel()
 
-	k := idempotency.New(memory.New(),
+	k := idempotency.New(newMemoryStorage(t),
 		idempotency.WithMaxLockDuration(time.Minute),
 		idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }),
 	)
@@ -112,7 +111,7 @@ func TestRequestFingerprintValue(t *testing.T) {
 func TestReplayAuthorizerStatusPassesThrough(t *testing.T) {
 	t.Parallel()
 
-	k := idempotency.New(memory.New(),
+	k := idempotency.New(newMemoryStorage(t),
 		idempotency.WithMaxLockDuration(time.Minute),
 		idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }),
 		idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {

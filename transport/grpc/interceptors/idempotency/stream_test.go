@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
@@ -28,7 +27,7 @@ import (
 func TestStreamingCallChecksOncePerCall(t *testing.T) {
 	t.Parallel()
 
-	keeper := idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+	keeper := idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute))
 	opts := newOptions(WithRequestFingerprint(true))
 	opts.statusCreator = defaultStatusCreator
 	ic := &interceptor{

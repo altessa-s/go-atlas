@@ -13,7 +13,6 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 
 	idnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 	idredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
@@ -25,7 +24,7 @@ func BenchmarkRelease(b *testing.B) {
 			var store storages.Storage
 			switch backend {
 			case "memory":
-				store = memory.New()
+				store = newMemoryStorage(b)
 			case "redis":
 				client, _ := redistest.RedisClient(b)
 				store = idredis.New(client)

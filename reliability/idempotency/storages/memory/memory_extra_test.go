@@ -15,7 +15,7 @@ import (
 )
 
 func TestMemory_Close(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	require.NoError(t, s.Close())
 }
 
@@ -23,7 +23,7 @@ func TestMemory_Close(t *testing.T) {
 // Complete on a missing key returns ErrLockStolen (the lock was either
 // never acquired or has been deleted/expired since AttemptLock).
 func TestMemory_Complete_NonExistent(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	err := s.Complete(ctx, "nonexistent", []byte("val"), nil)
@@ -31,13 +31,13 @@ func TestMemory_Complete_NonExistent(t *testing.T) {
 }
 
 func TestMemory_Complete_EmptyKey(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	err := s.Complete(t.Context(), "", []byte("val"), nil)
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
 func TestMemory_AttemptLock_EmptyKey(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ok, existing, _, err := s.AttemptLock(t.Context(), "", []byte("val"))
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 	require.False(t, ok)
@@ -45,14 +45,14 @@ func TestMemory_AttemptLock_EmptyKey(t *testing.T) {
 }
 
 func TestMemory_Delete_EmptyKey(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	err := s.Delete(t.Context(), "")
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
 func TestMemory_RunCleanup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(10 * time.Millisecond))
+		s := newStore(t, WithTTL(10*time.Millisecond))
 		ctx := t.Context()
 
 		_, _, _, _ = s.AttemptLock(ctx, "k1", []byte("v1"))
@@ -71,7 +71,7 @@ func TestMemory_RunCleanup(t *testing.T) {
 }
 
 func TestMemory_RunCleanup_NoTTL(t *testing.T) {
-	s := New(WithTTL(0))
+	s := newStore(t, WithTTL(0))
 	// Should not panic
 	s.RunCleanup()
 }
@@ -81,7 +81,7 @@ func TestMemory_RunCleanup_NoTTL(t *testing.T) {
 // are kept.
 func TestMemory_RunCleanup_PerCallTTLWithoutDefault(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(0))
+		s := newStore(t, WithTTL(0))
 		ctx := t.Context()
 
 		_, _, _, _ = s.AttemptLockWithTTL(ctx, "expiring", []byte("v1"), time.Millisecond)
@@ -97,7 +97,7 @@ func TestMemory_RunCleanup_PerCallTTLWithoutDefault(t *testing.T) {
 }
 
 func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	s.cleanupTask.MarkManaged()
 
 	// Should return immediately without cleaning
@@ -112,7 +112,7 @@ func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 // this storage's cleanup delegates to.
 func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(time.Hour))
+		s := newStore(t, WithTTL(time.Hour))
 		ctx := t.Context()
 
 		_, _, _, _ = s.AttemptLockWithTTL(ctx, "stale", []byte("v1"), time.Millisecond)
@@ -139,7 +139,7 @@ func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
 // fails with ErrLockStolen rather than upserting silently.
 func TestMemory_Complete_Expired(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(10 * time.Millisecond))
+		s := newStore(t, WithTTL(10*time.Millisecond))
 		ctx := t.Context()
 
 		_, _, lockToken, _ := s.AttemptLock(ctx, "k1", []byte("v1"))

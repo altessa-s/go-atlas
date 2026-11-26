@@ -35,7 +35,9 @@ func TestMTLSPrincipalBeforeLimiterAndIdempotency(t *testing.T) {
 	t.Parallel()
 	cfg := httpconfig.Default()
 	ca := mtlstest.NewCA(t)
-	keeper := idempotency.New(memory.New(), idempotency.WithOwner(principalowner.PrincipalOwner))
+	store, err := memory.New()
+	require.NoError(t, err)
+	keeper := idempotency.New(store, idempotency.WithOwner(principalowner.PrincipalOwner))
 	extractor, err := clientip.NewExtractor()
 	require.NoError(t, err)
 	const alice = "spiffe://example.org/sa/alice"

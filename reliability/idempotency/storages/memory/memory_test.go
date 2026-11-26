@@ -5,6 +5,9 @@
 package memory
 
 import (
+	"context"
+	"errors"
+	schedtask "github.com/altessa-s/go-horai/task"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -16,7 +19,7 @@ import (
 )
 
 func TestMemory_AttemptLock_New(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	ok, existing, _, err := s.AttemptLock(ctx, "key1", []byte("val"))
@@ -26,7 +29,7 @@ func TestMemory_AttemptLock_New(t *testing.T) {
 }
 
 func TestMemory_AttemptLock_Existing(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	_, _, _, _ = s.AttemptLock(ctx, "key1", []byte("first"))
@@ -38,7 +41,7 @@ func TestMemory_AttemptLock_Existing(t *testing.T) {
 }
 
 func TestMemory_Complete(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	_, _, lockToken, _ := s.AttemptLock(ctx, "key1", []byte("in-progress"))
@@ -52,7 +55,7 @@ func TestMemory_Complete(t *testing.T) {
 }
 
 func TestMemory_Delete(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	_, _, _, _ = s.AttemptLock(ctx, "key1", []byte("val"))
@@ -66,7 +69,7 @@ func TestMemory_Delete(t *testing.T) {
 
 func TestMemory_TTLExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(10 * time.Millisecond))
+		s := newStore(t, WithTTL(10*time.Millisecond))
 		ctx := t.Context()
 
 		_, _, _, _ = s.AttemptLock(ctx, "key1", []byte("val"))
@@ -80,7 +83,7 @@ func TestMemory_TTLExpiry(t *testing.T) {
 }
 
 func TestMemory_Concurrent(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 	var wg sync.WaitGroup
 	n := 100
@@ -109,7 +112,7 @@ func TestMemory_Concurrent(t *testing.T) {
 // and the entry is cleaned up by RunCleanup after expiry.
 func TestMemory_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		s := New(WithTTL(time.Hour)) // long default
+		s := newStore(t, WithTTL(time.Hour)) // long default
 		ctx := t.Context()
 
 		ok, _, _, err := s.AttemptLockWithTTL(ctx, "k", []byte("lock"), 10*time.Millisecond)
@@ -129,7 +132,7 @@ func TestMemory_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
 // TestMemory_Steal_Success verifies that Steal replaces the value
 // when current bytes match expectedVal and returns a fresh lock token.
 func TestMemory_Steal_Success(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	_, _, _, err := s.AttemptLock(ctx, "k", []byte("orphan"))
@@ -152,7 +155,7 @@ func TestMemory_Steal_Success(t *testing.T) {
 // TestMemory_Steal_Mismatch verifies that Steal surfaces ErrLockStolen
 // when the current value differs from expectedVal.
 func TestMemory_Steal_Mismatch(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	_, _, _, err := s.AttemptLock(ctx, "k", []byte("current"))
@@ -170,14 +173,14 @@ func TestMemory_Steal_Mismatch(t *testing.T) {
 // TestMemory_Steal_KeyMissing verifies that Steal on an absent key
 // surfaces ErrLockStolen.
 func TestMemory_Steal_KeyMissing(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	_, err := s.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
 	require.ErrorIs(t, err, storages.ErrLockStolen)
 }
 
 // TestMemory_Steal_EmptyKey verifies the empty-key contract.
 func TestMemory_Steal_EmptyKey(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	_, err := s.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
@@ -190,7 +193,7 @@ func TestMemory_Steal_EmptyKey(t *testing.T) {
 //  3. A calls Complete with the stale tokenA → must fail with
 //     ErrLockStolen and must NOT overwrite B's value.
 func TestMemory_Complete_StolenLock(t *testing.T) {
-	s := New()
+	s := newStore(t)
 	ctx := t.Context()
 
 	okA, _, tokenA, err := s.AttemptLock(ctx, "k", []byte("a-lock"))
@@ -235,7 +238,7 @@ func TestMemory_ExpiredEntryIsNotRevived(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := New(WithTTL(time.Hour))
+			s := newStore(t, WithTTL(time.Hour))
 			ok, _, token, err := s.AttemptLock(t.Context(), "k", []byte("lock"))
 			require.NoError(t, err)
 			require.True(t, ok)
@@ -251,4 +254,50 @@ func TestMemory_ExpiredEntryIsNotRevived(t *testing.T) {
 			require.Equal(t, "lock", string(s.entries["k"].value), "the expired entry must not be overwritten")
 		})
 	}
+}
+
+type rejectingRegistrar struct {
+	attempted  bool
+	registered bool
+	err        error
+}
+
+func (r *rejectingRegistrar) Register(_ context.Context, _ schedtask.Config) error {
+	r.attempted = true
+	r.registered = r.err == nil
+	return r.err
+}
+
+func TestNewReportsCleanupRejection(t *testing.T) {
+	t.Parallel()
+	r := &rejectingRegistrar{err: errors.New("rejected")}
+	store, err := New(WithScheduler(r), WithCleanupSchedule("@every 5m"))
+	require.True(t, r.attempted)
+	require.False(t, r.registered)
+	require.ErrorIs(t, err, r.err)
+	require.Nil(t, store, "a failed registration must not produce usable storage")
+}
+
+type recordingRegistrar struct {
+	ids []string
+}
+
+func (r *recordingRegistrar) Register(_ context.Context, cfg schedtask.Config) error {
+	r.ids = append(r.ids, cfg.ID)
+	return nil
+}
+
+func TestCleanupTasksCanUseDistinctIDs(t *testing.T) {
+	t.Parallel()
+	r := &recordingRegistrar{}
+	newStore(t, WithScheduler(r), WithCleanupSchedule("@every 5m"))
+	newStore(t, WithScheduler(r), WithCleanupSchedule("@every 5m"), WithCleanupTaskID("another-store-cleanup"))
+	require.Equal(t, []string{"idempotency-memory-cleanup", "another-store-cleanup"}, r.ids)
+}
+
+func newStore(tb testing.TB, opts ...Option) *Storage {
+	tb.Helper()
+	store, err := New(opts...)
+	require.NoError(tb, err)
+	return store
 }

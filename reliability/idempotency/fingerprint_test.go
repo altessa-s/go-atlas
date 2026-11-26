@@ -28,8 +28,8 @@ func ownerOf(ctx context.Context) string {
 	return owner
 }
 
-func newKeeper(opts ...idempotency.Option) *idempotency.Keeper {
-	return idempotency.New(memory.New(), append([]idempotency.Option{
+func newKeeper(t *testing.T, opts ...idempotency.Option) *idempotency.Keeper {
+	return idempotency.New(newMemoryStorage(t), append([]idempotency.Option{
 		idempotency.WithMaxLockDuration(time.Minute),
 	}, opts...)...)
 }
@@ -38,7 +38,7 @@ func TestFingerprintMismatch(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	k := newKeeper()
+	k := newKeeper(t)
 	fpA := keys.Digest([]byte("create"), []byte(`{"amount":1}`))
 	fpB := keys.Digest([]byte("create"), []byte(`{"amount":2}`))
 
@@ -75,7 +75,7 @@ func TestFingerprintNotRecorded(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	k := newKeeper()
+	k := newKeeper(t)
 	ok, held, err := k.AttemptLock(ctx, "legacy")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -89,7 +89,7 @@ func TestFingerprintNotRecorded(t *testing.T) {
 func TestOwnerMismatch(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper(idempotency.WithOwner(ownerOf))
+	k := newKeeper(t, idempotency.WithOwner(ownerOf))
 	alice, bob := withOwner(t.Context(), "alice"), withOwner(t.Context(), "bob")
 
 	ok, held, err := k.AttemptLock(alice, "key")
@@ -110,7 +110,7 @@ func TestOwnerMismatch(t *testing.T) {
 func TestOwnerCheckedBeforeFingerprint(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper(idempotency.WithOwner(ownerOf))
+	k := newKeeper(t, idempotency.WithOwner(ownerOf))
 	ok, _, err := k.AttemptLockWithOpts(withOwner(t.Context(), "alice"), "key", idempotency.AttemptLockOpts{Fingerprint: []byte("a")})
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -123,7 +123,7 @@ func TestReplayAuthorizer(t *testing.T) {
 	t.Parallel()
 
 	errForbidden := errors.New("forbidden")
-	k := newKeeper(
+	k := newKeeper(t,
 		idempotency.WithOwner(ownerOf),
 		idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
 			if ownerOf(ctx) == "admin" {
@@ -153,7 +153,7 @@ func TestReplayAuthorizer(t *testing.T) {
 func TestOwnerBlocksOrphanSteal(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper(idempotency.WithOwner(ownerOf))
+	k := newKeeper(t, idempotency.WithOwner(ownerOf))
 	ok, _, err := k.AttemptLock(withOwner(t.Context(), "alice"), "key")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -170,7 +170,7 @@ func TestOwnerBlocksOrphanSteal(t *testing.T) {
 func TestAuthorizedReaderCannotTakeOver(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper(
+	k := newKeeper(t,
 		idempotency.WithOwner(ownerOf),
 		idempotency.WithReplayAuthorizer(func(context.Context, string) error { return nil }),
 	)
@@ -187,7 +187,7 @@ func TestAuthorizedReaderCannotTakeOver(t *testing.T) {
 func TestTakeOverKeepsFingerprintAndOwner(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper()
+	k := newKeeper(t)
 	fpA := []byte("fingerprint-a")
 	ok, _, err := k.AttemptLockWithOpts(t.Context(), "key", idempotency.AttemptLockOpts{Fingerprint: fpA})
 	require.NoError(t, err)
@@ -207,7 +207,7 @@ func TestTakeOverKeepsFingerprintAndOwner(t *testing.T) {
 func TestFingerprintNotAliased(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper()
+	k := newKeeper(t)
 	buf := []byte("fingerprint-a")
 	ok, held, err := k.AttemptLockWithOpts(t.Context(), "key", idempotency.AttemptLockOpts{Fingerprint: buf})
 	require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestReplayAuthorizerDecidesEveryReplay(t *testing.T) {
 
 	errNotFound := errors.New("not found")
 	var seen []string
-	k := newKeeper(
+	k := newKeeper(t,
 		idempotency.WithOwner(ownerOf),
 		idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
 			seen = append(seen, owner)
@@ -258,7 +258,7 @@ func TestReplayAuthorizerDecidesEveryReplay(t *testing.T) {
 func TestReplayAuthorizerRefusesOwnerlessRecord(t *testing.T) {
 	t.Parallel()
 	errDenied := errors.New("denied")
-	k := newKeeper(idempotency.WithReplayAuthorizer(func(_ context.Context, owner string) error {
+	k := newKeeper(t, idempotency.WithReplayAuthorizer(func(_ context.Context, owner string) error {
 		require.Empty(t, owner)
 		return errDenied
 	}))
@@ -274,7 +274,7 @@ func TestReplayAuthorizerRefusesOwnerlessRecord(t *testing.T) {
 
 func TestPersistedOwnerWithoutOwnerResolver(t *testing.T) {
 	t.Parallel()
-	store := memory.New()
+	store := newMemoryStorage(t)
 	writer := idempotency.New(store, idempotency.WithOwner(ownerOf))
 	ok, held, err := writer.AttemptLock(withOwner(t.Context(), "alice"), "key")
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestPersistedOwnerWithoutOwnerResolver(t *testing.T) {
 
 func TestAuthorizedReplayWithoutOwnerCannotTakeOver(t *testing.T) {
 	t.Parallel()
-	store := memory.New()
+	store := newMemoryStorage(t)
 	writer := idempotency.New(store, idempotency.WithOwner(ownerOf))
 	ok, _, err := writer.AttemptLock(withOwner(t.Context(), "alice"), "key")
 	require.NoError(t, err)
@@ -298,4 +298,11 @@ func TestAuthorizedReplayWithoutOwnerCannotTakeOver(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "the reader has no matching owner for takeover")
 	require.Equal(t, idempotency.StatusInProgress, state.Status)
+}
+
+func newMemoryStorage(t testing.TB) *memory.Storage {
+	t.Helper()
+	store, err := memory.New()
+	require.NoError(t, err)
+	return store
 }

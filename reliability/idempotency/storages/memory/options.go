@@ -15,9 +15,13 @@ import (
 // DefaultTTL is the default time-to-live for stored keys (24 hours).
 const DefaultTTL = 24 * time.Hour
 
+// DefaultCleanupTaskID is the default identifier for the scheduled cleanup.
+const DefaultCleanupTaskID = "idempotency-memory-cleanup"
+
 // options contains memory storage configuration.
 type options struct {
 	ttl             time.Duration `optgen:"default=DefaultTTL"`
 	cleanupSchedule string
+	cleanupTaskID   string              `optgen:"default=DefaultCleanupTaskID,notblank"`
 	scheduler       schedtask.Registrar `optgen:"notnil"`
 }

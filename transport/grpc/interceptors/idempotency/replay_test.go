@@ -64,8 +64,8 @@ func unaryMethod(t *testing.T, ic grpc.UnaryServerInterceptor, ctx context.Conte
 
 // newReplayKeeper returns a Keeper binding every record to one owner, as response
 // replay and entity id exposure require; opts may replace the owner.
-func newReplayKeeper(opts ...idempotencydata.Option) *idempotencydata.Keeper {
-	return idempotencydata.New(memory.New(), append([]idempotencydata.Option{
+func newReplayKeeper(t *testing.T, opts ...idempotencydata.Option) *idempotencydata.Keeper {
+	return idempotencydata.New(newMemoryStorage(t), append([]idempotencydata.Option{
 		idempotencydata.WithMaxLockDuration(time.Minute),
 		idempotencydata.WithOwner(func(context.Context) string { return "caller" }),
 	}, opts...)...)
@@ -76,7 +76,7 @@ func newReplayKeeper(opts ...idempotencydata.Option) *idempotencydata.Keeper {
 func TestResponseReplay(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper(), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
 	h := &counter{}
 	first, err := unary(t, ic, t.Context(), getReq("order"), h.handle)
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestResponseReplay(t *testing.T) {
 func TestResponseReplayOffByDefault(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper()).ServerUnaryInterceptor()
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t)).ServerUnaryInterceptor()
 	h := &counter{}
 	_, err := unary(t, ic, t.Context(), getReq("order"), h.handle)
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestResponseReplayOffByDefault(t *testing.T) {
 func TestResponseReplaySizeCap(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper(), idempotency.WithResponseReplay(),
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t), idempotency.WithResponseReplay(),
 		idempotency.WithMaxReplaySize(8)).ServerUnaryInterceptor()
 	h := &counter{}
 	_, err := unary(t, ic, t.Context(), getReq("a long order description"), h.handle)
@@ -120,7 +120,7 @@ func TestResponseReplaySizeCap(t *testing.T) {
 func TestResponseReplayInProgress(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper(), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
 	entered, release := make(chan struct{}), make(chan struct{})
 	slow := func(ctx context.Context, req any) (any, error) {
 		close(entered)
@@ -143,7 +143,7 @@ func TestResponseReplayInProgress(t *testing.T) {
 func TestResponseReplayFailureNotStored(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper(), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t), idempotency.WithResponseReplay()).ServerUnaryInterceptor()
 	failing := func(context.Context, any) (any, error) { return nil, status.Error(codes.Unavailable, "down") }
 	_, err := unary(t, ic, t.Context(), getReq("order"), failing)
 	require.Equal(t, codes.Unavailable, status.Code(err))
@@ -158,7 +158,7 @@ func TestResponseReplayFailureNotStored(t *testing.T) {
 func TestResponseReplayOwnerChecked(t *testing.T) {
 	t.Parallel()
 
-	k := newReplayKeeper(idempotencydata.WithOwner(func(ctx context.Context) string {
+	k := newReplayKeeper(t, idempotencydata.WithOwner(func(ctx context.Context) string {
 		s, _ := ctx.Value(ownerKey{}).(string)
 		return s
 	}))
@@ -197,8 +197,8 @@ func TestResponseReplayRefusedWithoutOwner(t *testing.T) {
 	t.Parallel()
 
 	for name, k := range map[string]*idempotencydata.Keeper{
-		"keeper without owner": idempotencydata.New(memory.New(), idempotencydata.WithMaxLockDuration(time.Minute)),
-		"anonymous caller":     newReplayKeeper(idempotencydata.WithOwner(func(context.Context) string { return "" })),
+		"keeper without owner": idempotencydata.New(newMemoryStorage(t), idempotencydata.WithMaxLockDuration(time.Minute)),
+		"anonymous caller":     newReplayKeeper(t, idempotencydata.WithOwner(func(context.Context) string { return "" })),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -220,7 +220,7 @@ func TestResponseReplayRefusedWithoutOwner(t *testing.T) {
 
 func TestResponseReplayLegacyRecord(t *testing.T) {
 	t.Parallel()
-	k := newReplayKeeper()
+	k := newReplayKeeper(t)
 	writer := idempotency.ServerInterceptor(k, idempotency.WithEntityIDExtractor(func(string, any) string { return "entity-a" })).ServerUnaryInterceptor()
 	h := &counter{}
 	_, err := unary(t, writer, t.Context(), getReq("order"), h.handle)
@@ -241,7 +241,7 @@ func TestResponseReplayLegacyRecord(t *testing.T) {
 func TestResponseReplayBoundToMethod(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper(), idempotency.WithResponseReplay(),
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t), idempotency.WithResponseReplay(),
 		idempotency.WithRequestFingerprint(false)).ServerUnaryInterceptor()
 	paused := 0
 	pause := func(context.Context, any) (any, error) { paused++; return &schedulerv1.TaskPauseResponse{}, nil }
@@ -262,4 +262,11 @@ func TestResponseReplayBoundToMethod(t *testing.T) {
 	require.NoError(t, err)
 	require.IsType(t, &schedulerv1.TaskPauseResponse{}, res, "the same method gets its replay")
 	require.Equal(t, 1, paused)
+}
+
+func newMemoryStorage(t testing.TB) *memory.Storage {
+	t.Helper()
+	store, err := memory.New()
+	require.NoError(t, err)
+	return store
 }

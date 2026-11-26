@@ -44,7 +44,7 @@ func TestEscapedPathKeepsOperationsApart(t *testing.T) {
 		grouped.Add(1)
 		w.WriteHeader(http.StatusCreated)
 	})
-	h := Middleware(newOwnedKeeper(), WithResponseReplay())(mux)
+	h := Middleware(newOwnedKeeper(t), WithResponseReplay())(mux)
 
 	require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/items/a%2Fb", "x").Code)
 	require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/items/a/b", "x").Code)
@@ -58,7 +58,7 @@ func TestFlushCommitsStatusForKey(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := Middleware(newOwnedKeeper(t))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		require.NoError(t, http.NewResponseController(w).Flush())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -93,7 +93,7 @@ func TestPanicAfterCommittedSuccessKeepsKey(t *testing.T) {
 			t.Parallel()
 
 			var calls atomic.Int32
-			h := Middleware(newOwnedKeeper(), WithResponseReplay())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			h := Middleware(newOwnedKeeper(t), WithResponseReplay())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				calls.Add(1)
 				tc.write(w)
 				panic(http.ErrAbortHandler)
@@ -120,7 +120,7 @@ func TestPanicBeforeResponseReleasesKey(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := Middleware(newOwnedKeeper(t))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		calls.Add(1)
 		panic("boom")
 	}))
@@ -136,7 +136,7 @@ func TestPanicBeforeResponseReleasesKey(t *testing.T) {
 // Request-derived paths never enter the process-wide string interner.
 func TestStorageKeyDoesNotIntern(t *testing.T) {
 	// Not parallel: it measures the shared interner.
-	m := New(newKeeper())
+	m := New(newKeeper(t))
 	before := intern.Default().Size()
 	for i := range 2000 {
 		_ = m.buildKey(http.MethodPost, "/orders/"+strconv.Itoa(i), httpTestKey)

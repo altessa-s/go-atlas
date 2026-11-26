@@ -16,7 +16,7 @@ import (
 // registerCleanupTask registers the cleanup cycle with the scheduler.
 func (s *Storage) registerCleanupTask(schedule string) error {
 	return memcleanup.Register(context.Background(), s.scheduler, s.cleanupTask, schedtask.Config{
-		ID:             "idempotency-memory-cleanup",
+		ID:             s.options.cleanupTaskID,
 		Description:    "Cleanup expired idempotency keys from memory storage",
 		Schedule:       schedule,
 		Priority:       schedtask.PriorityNormal,

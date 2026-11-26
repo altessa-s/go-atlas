@@ -13,5 +13,5 @@ import (
 
 func TestStorageContract(t *testing.T) {
 	t.Parallel()
-	storagetest.Run(t, func(testing.TB) storages.Storage { return New() })
+	storagetest.Run(t, func(tb testing.TB) storages.Storage { return newStore(tb) })
 }

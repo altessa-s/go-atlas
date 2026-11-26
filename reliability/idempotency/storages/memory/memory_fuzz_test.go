@@ -14,7 +14,7 @@ func FuzzStorage_AttemptLock(f *testing.F) {
 	f.Add("special:key", []byte("data"))
 
 	f.Fuzz(func(t *testing.T, key string, val []byte) {
-		s := New()
+		s := newStore(t)
 		ctx := t.Context()
 		_, _, lockToken, _ := s.AttemptLock(ctx, key, val)
 		_ = s.Complete(ctx, key, val, lockToken)

@@ -30,7 +30,11 @@
 //
 // # Usage
 //
-//	keeper := idempotency.New(memory.New())
+//	storage, err := memory.New()
+//	if err != nil {
+//		return err
+//	}
+//	keeper := idempotency.New(storage)
 //	locked, state, err := keeper.AttemptLock(ctx, "request-123")
 //	if err != nil || !locked {
 //	    return err

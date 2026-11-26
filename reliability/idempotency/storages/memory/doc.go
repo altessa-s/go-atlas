@@ -3,13 +3,16 @@
 // the LICENSE file.
 
 // Package memory provides in-memory storage for idempotency keys with TTL support.
-// Suitable for single-instance deployments with automatic cleanup. Not persistent across restarts.
+// Set a scheduler and a cleanup schedule for automatic cleanup. Without them,
+// call [Storage.RunCleanup] to remove expired entries.
 //
 // Example:
 //
-//	storage := memory.New(
+//	storage, err := memory.New(
 //		memory.WithTTL(2*time.Hour),
 //		memory.WithCleanupSchedule("@every 1m"),
 //	)
-//	interceptor := idempotency.ServerInterceptor(storage)
+//	if err != nil {
+//		return err
+//	}
 package memory

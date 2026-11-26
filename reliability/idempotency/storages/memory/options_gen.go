@@ -36,6 +36,28 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithCleanupTaskID sets the cleanupTaskID option.
+func WithCleanupTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.cleanupTaskID = transformedValue
+	}
+}
+
 // WithScheduler sets the scheduler option.
 func WithScheduler(v schedtask.Registrar) Option {
 	return func(o *options) {
@@ -64,7 +86,8 @@ func WithTTL(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		ttl: DefaultTTL,
+		cleanupTaskID: DefaultCleanupTaskID,
+		ttl:           DefaultTTL,
 	}
 }
 

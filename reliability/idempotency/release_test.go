@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/idempotencytest"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 
 	idnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 	idredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
@@ -30,7 +29,7 @@ func ownershipStores() []struct {
 		name     string
 		newStore func(*testing.T) storages.Storage
 	}{
-		{"memory", func(t *testing.T) storages.Storage { return memory.New() }},
+		{"memory", func(t *testing.T) storages.Storage { return newMemoryStorage(t) }},
 		{"mock", func(t *testing.T) storages.Storage { return idempotencytest.NewMockIdempotencyStorage() }},
 		{"redis", func(t *testing.T) storages.Storage {
 			client, _ := redistest.RedisClient(t)

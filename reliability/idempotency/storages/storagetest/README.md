@@ -24,6 +24,10 @@ caller's constructor, which must return an empty store isolated from every other
 ```go
 func TestStorageContract(t *testing.T) {
     t.Parallel()
-    storagetest.Run(t, func(testing.TB) storages.Storage { return memory.New() })
+    storagetest.Run(t, func(tb testing.TB) storages.Storage {
+        store, err := memory.New()
+        require.NoError(tb, err)
+        return store
+    })
 }
 ```

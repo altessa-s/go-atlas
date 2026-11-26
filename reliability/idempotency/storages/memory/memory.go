@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -46,19 +48,19 @@ var _ storages.Storage = (*Storage)(nil)
 // New creates a new in-memory Storage with the provided options.
 // Default TTL is 24 hours.
 //
-// If scheduler is provided and cleanupSchedule is set, cleanup task will be registered.
+// If scheduler is provided and cleanupSchedule is set, cleanup is registered. A registration failure is returned.
 // Otherwise, call RunCleanup() manually or register it externally.
 //
 // Example:
 //
-//	storage := memory.New(memory.WithTTL(time.Hour))
+//	storage, err := memory.New(memory.WithTTL(time.Hour))
 //	// With scheduler
-//	storage := memory.New(
+//	storage, err := memory.New(
 //	    memory.WithTTL(time.Hour),
 //	    memory.WithScheduler(scheduler),
 //	    memory.WithCleanupSchedule("@every 5m"),
 //	)
-func New(opt ...Option) *Storage {
+func New(opt ...Option) (*Storage, error) {
 	opts := newOptions(opt...)
 	s := &Storage{
 		options:   opts,
@@ -67,10 +69,12 @@ func New(opt ...Option) *Storage {
 	}
 	s.cleanupTask = cycle.New(s.runCleanupCycle)
 
-	// Register cleanup task with scheduler if provided
-	_ = s.registerCleanupTask(opts.cleanupSchedule) //nolint:errcheck // task registration is optional
-
-	return s
+	if !nilcheck.IsNil(opts.scheduler) && opts.cleanupSchedule != "" {
+		if err := s.registerCleanupTask(opts.cleanupSchedule); err != nil {
+			return nil, coreerrs.WrapOperation(err, "register idempotency memory cleanup")
+		}
+	}
+	return s, nil
 }
 
 // AttemptLock tries to acquire a lock for the given key using the
