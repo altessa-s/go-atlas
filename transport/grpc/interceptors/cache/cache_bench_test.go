@@ -62,10 +62,14 @@ func BenchmarkKeyGenerator_WithMetadata(b *testing.B) {
 // path: key generation, in-memory lookup, and cached response deserialization.
 func BenchmarkServerInterceptor_CacheHit(b *testing.B) {
 	cacher := datacache.New(&benchMemoryProvider{store: make(map[string][]byte)})
-	si := ServerInterceptor(cacher,
+	si, err := ServerInterceptor(cacher,
 		WithMethod("/bench.Service/Get", &wrapperspb.StringValue{}),
+		WithPublicMethods("/bench.Service/Get"),
 		WithCacheHeaders(false),
 	)
+	if err != nil {
+		b.Fatal(err)
+	}
 	unary := si.ServerUnaryInterceptor()
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/bench.Service/Get"}

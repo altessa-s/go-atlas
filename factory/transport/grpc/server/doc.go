@@ -40,6 +40,10 @@
 // [ServerBuilder.UseFieldBehaviorOptions], [ServerBuilder.UseFieldMaskOptions],
 // [ServerBuilder.UseIdempotencyOptions] and [ServerBuilder.UseErrStatusOptions].
 //
+// Register response policies with [ServerBuilder.UseCacheMethodPolicies]. For
+// a server without auth, the cache schema's publicMethods list opts named RPCs
+// into shared caching. With auth installed, caching requires verified identity.
+//
 // [ServerBuilder.Build] resolves the interceptor dependency order up front, so
 // a chain that cannot start (a missing required interceptor, a duplicate, a
 // cycle) fails Build rather than Server.Start.

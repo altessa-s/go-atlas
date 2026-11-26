@@ -23,7 +23,7 @@ const (
 	AuthenticatedUnknown IdentityState = iota
 	// Verified permits caching in the nonempty namespace of a verified caller.
 	Verified
-	// NoAuth permits shared caching when the service does not authenticate the request.
+	// NoAuth permits shared caching only for explicitly public methods in a chain without required auth.
 	NoAuth
 )
 
@@ -70,7 +70,7 @@ func verifiedIssuer(p principal.Principal, data any) string {
 	}
 }
 
-func cacheNamespace(ctx context.Context, identity IdentityFunc, authRequired bool) (string, bool) {
+func cacheNamespace(ctx context.Context, identity IdentityFunc, authRequired, public bool) (string, bool) {
 	var namespace string
 	var state IdentityState
 	if identity == nil {
@@ -82,7 +82,7 @@ func cacheNamespace(ctx context.Context, identity IdentityFunc, authRequired boo
 	case Verified:
 		return namespace, namespace != ""
 	case NoAuth:
-		return "", !authRequired
+		return "", !authRequired && public
 	default:
 		return "", false
 	}

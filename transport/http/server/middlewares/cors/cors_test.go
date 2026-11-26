@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -133,14 +132,9 @@ func TestMiddleware_Dependencies(t *testing.T) {
 }
 
 func TestNew_AllowAllOriginsWithCredentials_Panics(t *testing.T) {
-	defer func() {
-		r := recover()
-		require.NotNil(t, r)
-		msg, ok := r.(string)
-		require.True(t, ok && strings.Contains(msg, "insecure configuration"), "unexpected panic: %v", r)
-	}()
-
-	New(WithAllowAllOrigins(), WithAllowCredentials())
+	requireCredentialedOriginPanic(t, func() {
+		New(WithAllowAllOrigins(), WithAllowCredentials())
+	})
 }
 
 func TestNew_AllowAllOrigins_NoPanic(t *testing.T) {
@@ -169,13 +163,9 @@ func TestNew_BroadOriginPatternWithCredentials_Panics(t *testing.T) {
 		{"suffix-unanchored alternative", `^https://a\.example\.com$|^https://b\.example\.com`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				r := recover()
-				require.NotNil(t, r, "expected panic for broad pattern %q", tc.pattern)
-				msg, ok := r.(string)
-				require.True(t, ok && strings.Contains(msg, "insecure configuration"), "unexpected panic: %v", r)
-			}()
-			New(WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern)), WithAllowCredentials())
+			requireCredentialedOriginPanic(t, func() {
+				New(WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern)), WithAllowCredentials())
+			})
 		})
 	}
 }
@@ -206,7 +196,7 @@ func TestNew_StartUnanchoredOriginPatternWithCredentials_Panics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Panics(t, func() {
+			requireCredentialedOriginPanic(t, func() {
 				New(WithAllowCredentials(), WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern)))
 			})
 		})
@@ -218,13 +208,87 @@ func TestNew_StartUnanchoredOriginPatternWithCredentials_Panics(t *testing.T) {
 			`^https://app\.example\.com$`,
 			`^https://a\.example\.com$|^https://b\.example\.com$`,
 			`^(https://a\.example\.com|https://b\.example\.com)$`,
-			`^https://.*example\.com$`,
+			`^https://.*\.example\.com$`,
 		} {
 			require.NotPanics(t, func() {
 				New(WithAllowCredentials(), WithAllowedOriginPatterns(regexp.MustCompile(p)))
 			}, p)
 		}
 	})
+}
+
+func TestNew_CredentialedHostWildcardBoundaries(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		pattern string
+		allowed bool
+	}{
+		{`^https://app.*\.example\.com$`, false},
+		{`^https://app.+\.example\.com$`, false},
+		{`^https://app.\.example\.com$`, false},
+		{`^https://app[^.]\.example\.com$`, false},
+		{`^https://app[^.]*\.example\.com$`, false},
+		{`^https://appx+\.example\.com$`, false},
+		{`^https://app(foo)?\.example\.com$`, false},
+		{`^https://(app\.|app).*\.example\.com$`, false},
+		{`^https://app(\.)?.*\.example\.com$`, false},
+		{`^https://.*\.example\.com$`, true},
+		{`^https://app\..*\.example\.com$`, true},
+		{`^https://(app\.|dev\.).*\.example\.com$`, true},
+		{`^https?://([a-z-]+\.)?example\.com(:[0-9]+)?$`, true},
+		{`^https://api\.example\.com:8[0-9]{3}$`, true},
+		{`^https://localhost(:8[0-9]{3})?$`, true},
+		{`^https://.*\.(example\.com|example\.org)$`, true},
+		{`^https://.*\.example\.co\.uk$`, true},
+		{`^https://.*\.co\.uk$`, false},
+		{`^https://.*\.kawasaki\.jp$`, false},
+		{`^https://[0-9]+\.0\.0\.1$`, false},
+		{`^https://127\.0\.0\.1:8[0-9]{3}$`, true},
+		{`^https://\[::1\](:8[0-9]{3})?$`, true},
+		{`^https://(?:app\.)*example\.com$`, true},
+		{`^https://(?:app|dev\.).*\.example\.com$`, false},
+		{`^https://.*example\.com$`, false},
+		{`^https://example\.com\..*$`, false},
+		{`^https://app\.example\..*$`, false},
+		{`^https://example\.[a-z]+$`, false},
+		{`^https://example\.(com|.*)$`, false},
+		{`^https://example\.com:.*$`, false},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			t.Parallel()
+			options := WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern))
+			require.NotPanics(t, func() { New(options) })
+			construct := func() { New(options, WithAllowCredentials()) }
+			if tc.allowed {
+				require.NotPanics(t, construct)
+				return
+			}
+			requireCredentialedOriginPanic(t, construct)
+		})
+	}
+}
+
+func requireCredentialedOriginPanic(t *testing.T, construct func()) {
+	t.Helper()
+	defer func() {
+		err, _ := recover().(error)
+		require.ErrorIs(t, err, ErrCredentialedOriginWildcard)
+	}()
+	construct()
+}
+
+func TestNew_CredentialedExactOriginsCompareStarsLiterally(t *testing.T) {
+	t.Parallel()
+
+	for _, origin := range []string{"*", "https://*.example.com", "https://app*.example.com"} {
+		t.Run(origin, func(t *testing.T) {
+			t.Parallel()
+			m := New(WithAllowedOrigins(origin), WithAllowCredentials())
+			require.True(t, m.isOriginAllowed(origin))
+			require.False(t, m.isOriginAllowed("https://app.example.com"))
+		})
+	}
 }
 
 // TestMiddleware_VaryOrigin pins that every response whose CORS headers depend

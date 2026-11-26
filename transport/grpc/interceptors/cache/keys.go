@@ -40,18 +40,8 @@ var errIdentityUnknown = errors.New("cache: verified identity has no cache names
 // or context values. Use [IdentityFunc] for verified caller identity.
 type MetadataProcessor func(ctx context.Context, md metadata.MD) map[string]string
 
-// DefaultMetadataKeys is the standard set of response discriminators. The
-// identity headers are retained for services without authentication.
+// DefaultMetadataKeys is the standard set of response discriminators.
 var DefaultMetadataKeys = []string{
-	"organization-id",
-	"org-id",
-	"user-id",
-	"tenant-id",
-	"x-user-id",
-	"x-org-id",
-	"x-organization-id",
-	"x-tenant-id",
-	"x-client-id",
 	"x-api-version",
 	"x-feature-flags",
 	fieldmask.DefaultMetadataReadMaskHeader,
@@ -86,7 +76,8 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 		namespace, resolved := ctx.Value(resolvedNamespaceKey{}).(string)
 		if !resolved {
 			var ok bool
-			namespace, ok = cacheNamespace(ctx, nil, false)
+			// Generating a standalone key does not authorize an interceptor lookup.
+			namespace, ok = cacheNamespace(ctx, nil, false, true)
 			if !ok {
 				return "", errIdentityUnknown
 			}
@@ -114,6 +105,10 @@ func (in keyInput) verifier() []byte {
 }
 
 func (in keyInput) digest(domain string) []byte {
+	// Shared entries written before public opt-in may contain private responses.
+	if in.namespace == "" {
+		domain += "/public-v1"
+	}
 	return keys.Digest([]byte(domain), []byte(in.method), []byte(in.namespace), in.request, in.fields)
 }
 

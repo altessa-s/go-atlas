@@ -25,6 +25,7 @@ Package `cache` caches unary gRPC responses with per-method policies and optiona
 |-------------------------|--------------------------------|------------------------------------------------------------|
 | `WithMethod`            | —                              | Register a method with its response prototype              |
 | `WithMethodPolicy`      | —                              | Register methods with compression presets                  |
+| `WithPublicMethods`     | None                           | Allow shared caching for exact full RPC names              |
 | `WithDefaultTTL`        | 5m                             | Default cache TTL (1s to 24h)                               |
 | `WithKeyGenerator`      | SHA-256 over the request tuple | Override the storage key while retaining tuple verification |
 | `WithIdentityFunc`      | Verified identity and grants   | Customize how verified callers are partitioned             |
@@ -46,8 +47,10 @@ Package `cache` caches unary gRPC responses with per-method policies and optiona
 
 Dependency-ordered chains run metadata, auth, IP and geographic access controls, and rate limiting before cache. Apply the same ordering when
 assembling a chain manually. The default partitions by verified tenant, subject, sorted scopes and roles, and the authentication method and verified
-issuer when available. Authenticated calls with an empty subject or unrecognized credentials bypass caching. Services without auth use shared
-caching with the configured metadata partitions.
+issuer when available. Authenticated calls with an empty subject or unrecognized credentials bypass caching. For a server without auth, register
+both the method's response policy and its exact full RPC name with `WithPublicMethods`. Choose methods whose responses can safely be shared among
+anonymous callers. In the gRPC server factory, set `interceptors.cache.publicMethods` and register the policies with `UseCacheMethodPolicies`.
+Handle the error returned by `ServerInterceptor` when constructing the interceptor directly. A malformed entry returns `ErrInvalidPublicMethod`.
 
 Use `WithIdentityFunc` when the default cannot identify the current caller or the response depends on other verified attributes. Return a stable,
 nonempty namespace with the `Verified` state. Include the tenant, subject, authenticator or issuer, and every scope, role, or other verified claim
@@ -63,9 +66,11 @@ factory, exclude the config-built cache with `WithInterceptors(cache.ID)` and re
 The default storage key is 32 hexadecimal characters from SHA-256 over the framed method, identity namespace, serialized request, and response
 discriminators. Entries carry a separate SHA-256 verifier over the same tuple, including when a custom storage key is used. A verifier mismatch
 is a cache miss. When configured through `WithKeyGenerator`, `NewKeyGenerator` uses the interceptor's resolved namespace, including a custom
-`WithIdentityFunc`. Existing entries are cold after upgrading. Cached gRPC errors preserve their full status, including structured details.
+`WithIdentityFunc`. Shared entries written before public opt-in become misses after upgrading. Cached gRPC errors preserve their full status,
+including structured details.
 
-The default read-mask header is always included, even when `WithMetadataKeys` replaces the default list. For a different header, set
+The default metadata covers API version, feature flags, and the read mask. Caller identity comes from verified context. The default read-mask
+header is always included, even when `WithMetadataKeys` replaces the default list. For a different header, set
 `WithReadMaskHeader`. The gRPC server factory uses the registered field-mask interceptor's effective header, including code-level overrides.
 
 Method names and processor-output keys are case-sensitive. Protobuf requests use deterministic serialization, including map fields. Metadata is

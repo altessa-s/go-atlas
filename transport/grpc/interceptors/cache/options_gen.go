@@ -211,6 +211,30 @@ func WithMethods(v map[string]*MethodPolicy) Option {
 	}
 }
 
+// WithPublicMethods sets the publicMethods option.
+//
+// publicMethods lists exact full RPC names whose responses may be shared
+// on unauthenticated calls. Each method still needs a response policy.
+func WithPublicMethods(v ...string) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		deduped := make([]string, 0, len(v))
+		{
+			seen := make(map[string]struct{}, len(v))
+			for _, item := range v {
+				if _, ok := seen[item]; ok {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+		}
+		o.publicMethods = deduped
+	}
+}
+
 // WithReadMaskHeader sets the readMaskHeader option.
 //
 // readMaskHeader adds the configured read-mask header to the discriminators.

@@ -42,6 +42,7 @@ var baseModules = []targetModule{
 	{root: "internal/testdbname"},
 	{root: "internal/bsontag"},
 	{root: "internal/retryqueuefields"},
+	{root: "internal/transportconfig"},
 	{root: "internal/bsonfield"},
 	{root: "internal/purgeloop", deps: []string{"core"}},
 	{root: "auth/principal"},
@@ -51,7 +52,9 @@ var baseModules = []targetModule{
 	{root: "cache/lru", deps: []string{"core"}},
 	{root: "security/secrets/sealbox"},
 
-	{root: "config", deps: []string{"core", "net", "service/scheduler/schedule", "internal/sqlident", "internal/retryqueuefields", "auth/oidc/rules"}},
+	{root: "config", deps: []string{
+		"core", "net", "service/scheduler/schedule", "internal/sqlident", "internal/retryqueuefields", "internal/transportconfig", "auth/oidc/rules",
+	}},
 	{root: "observability", extra: []string{"internal/diagnostics"}, deps: []string{"core", "service/scheduler/task"}},
 	{root: "observability/metrics/adapters/prometheus", deps: []string{"observability"}},
 	{root: "observability/tracing/adapters/otlp", deps: []string{"observability"}},
@@ -90,8 +93,8 @@ var baseModules = []targetModule{
 	{root: "auth", deps: []string{"auth/oidc/rules", "core", "observability", "cache", "audit", "auth/principal", "net/http", "service/scheduler/schedule", "net"}},
 	{root: "security"},
 	{root: "transport/internal/authaudit", deps: []string{"audit"}},
-	{root: "transport/http", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit"}},
-	{root: "transport/grpc", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit"}},
+	{root: "transport/http", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit", "internal/transportconfig"}},
+	{root: "transport/grpc", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit", "internal/transportconfig"}},
 	// The gRPC adapter of the go-horai scheduler stays off the gRPC module.
 	{root: "transport/grpc/handlers/scheduler", deps: []string{"service/scheduler", "core"}},
 	{root: "messaging/eventbus", deps: []string{"core", "observability", "internal/txscope"}},
@@ -106,6 +109,7 @@ var baseModules = []targetModule{
 	{root: "factory", deps: []string{
 		"core", "config", "observability", "cache", "coord", "reliability", "audit", "net", "net/http", "transport",
 		"transport/grpc/client", "auth", "security", "transport/http", "transport/grpc", "messaging/broker", "service/scheduler",
+		"internal/transportconfig",
 	}},
 	{root: "factory/observability/metrics/adapters/prometheus", deps: []string{"observability/metrics/adapters/prometheus", "factory"}},
 	{root: "factory/observability/tracing/adapters/otlp", deps: []string{"observability/tracing/adapters/otlp", "factory"}},

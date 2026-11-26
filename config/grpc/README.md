@@ -20,7 +20,7 @@ options; runtime packages never import them.
 | `InterceptorFilter`          | Defines common method filtering settings used by interceptors.           |
 | `BaseInterceptor`        | Provides common configuration structure for gRPC interceptors.           |
 | `CacheCompressionPreset`  | Defines the compression levels available for cached responses.           |
-| `CacheInterceptor`             | Defines the configuration for gRPC response caching.                     |
+| `CacheInterceptor`        | Configures gRPC response caching, including public methods for shared caching. |
 | `ErrStatusInterceptor`         | Defines the configuration for the error status interceptor.              |
 | `FieldMaskInterceptor`         | Defines the configuration for the update/read field mask interceptor.    |
 | `GeoACLInterceptor`            | Defines the configuration for the geographic access control interceptor. |

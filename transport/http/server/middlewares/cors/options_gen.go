@@ -128,7 +128,7 @@ func WithAllowedOriginPatterns(v ...*regexp.Regexp) Option {
 // WithAllowedOrigins sets the allowedOrigins option.
 //
 // allowedOrigins is the list of origins that are allowed to make cross-origin requests.
-// Use "*" or call WithAllowAllOrigins() to allow all origins.
+// Supply exact origins. Call WithAllowAllOrigins() to allow all origins without credentials.
 func WithAllowedOrigins(v ...string) Option {
 	return func(o *options) {
 		if len(v) == 0 {

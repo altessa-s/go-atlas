@@ -99,7 +99,7 @@ func fullConfig() *httpconfig.Config {
 	} {
 		enable(m)
 	}
-	mws.Cors.AllowedOrigins = []string{"https://app.example.com"}
+	mws.Cors.AllowedOriginPatterns = []string{`^https://[a-z]+\.example\.com$`}
 	mws.Cors.AllowedMethods = []string{http.MethodGet}
 	mws.Cors.AllowedHeaders = []string{"X-Token"}
 	mws.Cors.ExposedHeaders = []string{"X-Request-ID"}
@@ -164,6 +164,15 @@ func TestWithMiddlewares_FullChain(t *testing.T) {
 
 	resp, _ = get(t, base+"/hello", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "server survives the panic")
+}
+
+func TestWithCorsMiddlewareRejectsUnsafeOriginPattern(t *testing.T) {
+	t.Parallel()
+
+	cfg := fullConfig()
+	cfg.Middlewares.Cors.AllowedOriginPatterns = []string{`^https://example\.com\..*$`}
+	_, err := factory.New(cfg).WithCorsMiddleware().Build()
+	require.ErrorIs(t, err, corsmw.ErrCredentialedOriginWildcard)
 }
 
 func TestWithMiddlewares_ExcludeAndDisable(t *testing.T) {

@@ -278,6 +278,7 @@ func TestBuild_CacheInterceptor(t *testing.T) {
 				Cache: &grpcconfig.CacheInterceptor{
 					BaseInterceptor: on, SuccessTTL: time.Minute, ErrorTTL: time.Minute,
 					CompressionPreset: preset, KeysPrefix: "svc:", KeyMetadata: []string{"x-tenant"},
+					PublicMethods: []string{covMethod},
 				},
 			}}
 			cfg.Interceptors.Cache.IgnorePatterns = []string{`^/never/`}

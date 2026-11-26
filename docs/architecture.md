@@ -50,8 +50,9 @@ requires the go-aip backends it uses itself. `tests/architecture` enforces this;
 
 Schemas and runtime packages alike register tasks through the go-horai `task` contract and parse cron specs with its `schedule` grammar. `cache/lru`
 uses `github.com/hashicorp/golang-lru/v2`; it is an explicit package-scoped exception of a shared leaf. The egress rule grammar lives in go-atlas-net
-(`egressrule`) so the `httpconfig` schema and the go-atlas-net HTTP client share it. The third-party exceptions of go-atlas-core and go-atlas-net
-packages are checked in their own repositories. Database codecs of universal value types belong in `store/mongo/bsoncodec`.
+(`egressrule`) so the `httpconfig` schema and the go-atlas-net HTTP client share it. The HTTP and gRPC schemas share startup validators with their
+runtime components through `internal/transportconfig`. The third-party exceptions of go-atlas-core and go-atlas-net packages are checked in their
+own repositories. Database codecs of universal value types belong in `store/mongo/bsoncodec`.
 
 Runtime and contract packages take generated options and injected dependencies: they never import schema packages or `factory/*` packages.
 A component that needs an outbound client accepts it (for example `oidc.WithHTTPClient(*http.Client)`); the factory builds the resilient

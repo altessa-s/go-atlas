@@ -49,13 +49,18 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 		return nil, b.WrapError(err, "invalid interceptor chain")
 	}
 
+	chain, err := b.resolveCacheInterceptors()
+	if err != nil {
+		return nil, err
+	}
+
 	srv, err := b.newServer(&b.Base)
 	if err != nil {
 		return nil, err
 	}
 
 	// Register interceptors (nil interceptors are filtered by RegisterInterceptors).
-	if chain := b.resolveCacheInterceptors(); len(chain) > 0 {
+	if len(chain) > 0 {
 		if err := srv.RegisterInterceptors(chain...); err != nil {
 			return nil, err
 		}

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/cache"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,23 @@ import (
 	grpccache "github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	compression "github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache/compression"
 )
+
+func newCacheInterceptor(t *testing.T, cacher cache.Cacher, opts ...grpccache.Option) interceptors.ServerInterceptor {
+	t.Helper()
+	interceptor, err := grpccache.ServerInterceptor(cacher, opts...)
+	require.NoError(t, err)
+	return interceptor
+}
+
+func TestServerInterceptorRejectsMalformedPublicMethods(t *testing.T) {
+	t.Parallel()
+
+	for _, method := range []string{"", "Get", "/api.Catalog/*", " /api.Catalog/Get"} {
+		interceptor, err := grpccache.ServerInterceptor(newMapCacher(), grpccache.WithPublicMethods(method))
+		require.ErrorIs(t, err, grpccache.ErrInvalidPublicMethod)
+		require.Nil(t, interceptor)
+	}
+}
 
 const echoMethod = "/test.Echo/Get"
 
@@ -180,7 +198,7 @@ func TestName(t *testing.T) {
 	require.Equal(t, "cache", grpccache.Name())
 	require.Equal(t, "cache", grpccache.ID.Name())
 
-	si := grpccache.ServerInterceptor(newMapCacher())
+	si := newCacheInterceptor(t, newMapCacher())
 	require.Equal(t, "cache", si.Name())
 	deps, ok := si.(interface{ Dependencies() []string })
 	require.True(t, ok)
@@ -191,8 +209,9 @@ func TestCache_MissThenHitWithHeaders(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	si := grpccache.ServerInterceptor(cacher,
+	si := newCacheInterceptor(t, cacher,
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithCacheHeadersEnabled(),
 		grpccache.WithKeysPrefix("svc:"),
 		grpccache.WithCacheTTL(time.Minute),
@@ -225,8 +244,9 @@ func TestCache_MissThenHitWithHeaders(t *testing.T) {
 func TestCache_HeadersDisabled(t *testing.T) {
 	t.Parallel()
 
-	si := grpccache.ServerInterceptor(newMapCacher(),
+	si := newCacheInterceptor(t, newMapCacher(),
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithCacheHeaders(false),
 	)
 	es := startEcho(t, si.ServerUnaryInterceptor(), echo)
@@ -239,8 +259,9 @@ func TestCache_HeadersDisabled(t *testing.T) {
 func TestCache_ErrorResponsesCachedWhenDecisionAllows(t *testing.T) {
 	t.Parallel()
 
-	si := grpccache.ServerInterceptor(newMapCacher(),
+	si := newCacheInterceptor(t, newMapCacher(),
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithCacheDecision(grpccache.DefaultSuccessAndErrorDecision(time.Minute, time.Minute)),
 	)
 	es := startEcho(t, si.ServerUnaryInterceptor(), func(context.Context, *wrapperspb.StringValue) (any, error) {
@@ -259,7 +280,8 @@ func TestCache_ErrorResponsesCachedWhenDecisionAllows(t *testing.T) {
 func TestCache_ErrorsNotCachedByDefault(t *testing.T) {
 	t.Parallel()
 
-	si := grpccache.ServerInterceptor(newMapCacher(), grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}))
+	si := newCacheInterceptor(t, newMapCacher(),
+		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}), grpccache.WithPublicMethods(echoMethod))
 	es := startEcho(t, si.ServerUnaryInterceptor(), func(context.Context, *wrapperspb.StringValue) (any, error) {
 		return nil, status.Error(codes.Unavailable, "down")
 	})
@@ -293,7 +315,8 @@ func TestCache_BypassCases(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cacher := newMapCacher()
-			es := startEcho(t, grpccache.ServerInterceptor(cacher, tc.opts...).ServerUnaryInterceptor(), echo)
+			opts := append([]grpccache.Option{grpccache.WithPublicMethods(echoMethod)}, tc.opts...)
+			es := startEcho(t, newCacheInterceptor(t, cacher, opts...).ServerUnaryInterceptor(), echo)
 			for range 2 {
 				got, _, err := es.call(t.Context(), "a")
 				require.NoError(t, err)
@@ -308,7 +331,7 @@ func TestCache_BypassCases(t *testing.T) {
 func TestCache_WithMethodsMap(t *testing.T) {
 	t.Parallel()
 
-	si := grpccache.ServerInterceptor(newMapCacher(), grpccache.WithMethods(map[string]*grpccache.MethodPolicy{
+	si := newCacheInterceptor(t, newMapCacher(), grpccache.WithPublicMethods(echoMethod), grpccache.WithMethods(map[string]*grpccache.MethodPolicy{
 		strings.ToLower(echoMethod): {Name: echoMethod, ResponseProto: &wrapperspb.StringValue{}},
 	}))
 	es := startEcho(t, si.ServerUnaryInterceptor(), echo)
@@ -355,7 +378,8 @@ func TestCache_CompressionRoundTrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			es := startEcho(t, grpccache.ServerInterceptor(newMapCacher(), tc.opts...).ServerUnaryInterceptor(), echo)
+			opts := append([]grpccache.Option{grpccache.WithPublicMethods(echoMethod)}, tc.opts...)
+			es := startEcho(t, newCacheInterceptor(t, newMapCacher(), opts...).ServerUnaryInterceptor(), echo)
 			for range 2 {
 				got, _, err := es.call(t.Context(), big)
 				require.NoError(t, err)
@@ -370,7 +394,9 @@ func TestCache_CorruptEntryIsAMiss(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	es := startEcho(t, grpccache.ServerInterceptor(cacher, grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor(), echo)
+	si := newCacheInterceptor(t, cacher,
+		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}), grpccache.WithPublicMethods(echoMethod))
+	es := startEcho(t, si.ServerUnaryInterceptor(), echo)
 
 	_, _, err := es.call(t.Context(), "a")
 	require.NoError(t, err)
@@ -388,8 +414,9 @@ func TestCache_StorageFailuresDegradeGracefully(t *testing.T) {
 	cacher := newMapCacher()
 	cacher.getErr = errors.New("backend down")
 	cacher.saveErr = errors.New("backend down")
-	es := startEcho(t, grpccache.ServerInterceptor(cacher,
+	es := startEcho(t, newCacheInterceptor(t, cacher,
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithCacheDecision(grpccache.DefaultSuccessAndErrorDecision(time.Minute, time.Minute)),
 	).ServerUnaryInterceptor(), func(_ context.Context, in *wrapperspb.StringValue) (any, error) {
 		if in.GetValue() == "missing" {
@@ -413,7 +440,8 @@ func TestCache_NonProtoResponseNotCached(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := grpccache.ServerInterceptor(cacher, grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+	unary := newCacheInterceptor(t, cacher,
+		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}), grpccache.WithPublicMethods(echoMethod)).ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: echoMethod}
 
 	calls := 0
@@ -431,8 +459,9 @@ func TestCache_MetadataKeysPartitionEntries(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	es := startEcho(t, grpccache.ServerInterceptor(cacher,
+	es := startEcho(t, newCacheInterceptor(t, cacher,
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithMetadataKeys("x-tenant"),
 	).ServerUnaryInterceptor(), echo)
 
@@ -450,8 +479,9 @@ func TestCache_MetadataProcessor(t *testing.T) {
 
 	var seen atomic.Int32
 	cacher := newMapCacher()
-	es := startEcho(t, grpccache.ServerInterceptor(cacher,
+	es := startEcho(t, newCacheInterceptor(t, cacher,
 		grpccache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		grpccache.WithPublicMethods(echoMethod),
 		grpccache.WithMetadataProcessor(func(_ context.Context, md metadata.MD) map[string]string {
 			seen.Add(1)
 			return map[string]string{"user": strings.Join(md.Get("authorization"), ",")}

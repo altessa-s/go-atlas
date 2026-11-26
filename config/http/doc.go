@@ -12,5 +12,7 @@
 //
 // Key types: [Config], [ClientSSRF], [ACLMiddleware],
 // [MiddlewareFilter], [BaseMiddleware],
-// [BodyLimitMiddleware].
+// [BodyLimitMiddleware], [CORSMiddleware]. CORS accepts literal origins and
+// regular expressions. Credentialed patterns require anchored, literal
+// registrable host suffixes.
 package httpconfig

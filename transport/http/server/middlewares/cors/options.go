@@ -44,7 +44,7 @@ type options struct {
 	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
 
 	// allowedOrigins is the list of origins that are allowed to make cross-origin requests.
-	// Use "*" or call WithAllowAllOrigins() to allow all origins.
+	// Supply exact origins. Call WithAllowAllOrigins() to allow all origins without credentials.
 	allowedOrigins []string
 
 	// allowedOriginPatterns is a list of regex patterns for matching allowed origins.

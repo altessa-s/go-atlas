@@ -30,6 +30,22 @@ func TestKeyGeneratorPreservesMethodCase(t *testing.T) {
 	require.NotEqual(t, a, b)
 }
 
+func TestDefaultKeyIgnoresClientIdentity(t *testing.T) {
+	t.Parallel()
+
+	key := func(md metadata.MD) string {
+		got, err := cache.DefaultKeyGenerator(metadata.NewIncomingContext(t.Context(), md), "/svc/Get", "request")
+		require.NoError(t, err)
+		return got
+	}
+	base := key(nil)
+	for _, header := range []string{"organization-id", "org-id", "user-id", "tenant-id", "x-user-id",
+		"x-org-id", "x-organization-id", "x-tenant-id", "x-client-id"} {
+		require.Equal(t, base, key(metadata.Pairs(header, "untrusted")), header)
+	}
+	require.NotEqual(t, base, key(metadata.Pairs("x-api-version", "2")))
+}
+
 func TestKeyGeneratorProtoMapsAreDeterministic(t *testing.T) {
 	t.Parallel()
 	req, err := structpb.NewStruct(map[string]any{"a": 1, "b": 2, "c": 3, "d": 4})
@@ -44,10 +60,10 @@ func TestKeyGeneratorProtoMapsAreDeterministic(t *testing.T) {
 	}
 }
 
-func TestKeyGeneratorRejectsOversizedIdentity(t *testing.T) {
+func TestKeyGeneratorRejectsOversizedMetadataValue(t *testing.T) {
 	t.Parallel()
 	gen := cache.NewKeyGenerator(nil, nil)
-	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("tenant-id", strings.Repeat("a", 1025)))
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-api-version", strings.Repeat("a", 1025)))
 	_, err := gen(ctx, "/svc/Get", "request")
 	require.ErrorIs(t, err, cache.ErrMetadataTooLarge)
 }
@@ -69,7 +85,7 @@ func TestKeyGeneratorRejectsExcessMetadata(t *testing.T) {
 	}{
 		{name: "keys", keys: manyKeys, md: manyMD},
 		{name: "key length", keys: []string{longKey}, md: metadata.Pairs(longKey, "value")},
-		{name: "values", md: metadata.MD{"tenant-id": make([]string, 21)}},
+		{name: "values", md: metadata.MD{"x-api-version": make([]string, 21)}},
 		{name: "processor value", md: metadata.MD{}, processor: func(context.Context, metadata.MD) map[string]string {
 			return map[string]string{"tenant": strings.Repeat("v", 1025)}
 		}},
@@ -100,7 +116,7 @@ func TestNewKeyGeneratorUsesInterceptorIdentity(t *testing.T) {
 
 	type credential struct{ ID string }
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher,
+	unary := newCacheInterceptor(t, cacher,
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
 		cache.WithKeyGenerator(cache.NewKeyGenerator(nil, nil)),
 		cache.WithIdentityFunc(func(ctx context.Context) (string, cache.IdentityState) {
