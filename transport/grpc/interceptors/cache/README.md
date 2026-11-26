@@ -58,7 +58,7 @@ register a configured cache with `WithInterceptor`.
 
 The default storage key is 32 hexadecimal characters from SHA-256 over the framed method, identity namespace, serialized request, and response
 discriminators. Entries carry a separate SHA-256 verifier over the same tuple, including when a custom storage key is used. A verifier mismatch
-is a cache miss. Existing entries are cold after upgrading.
+is a cache miss. Existing entries are cold after upgrading. Cached gRPC errors preserve their full status, including structured details.
 
 The default read-mask header is always included, even when `WithMetadataKeys` replaces the default list. For a different header, set
 `WithReadMaskHeader`. The gRPC server factory wires this option from its field-mask configuration.

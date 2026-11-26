@@ -7,6 +7,7 @@ package cache_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -15,8 +16,11 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -112,6 +116,27 @@ func TestCachePartitionsDefaultReadMasks(t *testing.T) {
 		require.True(t, proto.Equal(want, got.(*pb.Resource)), "mask %q: got %v", path, got)
 	}
 	require.Equal(t, 2, cacher.saves)
+}
+
+func TestCachePreservesStatusDetails(t *testing.T) {
+	t.Parallel()
+
+	notFound, err := status.New(codes.NotFound, "missing resource").WithDetails(&errdetails.ResourceInfo{
+		ResourceType: "test.Resource", ResourceName: "resources/1",
+	})
+	require.NoError(t, err)
+	si := cache.ServerInterceptor(newMapCacher(),
+		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		cache.WithCacheDecision(cache.DefaultSuccessAndErrorDecision(time.Minute, time.Minute)))
+	es := startEcho(t, si.ServerUnaryInterceptor(), func(context.Context, *wrapperspb.StringValue) (any, error) {
+		return nil, notFound.Err()
+	})
+
+	_, _, miss := es.call(t.Context(), "same")
+	_, _, hit := es.call(t.Context(), "same")
+	require.True(t, proto.Equal(notFound.Proto(), status.Convert(miss).Proto()))
+	require.True(t, proto.Equal(status.Convert(miss).Proto(), status.Convert(hit).Proto()), "cached status: %v", status.Convert(hit).Proto())
+	require.Equal(t, int32(1), es.calls.Load())
 }
 
 func TestCacheBypassesUnidentifiedCalls(t *testing.T) {

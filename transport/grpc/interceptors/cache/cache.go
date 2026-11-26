@@ -21,7 +21,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -37,10 +39,9 @@ var ID = interceptors.Ref(interceptorName)
 // cachedEntry represents a serialized cache entry containing either response data or error information.
 // This internal type is used for JSON serialization of cached responses and errors.
 type cachedEntry struct {
-	Verifier  []byte     `json:"verifier"`
-	Data      []byte     `json:"data,omitempty"`
-	ErrorCode codes.Code `json:"error_code,omitempty"`
-	ErrorMsg  string     `json:"error_msg,omitempty"`
+	Verifier []byte `json:"verifier"`
+	Data     []byte `json:"data,omitempty"`
+	Status   []byte `json:"status,omitempty"`
 }
 
 // ServerInterceptor creates a gRPC server interceptor for response caching.
@@ -142,8 +143,7 @@ func (i *interceptor) cacheResponse(ctx context.Context, key string, verifier []
 		if !ok {
 			return
 		}
-		entry.ErrorCode = st.Code()
-		entry.ErrorMsg = st.Message()
+		entry.Status, marshalErr = proto.Marshal(st.Proto())
 	case resp != nil:
 		entry.Data, marshalErr = i.opts.serializer.MarshalForMethod(ctx, resp, config)
 	default:
@@ -183,8 +183,12 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, verifie
 		return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
 	}
 
-	if entry.ErrorCode != codes.OK {
-		return nil, status.Error(entry.ErrorCode, entry.ErrorMsg), true
+	if len(entry.Status) != 0 {
+		var st statuspb.Status
+		if decodeErr := proto.Unmarshal(entry.Status, &st); decodeErr != nil || st.GetCode() == int32(codes.OK) {
+			return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
+		}
+		return nil, status.FromProto(&st).Err(), true
 	}
 
 	// Use method-specific deserialization

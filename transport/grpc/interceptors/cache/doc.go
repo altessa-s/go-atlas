@@ -26,7 +26,8 @@
 // Cache keys and their independent verifiers cover the method, identity,
 // serialized request, and response discriminators, including the read-mask
 // header. [WithReadMaskHeader] adds a custom header. [Serializer] handles
-// responses with optional gzip compression.
+// responses with optional gzip compression, and cached gRPC errors preserve
+// their status details.
 //
 // Example:
 //
