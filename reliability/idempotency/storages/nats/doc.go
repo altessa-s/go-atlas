@@ -7,6 +7,7 @@
 //
 // JetStream expires lock leases. Retrying after expiry acquires a new KV
 // revision. Completing a lease stores the result for the bucket's MaxAge.
+// Use [WithMigrateBucketTTL] to enable per-key TTL on an existing bucket.
 //
 // # Usage
 //

@@ -41,10 +41,9 @@
 #    # Default value: 3
 #    replicas: 3
 #
-#    # <bool> Update an existing bucket whose key TTL differs from the feature's TTL.
-#    # When false, such a bucket is left untouched and the feature fails to build with
-#    # ErrBucketTTLMismatch: the bucket's key TTL expires every key in it, including
-#    # keys of other processes sharing the bucket.
+#    # <bool> Update an existing bucket's key TTL and enable per-key TTL if needed.
+#    # Per-key TTL can be enabled even when the bucket's key TTL already matches.
+#    # When false, missing per-key TTL or a mismatched bucket TTL fails startup.
 #    # Default value: false
 #    migrateBucketTTL: false
 #
