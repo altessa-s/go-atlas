@@ -10,12 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/grpc/client"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+
 	"golang.org/x/oauth2"
 
 	"google.golang.org/grpc"
-
-	"github.com/altessa-s/go-atlas/transport/grpc/client"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 )
 
 // TestTokenOverPlaintextIsRefused configures a token on a plaintext client:
