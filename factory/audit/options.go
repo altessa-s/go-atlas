@@ -21,7 +21,10 @@ import (
 
 // UseLogger sets the logger for the builder and all created components.
 func (b *AuditorBuilder) UseLogger(v *slog.Logger) *AuditorBuilder {
-	b.SetLogger(v)
+	if v != nil {
+		b.SetLogger(v)
+		b.loggerSet = true
+	}
 	return b
 }
 

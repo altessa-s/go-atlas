@@ -46,8 +46,9 @@ type StorageBuilder func(ctx context.Context, cfg *auditconfig.Config, logger *s
 // a configured type without one fails at Build naming the package to add.
 type AuditorBuilder struct {
 	corefactory.Base
-	cfg  *auditconfig.Config
-	errs []error
+	cfg       *auditconfig.Config
+	loggerSet bool
+	errs      []error
 
 	// Dependencies
 	dispatcher    audit.Dispatcher
@@ -163,10 +164,6 @@ func (b *AuditorBuilder) onShutdown(hook coreruntime.ShutdownHook) {
 func (b *AuditorBuilder) createStorage(ctx context.Context) (audit.Storage, error) {
 	switch b.cfg.Storage.Type {
 	case "":
-		if b.cfg.Storage.Mongo != nil || b.cfg.Storage.ClickHouse != nil || b.cfg.Storage.SQL != nil {
-			return nil, corefactory.Errorf(corefactory.ErrConfigRequired,
-				"audit storage type is required when a persistent storage block is configured")
-		}
 		return b.createMemoryStorage(true)
 	case auditconfig.StorageTypeMemory:
 		return b.createMemoryStorage(false)
@@ -197,15 +194,19 @@ func (b *AuditorBuilder) createStorage(ctx context.Context) (audit.Storage, erro
 func (b *AuditorBuilder) createMemoryStorage(defaulted bool) (audit.Storage, error) {
 	var opts []memorystorage.Option
 	if mem := b.cfg.Storage.Memory; mem != nil {
-		if mem.MaxEvents <= 0 {
-			return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument,
-				"audit memory storage maxEvents must be positive, got %d", mem.MaxEvents)
+		if err := mem.Validate(); err != nil {
+			return nil, corefactory.Errorf(corefactory.ErrConfigRequired,
+				"invalid audit memory storage configuration: %w", err)
 		}
 		opts = append(opts, memorystorage.WithMaxEvents(mem.MaxEvents))
 	}
 	store := memorystorage.New(opts...)
 	if defaulted {
-		b.Logger().Warn("audit storage defaulted to volatile bounded in-memory ring buffer; configure a persistent backend for production",
+		warnLogger := b.Logger()
+		if !b.loggerSet {
+			warnLogger = slog.Default()
+		}
+		warnLogger.Warn("audit storage defaulted to volatile bounded in-memory ring buffer; configure a persistent backend for production",
 			slog.String("storage", string(auditconfig.StorageTypeMemory)),
 			slog.Int("max_events", store.Cap()),
 		)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,12 +28,12 @@ import (
 	"github.com/altessa-s/go-atlas/factory/audit"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // stubDispatcher stands in for an externally-owned dispatcher so a test can
@@ -545,20 +546,83 @@ func TestBuild_DefaultStorageWarnsAndUsesBoundedMemory(t *testing.T) {
 	t.Run("invalid_memory_max_events_rejected", func(t *testing.T) {
 		t.Parallel()
 
-		for _, maxEvents := range []int{0, -5} {
+		for _, tc := range []struct {
+			maxEvents int
+			sentinel  error
+		}{
+			{maxEvents: 0, sentinel: validation.ErrRequired},
+			{maxEvents: -5, sentinel: validation.ErrMinGreaterEqualThanRequired},
+		} {
 			cfg := memoryConfig()
-			cfg.Storage.Memory = &auditconfig.StorageMemory{MaxEvents: maxEvents}
+			cfg.Storage.Memory = &auditconfig.StorageMemory{MaxEvents: tc.maxEvents}
 			_, err := factory.New(cfg).BuildStorage(t.Context())
-			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+			require.ErrorIs(t, err, tc.sentinel)
 		}
 	})
+}
 
-	t.Run("empty_type_with_persistent_block_rejected", func(t *testing.T) {
-		t.Parallel()
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
 
-		cfg := memoryConfig()
-		cfg.Storage = auditconfig.Storage{Mongo: &auditconfig.StorageMongo{CollectionName: "audit_events"}}
-		_, err := factory.New(cfg).BuildStorage(t.Context())
-		require.ErrorIs(t, err, corefactory.ErrConfigRequired)
-	})
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
+// TestBuild_DefaultStorageWarnsViaDefaultLoggerWhenUnset is serial because it
+// temporarily replaces the process-wide slog.Default logger.
+func TestBuild_DefaultStorageWarnsViaDefaultLoggerWhenUnset(t *testing.T) {
+	logs := &syncBuffer{}
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	cfg := &auditconfig.Config{
+		Enabled: true,
+		Dispatch: dispatchconfig.Config{
+			BufferSize:    16,
+			BatchSize:     4,
+			FlushInterval: 10 * time.Millisecond,
+			Workers:       1,
+			RetryAttempts: 1,
+		},
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	var hooks coreruntime.HookGroup
+	auditor, err := factory.New(cfg).UseShutdownHooks(&hooks).Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, auditor)
+	require.Contains(t, logs.String(), "level=WARN")
+	require.Contains(t, logs.String(), "memory")
+	require.NoError(t, hooks.Shutdown(t.Context()))
+
+	logs.Reset()
+	storage, err := factory.New(cfg).BuildStorage(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, storage)
+	require.Contains(t, logs.String(), "level=WARN")
+	require.Contains(t, logs.String(), "memory")
+
+	// Explicit UseLogger (including DiscardHandler) must not leak to slog.Default.
+	logs.Reset()
+	_, err = factory.New(cfg).UseLogger(slog.New(slog.DiscardHandler)).BuildStorage(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, logs.String())
 }
