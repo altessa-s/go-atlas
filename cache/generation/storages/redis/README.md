@@ -33,9 +33,9 @@ reads resume from the healed value.
 
 **Overlap rule.** Per namespace the store keeps a count of finished bumps and of bumps in flight. A read overlapped by a bump of this replica
 (a bump finished since it started, or one was in flight when it started or completed) never installs its value: a value at or below the current
-generation is discarded, a higher one fails closed with `ErrRegressed` and heals as above (it may predate the write; a concurrent bump of
-another replica also lands here, at the cost of one extra bump). Every read raises the observed maximum. `Bump` succeeds only with a value it
-published that exceeds every generation the replica observed by the time it completes (it republishes, at most 3 times, otherwise fails with
+generation is discarded, a higher one fails closed with `ErrReadOverlappedBump` without healing (it may be the bump's own write whose reply is still in flight, or
+another replica's bump). Every read raises the observed maximum. `Bump` succeeds only with a value it published that exceeds every generation
+the replica observed by the time it completes (a read that saw exactly its own write does not count; it republishes, at most 3 times, otherwise fails with
 `ErrBumpNotConverged` and stays pending). This error is expected under contention; `Current` can also return it while healing a pending bump.
 
 Residual window: a replica that never observed `G` cannot detect the regression and may serve entries cached

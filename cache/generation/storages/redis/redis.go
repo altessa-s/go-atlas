@@ -28,6 +28,15 @@ import (
 // the key above every generation it knows.
 var ErrRegressed = errors.New("generation: stored generation regressed")
 
+// ErrReadOverlappedBump is returned by [Store.Current] when a bump of this
+// replica overlapped the read and the read returned a generation above the one
+// this replica has confirmed. The value may be the bump's own write whose reply
+// is still in flight or another replica's bump, and the read cannot tell which,
+// so it is not installed and the caller uses the source of truth. Unlike
+// [ErrRegressed] it proves no loss: the store heals nothing, and the next read
+// after the bump completes installs the generation normally.
+var ErrReadOverlappedBump = errors.New("generation: read overlapped a bump")
+
 // ErrBumpNotConverged is returned when concurrent observations keep overtaking
 // a Bump's published generation through all three attempts. The namespace
 // stays pending; a later Bump or Current must publish another increment before
@@ -240,9 +249,10 @@ func (s *Store) Bump(ctx context.Context, namespace string) (uint64, error) {
 
 		s.mu.Lock()
 		lg := s.local[namespace]
-		if lg.seen >= published {
-			// A concurrent read observed a generation at least as high:
-			// publish again above it.
+		if lg.seen > published {
+			// A concurrent read observed a generation above it: publish
+			// again above that. A read that saw exactly published saw this
+			// bump's own write.
 			seen = lg.seen
 			s.mu.Unlock()
 			continue
@@ -304,9 +314,9 @@ func (s *Store) read(ctx context.Context, namespace string) (observation, error)
 // A read overlapped by a bump of this replica (a bump completed since it
 // started, or one was in flight when it started or is now) may predate the
 // write behind that bump, so it never installs its value: a value at or below
-// the current generation is discarded; a higher one proves that Redis lost a
-// generation the bump did not exceed, so the read fails closed with
-// [ErrRegressed] and the key is healed with a Bump above seen.
+// the current generation is discarded; a higher one may be the bump's own
+// write or another replica's, so the read fails closed with
+// [ErrReadOverlappedBump] without healing.
 //
 // A read that no bump overlapped installs its value monotonically, unless it
 // started strictly after the current generation was confirmed and returned
@@ -316,10 +326,10 @@ func (s *Store) observeRead(ctx context.Context, namespace string, obs observati
 	lg := s.local[namespace]
 	lg.seen = max(lg.seen, obs.gen)
 	overlapped := obs.bumpingAtStart || lg.inflight > 0 || lg.seq != obs.seqAtStart
-	regressed := false
+	regressed, bypass := false, false
 	switch {
 	case overlapped:
-		regressed = obs.gen > lg.gen
+		bypass = obs.gen > lg.gen
 	case obs.gen < lg.gen:
 		regressed = obs.started.After(lg.confirmedAt)
 	default:
@@ -338,6 +348,9 @@ func (s *Store) observeRead(ctx context.Context, namespace string, obs observati
 	gen := lg.gen
 	s.mu.Unlock()
 
+	if bypass {
+		return 0, coreerrs.Wrapf(ErrReadOverlappedBump, "namespace %q", namespace)
+	}
 	if regressed {
 		_, _ = s.Bump(ctx, namespace) // heal: write above every observed generation
 		return 0, coreerrs.Wrapf(ErrRegressed, "namespace %q", namespace)

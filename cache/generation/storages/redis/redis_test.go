@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/time/clock"
@@ -441,9 +442,9 @@ func TestStore_ConcurrentUse(t *testing.T) {
 			// their bounded retries under contention. Recovery is checked below.
 			continue
 		}
-		if i%2 == 1 && errors.Is(err, redis.ErrRegressed) {
+		if i%2 == 1 && errors.Is(err, redis.ErrReadOverlappedBump) {
 			// A read overlapped by a local bump that returns a higher value
-			// fails closed by design (the other replica bumped meanwhile).
+			// bypasses the cache by design (the other replica bumped meanwhile).
 			continue
 		}
 		require.NoError(t, err)
@@ -617,12 +618,12 @@ func TestStore_ReadStartedBeforeBumpReturningAfterIt(t *testing.T) {
 
 	close(read.release)
 	wg.Wait()
-	require.ErrorIs(t, lateErr, redis.ErrRegressed)
-	healed := storedGen(t, mr, gatedKey)
-	require.Greater(t, healed, high, "healed above the pre-write generation")
+	require.ErrorIs(t, lateErr, redis.ErrReadOverlappedBump)
+	require.NotErrorIs(t, lateErr, redis.ErrRegressed)
+	require.Equal(t, published, storedGen(t, mr, gatedKey), "an overlapped read heals nothing")
 	got, err := s.Current(ctx, "catalog")
 	require.NoError(t, err)
-	require.Equal(t, healed, got)
+	require.Equal(t, published, got)
 }
 
 // TestStore_ReadStartedAfterBumpStartedReturningAfterIt is the round-3 case:
@@ -663,12 +664,11 @@ func TestStore_ReadStartedAfterBumpStartedReturningAfterIt(t *testing.T) {
 
 	require.NoError(t, bumpErr)
 	require.Less(t, published, high, "the bump could not know high")
-	require.ErrorIs(t, lateErr, redis.ErrRegressed, "an overlapped read above the bump is never installed")
-	healed := storedGen(t, mr, gatedKey)
-	require.Greater(t, healed, high)
+	require.ErrorIs(t, lateErr, redis.ErrReadOverlappedBump, "an overlapped read above the bump is never installed")
+	require.Equal(t, published, storedGen(t, mr, gatedKey), "an overlapped read heals nothing")
 	got, err := s.Current(ctx, "catalog")
 	require.NoError(t, err)
-	require.Equal(t, healed, got)
+	require.Equal(t, published, got)
 	require.NotEqual(t, high, got)
 }
 
@@ -717,13 +717,12 @@ func TestStore_ReadOverlappingTwoConcurrentBumps(t *testing.T) {
 	for i := range 2 {
 		require.NoError(t, errs[i])
 	}
-	require.ErrorIs(t, lateErr, redis.ErrRegressed)
-	healed := storedGen(t, mr, gatedKey)
-	require.Greater(t, healed, high)
-	require.Greater(t, healed, max(results[0], results[1]))
+	require.ErrorIs(t, lateErr, redis.ErrReadOverlappedBump)
+	stored := storedGen(t, mr, gatedKey)
+	require.Equal(t, max(results[0], results[1]), stored, "an overlapped read heals nothing")
 	got, err := s.Current(ctx, "catalog")
 	require.NoError(t, err)
-	require.Equal(t, healed, got, "high is never installed")
+	require.Equal(t, stored, got, "high is never installed")
 }
 
 // TestStore_ReadRaisingTheMaximumDuringBumpRepublishes: the bump reply is
@@ -747,7 +746,7 @@ func TestStore_ReadRaisingTheMaximumDuringBumpRepublishes(t *testing.T) {
 	high := g0 + 100
 	setStored(t, mr, high)
 	_, err = s.Current(ctx, "catalog")
-	require.ErrorIs(t, err, redis.ErrRegressed, "a read overlapping a bump never installs a higher value")
+	require.ErrorIs(t, err, redis.ErrReadOverlappedBump, "a read overlapping a bump never installs a higher value")
 
 	close(bump.release)
 	wg.Wait()
@@ -814,10 +813,80 @@ func TestStore_ReadSpanningAFailedBumpIsNotInstalled(t *testing.T) {
 
 	close(read.release)
 	wg.Wait()
-	require.ErrorIs(t, lateErr, redis.ErrRegressed)
-	healed := storedGen(t, mr, gatedKey)
-	require.Greater(t, healed, high, "the healing bump publishes the failed one above high")
+	require.ErrorIs(t, lateErr, redis.ErrReadOverlappedBump)
 	got, err := s.Current(ctx, "catalog")
 	require.NoError(t, err)
-	require.Equal(t, healed, got)
+	require.Greater(t, got, high, "the pending bump is published above high")
+	require.Equal(t, got, storedGen(t, mr, gatedKey))
+}
+
+// TestStore_ReadOverlappingABumpReplyDoesNotRegress: the bump script already
+// raised Redis but its reply is still in flight, so a concurrent read sees the
+// new generation. That is no regression: it must not heal-bump, and the bump
+// must not publish again.
+func TestStore_ReadOverlappingABumpReplyDoesNotRegress(t *testing.T) {
+	t.Parallel()
+	s, gate, mr, fake := gatedStore(t)
+	ctx := t.Context()
+
+	g0, err := s.Current(ctx, "catalog")
+	require.NoError(t, err)
+
+	fake.Advance(time.Millisecond)
+	bump := gate.arm(false)
+	var wg sync.WaitGroup
+	var bumped uint64
+	var bumpErr error
+	wg.Go(func() { bumped, bumpErr = s.Bump(ctx, "catalog") })
+	<-bump.held
+
+	_, err = s.Current(ctx, "catalog")
+	require.NotErrorIs(t, err, redis.ErrRegressed)
+
+	close(bump.release)
+	wg.Wait()
+	require.NoError(t, bumpErr)
+	require.Equal(t, g0+1, bumped)
+	require.Equal(t, g0+1, storedGen(t, mr, gatedKey), "no heal bump and no republish")
+
+	got, err := s.Current(ctx, "catalog")
+	require.NoError(t, err)
+	require.Equal(t, bumped, got)
+}
+
+// TestStore_ReadsDuringBumpsDoNotAdvanceTheGeneration: the generation
+// advances by exactly the number of explicit bumps while readers overlap them.
+func TestStore_ReadsDuringBumpsDoNotAdvanceTheGeneration(t *testing.T) {
+	t.Parallel()
+	s, _, mr, _ := gatedStore(t)
+	ctx := t.Context()
+
+	g0, err := s.Current(ctx, "catalog")
+	require.NoError(t, err)
+
+	const bumps = 50
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 16 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := s.Current(ctx, "catalog"); err != nil {
+					assert.NotErrorIs(t, err, redis.ErrRegressed)
+				}
+			}
+		})
+	}
+	for range bumps {
+		_, err := s.Bump(ctx, "catalog")
+		require.NoError(t, err)
+	}
+	close(stop)
+	wg.Wait()
+
+	require.Equal(t, g0+bumps, storedGen(t, mr, gatedKey))
 }
