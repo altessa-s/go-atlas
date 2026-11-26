@@ -337,7 +337,7 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 |----------|-------------------------------------------------------------|---------|---------------------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | `memory` | [`storages/memory`](../../reliability/saga/storages/memory) | no      | in-struct counter   | map scan                                              | Single node, tests, reference implementation.                                                                                 |
 | `mongo`  | [`storages/mongo`](../../reliability/saga/storages/mongo)   | yes     | document `version`  | `(status, deadline)` compound index                   | Query-capable; one document per instance.                                                                                     |
-| `redis`  | [`storages/redis`](../../reliability/saga/storages/redis)   | yes     | hash field, Lua CAS | sorted set scored by recover-eligibility time         | Terminal instances expire with a TTL, or via retention. On Redis Cluster the key prefix needs a hash tag.                     |
+| `redis`  | [`storages/redis`](../../reliability/saga/storages/redis)   | yes     | hash field, Lua CAS | sorted set scored by recover-eligibility time         | Terminal instances expire with a TTL, or via retention. Cluster-safe: keys of a definition share a hash-tag slot.     |
 | `nats`   | [`storages/nats`](../../reliability/saga/storages/nats)     | yes     | KV revision         | recoverable index key per live instance               | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
 | `sqldb`  | [`storages/sqldb`](../../reliability/saga/storages/sqldb)   | yes     | row `version`       | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations.                                       |
 
@@ -439,8 +439,10 @@ namespace, e.g. `myapp_saga_started_total`).
   its action ran (see [Crash recovery](#crash-recovery)). Return success when the effect is absent instead of failing the rollback.
 - **Parallel members share `*T`.** Concurrent steps in a group must not write the same fields; if they must produce outputs, give each its own
   field or use a separate stage.
-- **Terminal instances are kept until retention is on.** Completed and failed instances stay in the store for inspection. Set `WithRetention` (YAML
-  `retention`) so a scheduled cycle deletes them through `Storage.DeleteTerminal`; a TTL (redis/nats) is the alternative.
+- **Terminal instances are deleted after 30 days by default.** Completed and failed instances stay in the store for inspection for the retention
+  window (`WithRetention`, YAML `retention`, default `720h`); a scheduled cycle then deletes them through `Storage.DeleteTerminal`. Retention needs a
+  scheduler and a named definition. Disable it explicitly with `WithRetention(0)` (YAML `retention: 0s`) to keep instances forever; a TTL
+  (redis/nats) is the alternative.
 - **The pivot is a deliberate, one-time marker.** There should be at most one. Everything before it is reversible; everything at or after it
   rolls forward.
 

@@ -56,7 +56,7 @@ Storage implementations can return `ErrInvalidStorageKey` when they cannot repre
 | `WithRecoverySchedule`        | `@every 1m`    | Cron expression for the scheduled recovery cycle.                                 |
 | `WithRecoveryBatchSize`       | 100            | Max instances processed per recovery cycle.                                       |
 | `WithRecoveryTaskID`          | `saga-recovery-<definition>` | Scheduler task ID of the recovery cycle.                           |
-| `WithRetention`               | 0 (off)        | Keep terminal instances this long after their last update; a positive value enables the retention cycle (`RunRetentionCycle`, `RegisterRetention`). |
+| `WithRetention`               | 720h (30 days) | Keep terminal instances this long after their last update; the retention cycle (`RunRetentionCycle`, `RegisterRetention`) is on by default, `WithRetention(0)` disables it. |
 | `WithRetentionSchedule`       | `@every 1h`    | Cron expression for the scheduled retention cycle (task `saga-retention-<definition>`). |
 | `WithRetentionBatchSize`      | 500            | Terminal instances one storage call deletes per retention batch.                  |
 | `WithRecoveryTimeout`         | 5m             | Bounds an entire recovery pass.                                                   |

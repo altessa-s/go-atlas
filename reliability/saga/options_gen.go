@@ -180,19 +180,6 @@ func WithRecoveryTimeout(v time.Duration) Option {
 	}
 }
 
-// WithRetention sets the retention option.
-//
-// retention is how long a terminal instance is kept after its last update
-// before the retention cycle deletes it; 0 disables retention.
-func WithRetention(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.retention = v
-	}
-}
-
 // WithRetentionBatchSize sets the retentionBatchSize option.
 func WithRetentionBatchSize(v int) Option {
 	return func(o *options) {
@@ -338,6 +325,7 @@ func defaultOptions() *options {
 		recoveryBatchSize:       DefaultRecoveryBatchSize,
 		recoverySchedule:        DefaultRecoverySchedule,
 		recoveryTimeout:         DefaultRecoveryTimeout,
+		retention:               DefaultRetention,
 		retentionBatchSize:      DefaultRetentionBatchSize,
 		retentionSchedule:       DefaultRetentionSchedule,
 		serializer:              &serializer.JSON{},

@@ -513,11 +513,11 @@ func TestRetentionCycleDeletesOldTerminalInstances(t *testing.T) {
 	require.Equal(t, 1, store.Len(), "all batches are drained in one cycle and the live instance stays")
 }
 
-func TestRetentionDisabledByDefault(t *testing.T) {
+func TestRetentionDisabledExplicitly(t *testing.T) {
 	t.Parallel()
 	r := &recorder{}
 	store := memory.New()
-	orch := saga.New(store, oneStepDef("retain", r), fastOpts()...)
+	orch := saga.New(store, oneStepDef("retain", r), fastOpts(saga.WithRetention(0))...)
 	_, err := orch.Start(t.Context(), "a", order{})
 	require.NoError(t, err)
 	inst, err := store.Get(t.Context(), "a")
@@ -527,6 +527,24 @@ func TestRetentionDisabledByDefault(t *testing.T) {
 
 	require.NoError(t, orch.RunRetentionCycle(t.Context()))
 	require.Equal(t, 1, store.Len())
+}
+
+func TestRetentionOnByDefault(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := memory.New()
+	orch := saga.New(store, oneStepDef("retain", r), fastOpts()...)
+	_, err := orch.Start(t.Context(), "old", order{})
+	require.NoError(t, err)
+	_, err = orch.Start(t.Context(), "fresh", order{})
+	require.NoError(t, err)
+	inst, err := store.Get(t.Context(), "old")
+	require.NoError(t, err)
+	inst.UpdatedAt = time.Now().Add(-31 * 24 * time.Hour)
+	require.NoError(t, store.Update(t.Context(), inst))
+
+	require.NoError(t, orch.RunRetentionCycle(t.Context()))
+	require.Equal(t, 1, store.Len(), "a terminal instance older than 30 days is deleted without any retention option")
 }
 
 func TestRetentionTaskIsPerDefinitionAndManaged(t *testing.T) {
@@ -544,7 +562,7 @@ func TestRetentionTaskIsPerDefinitionAndManaged(t *testing.T) {
 	require.Contains(t, reg.tasks, saga.RetentionTaskIDPrefix+"second")
 
 	none := &recordingRegistrar{}
-	off := saga.New(memory.New(), oneStepDef("off", rec), fastOpts(saga.WithScheduler(none))...)
+	off := saga.New(memory.New(), oneStepDef("off", rec), fastOpts(saga.WithScheduler(none), saga.WithRetention(0))...)
 	require.NoError(t, off.RegisterRetention(t.Context()))
 	require.Empty(t, none.tasks, "retention off registers nothing")
 }

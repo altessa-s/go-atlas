@@ -70,7 +70,7 @@ func TestBuild_InjectedDependenciesAreWired(t *testing.T) {
 	require.NotNil(t, dead.Load(), "the dead-letter callback must fire")
 
 	tasks := reg.Tasks()
-	require.Len(t, tasks, 1)
+	require.Len(t, tasks, 2, "retention is on by default")
 	require.Equal(t, saga.RecoveryTaskIDPrefix+"pivot", tasks[0].ID)
 	require.Equal(t, cfg.RecoverySchedule, tasks[0].Schedule)
 }
@@ -88,6 +88,7 @@ func TestBuild_RetentionRegistration(t *testing.T) {
 		tasks     int
 	}{
 		{"off", 0, 1},
+		{"default", sagaconfig.Default().Retention, 2},
 		{"on", time.Hour, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

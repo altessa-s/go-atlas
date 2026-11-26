@@ -29,6 +29,7 @@ const (
 	defaultSagaMaxCompensationAttempts = 5
 	defaultSagaStepConcurrency         = 0 // use the core IO-bound default
 	defaultSagaRecoverySchedule        = "@every 1m"
+	defaultSagaRetention               = 30 * 24 * time.Hour
 	defaultSagaRetentionSchedule       = "@every 1h"
 	defaultSagaRetentionBatchSize      = 500
 	defaultSagaRecoveryBatchSize       = 100
@@ -117,9 +118,9 @@ func (c *MongoStorageConfig) Validate() error {
 // RedisStorageConfig configures the durable saga store backed by Redis
 // (reliability/saga/storages/redis).
 type RedisStorageConfig struct {
-	// KeysPrefix is prepended to every Redis key the store writes. On Redis
-	// Cluster it must contain a hash tag such as "{saga}:", so an instance and
-	// its indexes share a slot.
+	// KeysPrefix is prepended to every Redis key the store writes. It needs no
+	// hash tag, also on Redis Cluster: the store tags the keys of each
+	// definition itself so they share a slot.
 	KeysPrefix string `yaml:"keysPrefix" default:"saga:"`
 	// TTL is the expiry of a terminal instance, applied on its terminal write;
 	// a live instance never expires. Zero persists forever.
@@ -290,9 +291,9 @@ type Config struct {
 	RecoveryTaskID string `yaml:"recoveryTaskID"`
 
 	// Retention is how long a terminal instance is kept after its last update
-	// before a scheduled retention cycle deletes it. Zero keeps instances
-	// forever and registers no retention task.
-	Retention time.Duration `yaml:"retention"`
+	// before a scheduled retention cycle deletes it. Defaults to 30 days; an
+	// explicit zero keeps instances forever and registers no retention task.
+	Retention time.Duration `yaml:"retention" default:"720h"`
 	// RetentionSchedule is the cron expression for the retention cycle.
 	RetentionSchedule string `yaml:"retentionSchedule" default:"@every 1h"`
 	// RetentionBatchSize is the number of terminal instances one storage call
@@ -316,6 +317,7 @@ func Default() Config {
 		MaxCompensationAttempts: defaultSagaMaxCompensationAttempts,
 		StepConcurrency:         defaultSagaStepConcurrency,
 		RecoverySchedule:        defaultSagaRecoverySchedule,
+		Retention:               defaultSagaRetention,
 		RetentionSchedule:       defaultSagaRetentionSchedule,
 		RetentionBatchSize:      defaultSagaRetentionBatchSize,
 		RecoveryBatchSize:       defaultSagaRecoveryBatchSize,

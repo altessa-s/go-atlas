@@ -43,6 +43,10 @@ const (
 	// recovery cycle; the definition name follows it, so orchestrators of
 	// different definitions never share a task.
 	RecoveryTaskIDPrefix = "saga-recovery-"
+	// DefaultRetention is how long a terminal instance is kept after its last
+	// update before the retention cycle deletes it: 30 days. Pass
+	// WithRetention(0) to keep terminal instances forever.
+	DefaultRetention = 30 * 24 * time.Hour
 	// DefaultRetentionSchedule is the cron expression used to register the
 	// retention cycle with a scheduler.
 	DefaultRetentionSchedule = "@every 1h"
@@ -92,10 +96,12 @@ type options struct {
 	recoveryTaskID    string // "" → RecoveryTaskIDPrefix + definition name
 
 	// retention is how long a terminal instance is kept after its last update
-	// before the retention cycle deletes it; 0 disables retention.
-	retention          time.Duration
-	retentionSchedule  string `optgen:"default=DefaultRetentionSchedule"`
-	retentionBatchSize int    `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
+	// before the retention cycle deletes it; 0 disables retention. It stays
+	// hand-written ([WithRetention]) because the generated setter treats a
+	// non-positive value as "keep the default" and could not express "off".
+	retention          time.Duration `optgen:"manual,default=DefaultRetention"`
+	retentionSchedule  string        `optgen:"default=DefaultRetentionSchedule"`
+	retentionBatchSize int           `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
 
 	scheduler     schedtask.Registrar `optgen:"notnil"`
 	leaderElector LeaderElector       `optgen:"notnil"`
@@ -111,4 +117,17 @@ type options struct {
 	// cancellation is always treated as non-retryable regardless of this hook.
 	// Passing nil restores the default (retry every error).
 	shouldRetry func(error) bool `opt:"ShouldRetry" optgen:"allownull"`
+}
+
+// WithRetention sets how long a terminal instance is kept after its last
+// update before the retention cycle deletes it. The default is
+// [DefaultRetention]; 0 disables retention and keeps terminal instances
+// forever. A negative value is ignored.
+func WithRetention(d time.Duration) Option {
+	return func(o *options) {
+		if d < 0 {
+			return
+		}
+		o.retention = d
+	}
 }

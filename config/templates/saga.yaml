@@ -48,8 +48,8 @@
 #    # <object> Redis storage configuration (reliability/saga/storages/redis).
 #    # Used when type is set to 'redis'.
 #    redis:
-#      # <string> Prefix prepended to every Redis key. On Redis Cluster it must
-#      # contain a hash tag such as "{saga}:".
+#      # <string> Prefix prepended to every Redis key. It needs no hash tag, also
+#      # on Redis Cluster: the store tags the keys of each definition itself.
 #      # Default value: saga:
 #      keysPrefix: "saga:"
 #
@@ -137,9 +137,10 @@
 #  recoveryTaskID: ""
 #
 #  # <duration> How long a terminal instance is kept after its last update
-#  # before the retention cycle deletes it. Zero keeps instances forever.
-#  # Default value: 0s (keep)
-#  retention: "0s"
+#  # before the retention cycle deletes it. An explicit zero ("0s") disables
+#  # retention and keeps instances forever.
+#  # Default value: 720h (30 days)
+#  retention: "720h"
 #
 #  # <string> Cron expression for the retention cycle.
 #  # Default value: @every 1h
