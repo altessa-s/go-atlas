@@ -19,7 +19,7 @@ import (
 // AuthFunc returns an [auth.AuthFunc] that validates the credential token
 // against store. Errors from store are mapped to gRPC status codes:
 //
-//   - [static.ErrTokenInvalid] / [static.ErrTokenEmpty] → codes.Unauthenticated
+//   - [static.ErrTokenInvalid] / [static.ErrTokenEmpty] / [static.ErrRateLimitKeyEmpty] → codes.Unauthenticated
 //   - [static.ErrRateLimited]                          → codes.ResourceExhausted
 //   - any other error                                  → codes.Internal
 //
@@ -90,6 +90,8 @@ func auditReason(err error) string {
 		return "empty_token"
 	case errors.Is(err, static.ErrRateLimited):
 		return "rate_limited"
+	case errors.Is(err, static.ErrRateLimitKeyEmpty):
+		return "empty_rate_limit_key"
 	default:
 		return "error"
 	}
@@ -97,7 +99,7 @@ func auditReason(err error) string {
 
 func toGRPCStatus(err error) error {
 	switch {
-	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty):
+	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty), errors.Is(err, static.ErrRateLimitKeyEmpty):
 		return status.Error(codes.Unauthenticated, "invalid token")
 	case errors.Is(err, static.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, "too many authentication attempts")

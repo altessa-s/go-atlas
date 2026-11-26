@@ -14,12 +14,13 @@ through `auth.DecisionRecorder`.
 
 ## Error mapping
 
-| `auth/static` error  | gRPC status code           |
-|----------------------|----------------------------|
-| `ErrTokenInvalid`    | `codes.Unauthenticated`    |
-| `ErrTokenEmpty`      | `codes.Unauthenticated`    |
-| `ErrRateLimited`     | `codes.ResourceExhausted`  |
-| anything else        | `codes.Internal`           |
+| `auth/static` error    | gRPC status code          |
+|------------------------|---------------------------|
+| `ErrTokenInvalid`      | `codes.Unauthenticated`   |
+| `ErrTokenEmpty`        | `codes.Unauthenticated`   |
+| `ErrRateLimitKeyEmpty` | `codes.Unauthenticated`   |
+| `ErrRateLimited`       | `codes.ResourceExhausted` |
+| anything else          | `codes.Internal`          |
 
 Store types, options, and constructors are provided by `github.com/altessa-s/go-atlas/auth/static`.
 

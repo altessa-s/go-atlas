@@ -87,10 +87,12 @@ sequenceDiagram
     participant S as InMemoryStore
     App->>RLS: Validate(ctx, token)
     RLS->>RLS: key = keyFn(ctx)
-    alt key != "" and !Allow(key)
+    alt key == ""
+        RLS-->>App: ErrRateLimitKeyEmpty
+    else !Allow(key)
         L-->>RLS: deny
         RLS-->>App: ErrRateLimited
-    else allowed (or empty key)
+    else allowed
         RLS->>S: Validate(ctx, token)
         Note over S: HMAC-SHA256(token) → single map probe
         alt hit
@@ -243,7 +245,8 @@ counter that never decays will eventually lock legitimate clients out of their o
 
 `KeyFunc` derives the rate-limit key for a request — typically the client IP, an API-key prefix, or a tenant id.
 
-- Returning an **empty string** skips the rate-limit check for that request (useful for trusted internal traffic).
+- Returning an **empty string** rejects the request with `ErrRateLimitKeyEmpty` before the token is validated (fail closed). Serve trusted
+  internal traffic with an unwrapped `TokenStore` instead.
 - Returning the **same non-empty key for every request is forbidden by contract**: the limiter then becomes one global bucket and a single
   attacker can trip `ErrRateLimited` for every legitimate user (DoS amplification). Partition by an attribute correlated with the suspected
   attacker (IP, ASN, account, tenant), never a constant.
@@ -252,11 +255,12 @@ The key is never embedded in the returned error text, keeping client identifiers
 
 ## Errors
 
-| Sentinel          | Returned when                                              |
-|-------------------|------------------------------------------------------------|
-| `ErrTokenInvalid` | Token is non-empty but not registered with the store       |
-| `ErrTokenEmpty`   | Token is the empty string                                  |
-| `ErrRateLimited`  | `RateLimitedStore` rejects a request via its `RateLimiter` |
+| Sentinel               | Returned when                                              |
+|------------------------|------------------------------------------------------------|
+| `ErrTokenInvalid`      | Token is non-empty but not registered with the store       |
+| `ErrTokenEmpty`        | Token is the empty string                                  |
+| `ErrRateLimited`       | `RateLimitedStore` rejects a request via its `RateLimiter` |
+| `ErrRateLimitKeyEmpty` | `RateLimitedStore`'s `KeyFunc` returned an empty key       |
 
 Compare with `errors.Is`, not `==`: the HTTP adapter wraps these with additional context while preserving the cause. The gRPC adapter returns a
 fresh status error without the cause, so branch on `status.Code(err)` there.
@@ -284,12 +288,13 @@ with `auth/static`; the adapter wires it into the interceptor or middleware.
 
 `transport/grpc/interceptors/auth/static` provides `AuthFunc`, translating sentinels into gRPC status codes:
 
-| `auth/static` error | gRPC status code          |
-|---------------------|---------------------------|
-| `ErrTokenInvalid`   | `codes.Unauthenticated`   |
-| `ErrTokenEmpty`     | `codes.Unauthenticated`   |
-| `ErrRateLimited`    | `codes.ResourceExhausted` |
-| anything else       | `codes.Internal`          |
+| `auth/static` error    | gRPC status code          |
+|------------------------|---------------------------|
+| `ErrTokenInvalid`      | `codes.Unauthenticated`   |
+| `ErrTokenEmpty`        | `codes.Unauthenticated`   |
+| `ErrRateLimitKeyEmpty` | `codes.Unauthenticated`   |
+| `ErrRateLimited`       | `codes.ResourceExhausted` |
+| anything else          | `codes.Internal`          |
 
 ```go
 store := static.NewInMemoryStore(static.WithInitialTokens(tokens))

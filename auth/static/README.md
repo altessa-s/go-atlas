@@ -29,11 +29,11 @@ digest of each token. Used by the gRPC interceptor at `transport/grpc/intercepto
 
 ## Sentinel errors
 
-| Error             | Returned when                                              |
-|-------------------|------------------------------------------------------------|
-| `ErrTokenInvalid` | Token is non-empty but not registered with the store       |
-| `ErrTokenEmpty`   | Token is the empty string                                  |
-| `ErrRateLimited`  | `RateLimitedStore` rejects a request via its `RateLimiter` |
+| Error                  | Returned when                                                      |
+|------------------------|--------------------------------------------------------------------|
+| `ErrTokenInvalid`      | Token is non-empty but not registered with the store               |
+| `ErrTokenEmpty`        | Token is the empty string                                          |
+| `ErrRateLimited`       | `RateLimitedStore` rejects a request via its `RateLimiter`         |
 | `ErrRateLimitKeyEmpty` | `RateLimitedStore`'s `KeyFunc` returned an empty key (fail closed) |
 
 Compare with `errors.Is` rather than `==` — adapters in the transport packages wrap these errors with additional context.

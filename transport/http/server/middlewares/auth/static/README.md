@@ -13,12 +13,13 @@ Thin HTTP adapter over [`auth/static`](../../../../../../auth/static). Provides 
 
 ## Error wrapping
 
-| `auth/static` error | Wrapped as                                                |
-|---------------------|------------------------------------------------------------|
-| `ErrTokenInvalid`   | `auth.ErrUnauthorized` (cause preserved via `errors.Is`)   |
-| `ErrTokenEmpty`     | `auth.ErrUnauthorized` (cause preserved)                   |
-| `ErrRateLimited`    | `auth.ErrUnauthorized` (cause preserved)                   |
-| anything else       | wrapped with `auth:` prefix, original cause preserved      |
+| `auth/static` error    | Wrapped as                                               |
+|------------------------|----------------------------------------------------------|
+| `ErrTokenInvalid`      | `auth.ErrUnauthorized` (cause preserved via `errors.Is`) |
+| `ErrTokenEmpty`        | `auth.ErrUnauthorized` (cause preserved)                 |
+| `ErrRateLimitKeyEmpty` | `auth.ErrUnauthorized` (cause preserved)                 |
+| `ErrRateLimited`       | `auth.ErrUnauthorized` (cause preserved)                 |
+| anything else          | wrapped with `auth:` prefix, original cause preserved    |
 
 Use `errors.Is(err, auth.ErrUnauthorized)` or `errors.Is(err, static.ErrTokenInvalid)` (via `auth/static`) to branch on the failure mode in custom error
 handlers.

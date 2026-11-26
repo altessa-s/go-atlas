@@ -78,6 +78,13 @@ func TestAuthFunc_ErrorMapping(t *testing.T) {
 			wantCode: codes.ResourceExhausted,
 		},
 		{
+			name:     "empty rate-limit key",
+			store:    authstatic.NewRateLimitedStore(authstatic.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "" }),
+			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: "anything"}},
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid token",
+		},
+		{
 			name:     "internal error",
 			store:    errStore{err: errors.New("boom")},
 			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: "x"}},

@@ -64,6 +64,12 @@ func TestAuthFunc_ErrorWrapping(t *testing.T) {
 			token:         "x",
 			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrRateLimited},
 		},
+		{
+			name:          "empty rate-limit key",
+			store:         authstatic.NewRateLimitedStore(authstatic.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "" }),
+			token:         "x",
+			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrRateLimitKeyEmpty},
+		},
 	}
 
 	for _, tc := range cases {
