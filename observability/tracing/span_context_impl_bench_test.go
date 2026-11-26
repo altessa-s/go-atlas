@@ -44,3 +44,11 @@ func BenchmarkNewSpanContextImpl_Parallel(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkParseTraceState(b *testing.B) {
+	const header = "congo=t61rcWkgMzE,1a@rojo=00f067aa0ba902b7"
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = ParseTraceState(header)
+	}
+}

@@ -6,6 +6,7 @@ package tracing_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -91,4 +92,24 @@ func TestDefaultSamplerPropagatesUnsampledRemoteTrace(t *testing.T) {
 	require.Equal(t, "00-0af7651916cd43dd8448eb211c80319c-"+span.SpanContext().SpanID()+"-00", out["traceparent"])
 	require.Equal(t, "vendor=value", out["tracestate"])
 	require.False(t, span.IsRecording())
+}
+
+func TestExtractStartInject_OversizedTracestateBounded(t *testing.T) {
+	t.Parallel()
+	p := propagation.NewTraceContext()
+	in := propagation.MapCarrier{
+		"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+		"tracestate":  "vendor=" + strings.Repeat("a", 64*1024),
+	}
+	ctx := p.Extract(t.Context(), in)
+	tr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOn()))
+	defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
+
+	ctx, span := tr.Recorder("test").Start(ctx, "child")
+	defer span.End()
+
+	out := propagation.MapCarrier{}
+	p.Inject(ctx, out)
+	require.NotEmpty(t, out["traceparent"])
+	require.LessOrEqual(t, len(out["tracestate"]), 512)
 }

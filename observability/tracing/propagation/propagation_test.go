@@ -5,8 +5,10 @@
 package propagation
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -140,4 +142,84 @@ func TestRemoteSpanContext_TraceFlags(t *testing.T) {
 	ctx := tc.Extract(t.Context(), carrier)
 	remote := RemoteSpanContextFromContext(ctx)
 	require.Equal(t, tracing.TraceFlags(0x01), remote.TraceFlags())
+}
+
+func TestTraceContext_TracestateValidationAndBounds(t *testing.T) {
+	t.Parallel()
+
+	const validParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+	var manyMembers []string
+	for i := range 33 {
+		manyMembers = append(manyMembers, fmt.Sprintf("v%d=1", i))
+	}
+	var longValid []string
+	for i := range 10 {
+		longValid = append(longValid, fmt.Sprintf("vendor%d=%s", i, strings.Repeat("x", 60)))
+	}
+
+	tests := []struct {
+		name       string
+		tracestate string
+		wantEmpty  bool
+		wantExact  string
+	}{
+		{
+			name:       "64 KiB single member dropped",
+			tracestate: "vendor=" + strings.Repeat("a", 64*1024),
+			wantEmpty:  true,
+		},
+		{
+			name:       "malformed member without equals",
+			tracestate: "not-a-member",
+			wantEmpty:  true,
+		},
+		{
+			name:       "uppercase key rejected",
+			tracestate: "Vendor=1",
+			wantEmpty:  true,
+		},
+		{
+			name:       "duplicate keys rejected",
+			tracestate: "congo=1,congo=2",
+			wantEmpty:  true,
+		},
+		{
+			name:       "valid multi-tenant and OWS normalized",
+			tracestate: "  congo=t61rcWkgMzE , , 1a@rojo=00f067aa0ba902b7\t",
+			wantExact:  "congo=t61rcWkgMzE,1a@rojo=00f067aa0ba902b7",
+		},
+		{
+			name:       "more than 32 members bounded",
+			tracestate: strings.Join(manyMembers, ","),
+		},
+		{
+			name:       "exceeding 512 chars bounded",
+			tracestate: strings.Join(longValid, ","),
+		},
+	}
+
+	tc := NewTraceContext()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := tc.Extract(t.Context(), MapCarrier{
+				"traceparent": validParent,
+				"tracestate":  tt.tracestate,
+			})
+			remote := RemoteSpanContextFromContext(ctx)
+			require.NotNil(t, remote, "traceparent must remain valid regardless of tracestate")
+			got := remote.TraceState()
+			require.LessOrEqual(t, len(got), 512)
+			if got != "" {
+				require.LessOrEqual(t, strings.Count(got, ",")+1, 32)
+			}
+			if tt.wantEmpty {
+				require.Empty(t, got)
+			}
+			if tt.wantExact != "" {
+				require.Equal(t, tt.wantExact, got)
+			}
+		})
+	}
 }

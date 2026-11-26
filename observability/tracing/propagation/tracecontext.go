@@ -58,7 +58,9 @@ func (tc *TraceContext) Inject(ctx context.Context, carrier TextMapCarrier) {
 	carrier.Set(traceparentHeader, traceparent)
 
 	if state, ok := sc.(interface{ TraceState() string }); ok && state.TraceState() != "" {
-		carrier.Set(tracestateHeader, state.TraceState())
+		if parsed, valid := tracing.ParseTraceState(state.TraceState()); valid {
+			carrier.Set(tracestateHeader, parsed)
+		}
 	}
 }
 
@@ -74,10 +76,11 @@ func (tc *TraceContext) Extract(ctx context.Context, carrier TextMapCarrier) con
 		return ctx
 	}
 
-	// Parse tracestate if present
-	tracestate := carrier.Get(tracestateHeader)
-	if tracestate != "" {
-		sc.traceState = tracestate
+	// Parse and validate tracestate if present
+	if tracestate := carrier.Get(tracestateHeader); tracestate != "" {
+		if parsed, valid := tracing.ParseTraceState(tracestate); valid {
+			sc.traceState = parsed
+		}
 	}
 
 	// Create a remote span context and store in context
@@ -180,7 +183,7 @@ func (r *RemoteSpanContext) IsSampled() bool {
 
 // IsValid returns true if the span context is valid.
 func (r *RemoteSpanContext) IsValid() bool {
-	return r.data.traceID != "" && r.data.spanID != ""
+	return r != nil && r.data.traceID != "" && r.data.spanID != ""
 }
 
 // IsRemote returns true (always remote).
