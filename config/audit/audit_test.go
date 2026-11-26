@@ -8,12 +8,16 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
@@ -55,10 +59,40 @@ func TestConfig_Validate(t *testing.T) {
 	}{
 		{"valid", func(*auditconfig.Config) {}, false},
 		{"unknown storage type", func(c *auditconfig.Config) { c.Storage.Type = "sqlite" }, true},
-		{"empty storage type", func(c *auditconfig.Config) { c.Storage.Type = "" }, true},
+		{"empty storage type with clickhouse block", func(c *auditconfig.Config) { c.Storage.Type = "" }, true},
+		{"empty storage type with mongo block", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{Mongo: &auditconfig.StorageMongo{}}
+		}, true},
+		{"empty storage type with sql block", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{SQL: &auditconfig.StorageSQL{Dialect: auditconfig.SQLDialectPostgres, TableName: "audit_events", PurgeBatchSize: 1}}
+		}, true},
+		{"omitted storage uses default memory", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{}
+		}, false},
+		{"omitted storage type with memory block", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{Memory: &auditconfig.StorageMemory{MaxEvents: 500}}
+		}, false},
 		{"memory needs no block", func(c *auditconfig.Config) {
 			c.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeMemory}
 		}, false},
+		{"memory with valid maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: 1000},
+			}
+		}, false},
+		{"memory with zero maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: 0},
+			}
+		}, true},
+		{"memory with negative maxEvents", func(c *auditconfig.Config) {
+			c.Storage = auditconfig.Storage{
+				Type:   auditconfig.StorageTypeMemory,
+				Memory: &auditconfig.StorageMemory{MaxEvents: -1},
+			}
+		}, true},
 		{"mongo requires its block", func(c *auditconfig.Config) {
 			c.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeMongo}
 		}, true},
@@ -168,4 +202,23 @@ func TestStorageMongo_ValidateTTL(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestConfig_DefaultStorageFromLoader(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("audit:\n  enabled: true\n"), 0o600))
+
+	var root struct {
+		Audit auditconfig.Config `yaml:"audit"`
+	}
+	_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&root)
+	require.NoError(t, err)
+	require.Empty(t, root.Audit.Storage.Type, "loader must leave omitted storage.type empty so factory/audit can warn on default memory fallback")
+	require.NoError(t, root.Audit.Validate())
+
+	memDefaults := auditconfig.DefaultStorageMemory()
+	require.Equal(t, auditconfig.DefaultMemoryMaxEvents, memDefaults.MaxEvents)
+	require.NoError(t, memDefaults.Validate())
 }

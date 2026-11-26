@@ -11,12 +11,17 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 
 | Type                | Description                                                   |
 |-----------------------|------------------------------------------------------------------|
-| `StorageType`  | Defines the type of storage backend for audit events.         |
-| `Config`             | Defines the configuration for the audit subsystem.            |
-| `Storage`      | Defines the storage backend configuration for audit events.   |
-| `StorageMongo` | Holds MongoDB-specific configuration for audit event storage. |
-| `StorageSQL` | Holds SQL-specific configuration for audit event storage. |
+| `StorageType`       | Defines the type of storage backend for audit events.            |
+| `Config`            | Defines the configuration for the audit subsystem.               |
+| `Storage`           | Defines the storage backend configuration for audit events.      |
+| `StorageMemory`     | Holds bounded ring-buffer settings for in-memory audit storage.  |
+| `StorageMongo`      | Holds MongoDB-specific configuration for audit event storage.    |
+| `StorageSQL`        | Holds SQL-specific configuration for audit event storage.        |
 | `StorageClickHouse` | Holds ClickHouse-specific configuration for audit event storage. |
+
+Omitting `storage.type` falls back to the bounded in-memory ring buffer (`memory`, default `maxEvents: 10000`, oldest evicted) and causes
+[`factory/audit`](../../factory/audit) to log a startup warning. Explicit `storage.type: memory` selects the same bounded ring buffer without the
+default-fallback warning. Setting a persistent backend block (`mongo`, `clickhouse`, `sqldb`) while leaving `storage.type` empty fails validation.
 
 The `paging` section of event queries is the shared [`config/paging`](../paging) schema (nil disables page tokens).
 

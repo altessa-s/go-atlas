@@ -60,10 +60,11 @@ Register a custom backend name with `UseStorage`. Before standalone validation o
 ## Storage
 
 | `storage.type` | Requires                                                                                                                 | Notes                                                                                                           |
-|------------------|----------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| `memory`       | --                                                                                                                       | In-process, unbounded; events are lost on restart                                                               |
-| `mongo`        | `UseStorage("mongo", auditmongofactory.Builder(db))` from [`factory/audit/storages/mongo`](storages/mongo)          | `storage.mongo` tunes collection name, index timeout and TTL; omitting the section means all defaults           |
-| `clickhouse`   | `UseStorage("clickhouse", chfactory.Builder(conn))` from [`factory/audit/storages/clickhouse`](storages/clickhouse) | `storage.clickhouse` is required; the table schema is checked at startup                                        |
+|----------------|--------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| *(omitted)*    | --                                                                                                                       | Falls back to `memory` bounded ring buffer and logs a startup `WARN`; rejected if a persistent block is present |
+| `memory`       | --                                                                                                                       | In-process bounded ring buffer (`storage.memory.maxEvents`, default 10,000, oldest evicted); lost on restart    |
+| `mongo`        | `UseStorage("mongo", auditmongofactory.Builder(db))` from [`factory/audit/storages/mongo`](storages/mongo)               | `storage.mongo` tunes collection name, index timeout and TTL; omitting the section means all defaults           |
+| `clickhouse`   | `UseStorage("clickhouse", chfactory.Builder(conn))` from [`factory/audit/storages/clickhouse`](storages/clickhouse)      | `storage.clickhouse` is required; the table schema is checked at startup                                        |
 | `sqldb`        | `UseSQLDB`                                                                                                               | `storage.sqldb` is required; `ensureSchema` creates the table at startup, otherwise the schema must exist       |
 
 An `sqldb` type without a database fails with `ErrSQLDBRequired`, and a `mongo` or `clickhouse` type without a registered builder with an error naming

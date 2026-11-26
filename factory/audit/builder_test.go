@@ -5,6 +5,7 @@
 package factory_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
+	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/audit"
@@ -25,6 +27,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/audit"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
@@ -452,4 +455,110 @@ func TestBuildCustomBackend(t *testing.T) {
 	require.NotNil(t, got)
 	_, err = factory.New(cfg).UseShutdownHooks(&hooks).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+}
+
+func newWarnLogger() (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})), &buf
+}
+
+func TestBuild_DefaultStorageWarnsAndUsesBoundedMemory(t *testing.T) {
+	t.Parallel()
+
+	t.Run("omitted_in_struct_warns_and_bounds", func(t *testing.T) {
+		t.Parallel()
+
+		logger, logs := newWarnLogger()
+		var hooks coreruntime.HookGroup
+		cfg := &auditconfig.Config{
+			Enabled: true,
+			Dispatch: dispatchconfig.Config{
+				BufferSize:    16,
+				BatchSize:     4,
+				FlushInterval: 10 * time.Millisecond,
+				Workers:       1,
+				RetryAttempts: 1,
+			},
+			ShutdownTimeout: 5 * time.Second,
+		}
+
+		auditor, err := factory.New(cfg).UseLogger(logger).UseShutdownHooks(&hooks).Build(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, auditor)
+		require.Contains(t, logs.String(), "level=WARN")
+		require.Contains(t, logs.String(), "memory")
+		require.NoError(t, hooks.Shutdown(t.Context()))
+
+		logs.Reset()
+		storage, err := factory.New(cfg).UseLogger(logger).BuildStorage(t.Context())
+		require.NoError(t, err)
+		mem, ok := storage.(*memory.Storage)
+		require.True(t, ok)
+		require.Equal(t, memory.DefaultMaxEvents, mem.Cap())
+		require.Contains(t, logs.String(), "level=WARN")
+	})
+
+	t.Run("omitted_in_yaml_loader_warns", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "audit.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("audit:\n  enabled: true\n"), 0o600))
+
+		var root struct {
+			Audit auditconfig.Config `yaml:"audit"`
+		}
+		_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&root)
+		require.NoError(t, err)
+
+		logger, logs := newWarnLogger()
+		var hooks coreruntime.HookGroup
+		auditor, err := factory.New(&root.Audit).UseLogger(logger).UseShutdownHooks(&hooks).Build(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, auditor)
+		require.Contains(t, logs.String(), "level=WARN")
+		require.Contains(t, logs.String(), "memory")
+		require.NoError(t, hooks.Shutdown(t.Context()))
+	})
+
+	t.Run("explicit_memory_does_not_warn_and_honors_max_events", func(t *testing.T) {
+		t.Parallel()
+
+		logger, logs := newWarnLogger()
+		cfg := memoryConfig()
+		cfg.Storage.Memory = &auditconfig.StorageMemory{MaxEvents: 3}
+
+		storage, err := factory.New(cfg).UseLogger(logger).BuildStorage(t.Context())
+		require.NoError(t, err)
+		require.Empty(t, logs.String(), "explicit storage.type=memory must not emit default-storage warning")
+
+		mem, ok := storage.(*memory.Storage)
+		require.True(t, ok)
+		require.Equal(t, 3, mem.Cap())
+
+		for _, id := range []string{"e1", "e2", "e3", "e4"} {
+			require.NoError(t, mem.Store(t.Context(), &audit.Event{ID: id, Timestamp: time.Now()}))
+		}
+		require.Equal(t, 3, mem.Len())
+		require.Equal(t, "e2", mem.Events()[0].ID)
+	})
+
+	t.Run("invalid_memory_max_events_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		for _, maxEvents := range []int{0, -5} {
+			cfg := memoryConfig()
+			cfg.Storage.Memory = &auditconfig.StorageMemory{MaxEvents: maxEvents}
+			_, err := factory.New(cfg).BuildStorage(t.Context())
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+		}
+	})
+
+	t.Run("empty_type_with_persistent_block_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := memoryConfig()
+		cfg.Storage = auditconfig.Storage{Mongo: &auditconfig.StorageMongo{CollectionName: "audit_events"}}
+		_, err := factory.New(cfg).BuildStorage(t.Context())
+		require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+	})
 }

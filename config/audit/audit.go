@@ -89,20 +89,48 @@ type Config struct {
 type Storage struct {
 	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
 
-	// Type selects the storage backend.
-	Type StorageType `yaml:"type" default:"memory"`
+	// Type selects the storage backend. Empty defaults to the bounded in-memory
+	// ring buffer ("memory") in factory/audit, which logs a startup warning.
+	Type StorageType `yaml:"type"`
+
+	// Memory holds bounded in-memory ring buffer configuration.
+	// Optional when Type is empty or "memory".
+	Memory *StorageMemory `yaml:"memory" default:"-"`
 
 	// Mongo holds MongoDB-specific storage configuration.
 	// Required when Type is "mongo".
-	Mongo *StorageMongo `yaml:"mongo"`
+	Mongo *StorageMongo `yaml:"mongo" default:"-"`
 
 	// ClickHouse holds ClickHouse-specific storage configuration.
 	// Required when Type is "clickhouse".
-	ClickHouse *StorageClickHouse `yaml:"clickhouse"`
+	ClickHouse *StorageClickHouse `yaml:"clickhouse" default:"-"`
 
 	// SQL holds SQL-specific storage configuration.
 	// Required when Type is "sqldb".
-	SQL *StorageSQL `yaml:"sqldb"`
+	SQL *StorageSQL `yaml:"sqldb" default:"-"`
+}
+
+// DefaultMemoryMaxEvents is the default ring buffer capacity for in-memory audit storage,
+// matching [github.com/altessa-s/go-atlas/audit/storages/memory.DefaultMaxEvents].
+const DefaultMemoryMaxEvents = 10_000
+
+// StorageMemory holds configuration for the bounded in-memory audit event ring buffer
+// (audit/storages/memory). When full, storing new events evicts the oldest ones.
+type StorageMemory struct {
+	// MaxEvents is the maximum number of audit events retained in memory.
+	MaxEvents int `yaml:"maxEvents" default:"10000"`
+}
+
+// DefaultStorageMemory returns a [StorageMemory] with default values.
+func DefaultStorageMemory() StorageMemory {
+	return StorageMemory{MaxEvents: DefaultMemoryMaxEvents}
+}
+
+// Validate performs validation of the in-memory storage configuration.
+func (c *StorageMemory) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.MaxEvents, validation.Required, validation.Min(1)),
+	)
 }
 
 // StorageSQL holds SQL-specific configuration for audit event storage
@@ -252,11 +280,19 @@ func (a *Config) Validate() error {
 	)
 }
 
+func (s *Storage) hasPersistentBlock() bool {
+	return s.Mongo != nil || s.ClickHouse != nil || s.SQL != nil
+}
+
 // Validate performs validation of the audit storage configuration.
 func (s *Storage) Validate() error {
 	return validationconfig.ValidateStruct(s,
-		validation.Field(&s.Type, validation.Required, validation.When(!slices.Contains(s.AllowedTypes(), s.Type),
-			validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL))),
+		validation.Field(&s.Type,
+			validation.When(s.hasPersistentBlock(), validation.Required),
+			validation.When(s.Type != "" && !slices.Contains(s.AllowedTypes(), s.Type),
+				validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL)),
+		),
+		validation.Field(&s.Memory),
 		validation.Field(&s.Mongo, validation.When(s.Type == StorageTypeMongo, validation.Required)),
 		validation.Field(&s.ClickHouse, validation.When(s.Type == StorageTypeClickHouse, validation.Required)),
 		validation.Field(&s.SQL, validation.When(s.Type == StorageTypeSQL, validation.Required)),

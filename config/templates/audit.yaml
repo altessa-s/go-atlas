@@ -13,8 +13,16 @@
 #  storage:
 #    # <string> Storage backend type.
 #    # Supported values: memory, mongo, clickhouse, sqldb
-#    # Default value: memory
-#    type: memory
+#    # Omit to fall back to the bounded in-memory ring buffer (logs a startup warning).
+#    # Default value: not set (falls back to memory)
+#    type:
+#
+#    # <object> Bounded in-memory ring buffer configuration.
+#    # Optional when type is omitted or "memory"; oldest events are evicted when full.
+#    memory:
+#      # <int> Maximum number of audit events retained in memory before evicting the oldest.
+#      # Default value: 10000
+#      maxEvents: 10000
 #
 #    # <object> MongoDB-specific storage configuration.
 #    # Required when type is "mongo".

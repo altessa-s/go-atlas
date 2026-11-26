@@ -13,7 +13,7 @@
 // key: zero keeps events forever. SQL uses background batched purges while
 // open; MongoDB uses a server TTL index. Nonpositive values disable retention.
 //
-// Key types: [StorageType], [Config], [Storage], [StorageMongo], [StorageSQL].
+// Key types: [StorageType], [Config], [Storage], [StorageMemory], [StorageMongo], [StorageSQL].
 //
 // # Purging
 //

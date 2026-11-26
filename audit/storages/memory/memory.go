@@ -17,37 +17,112 @@ import (
 
 var _ audit.Storage = (*Storage)(nil)
 
-// Storage is an in-memory audit event store for testing purposes.
+const (
+	initialRingAlloc = 16
+	ringGrowthFactor = 2
+)
+
+// Storage is a bounded in-memory audit event store backed by a ring buffer.
+// When capacity is reached, storing new events evicts the oldest stored events.
 type Storage struct {
-	mu     sync.RWMutex
-	events []*audit.Event
+	mu        sync.RWMutex
+	buf       []*audit.Event
+	head      int
+	count     int
+	maxEvents int
 }
 
-// New creates a new in-memory Storage.
-func New() *Storage {
-	return &Storage{}
+// New creates a new bounded in-memory [Storage].
+func New(opts ...Option) *Storage {
+	o := newOptions(opts...)
+	return &Storage{
+		maxEvents: o.maxEvents,
+	}
 }
 
-// Store appends a single event to the in-memory slice.
+// Store appends a single event to the ring buffer, evicting the oldest event when full.
 func (s *Storage) Store(_ context.Context, event *audit.Event) error {
 	if event == nil {
 		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
 	}
 	s.mu.Lock()
-	s.events = append(s.events, event)
+	s.pushLocked(event)
 	s.mu.Unlock()
 	return nil
 }
 
-// StoreBatch appends all events to the in-memory slice in a single lock acquisition.
+// StoreBatch appends all events to the ring buffer in a single lock acquisition,
+// evicting the oldest events when capacity is exceeded. A nil element rejects the
+// entire batch before any write.
 func (s *Storage) StoreBatch(_ context.Context, events []*audit.Event) error {
 	if slices.Contains(events, nil) {
 		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
 	}
+	if len(events) == 0 {
+		return nil
+	}
 	s.mu.Lock()
-	s.events = append(s.events, events...)
+	if len(events) >= s.maxEvents {
+		if len(s.buf) < s.maxEvents {
+			s.buf = make([]*audit.Event, s.maxEvents)
+		}
+		copy(s.buf, events[len(events)-s.maxEvents:])
+		s.head = 0
+		s.count = s.maxEvents
+	} else {
+		for _, e := range events {
+			s.pushLocked(e)
+		}
+	}
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Storage) pushLocked(event *audit.Event) {
+	if s.count < len(s.buf) {
+		idx := s.head + s.count
+		if idx >= len(s.buf) {
+			idx -= len(s.buf)
+		}
+		s.buf[idx] = event
+		s.count++
+		return
+	}
+	if len(s.buf) < s.maxEvents {
+		newCap := min(max(len(s.buf)*ringGrowthFactor, initialRingAlloc), s.maxEvents)
+		next := make([]*audit.Event, newCap)
+		s.copyIntoLocked(next)
+		next[s.count] = event
+		s.buf = next
+		s.head = 0
+		s.count++
+		return
+	}
+	s.buf[s.head] = event
+	s.head++
+	if s.head == s.maxEvents {
+		s.head = 0
+	}
+}
+
+func (s *Storage) copyIntoLocked(dst []*audit.Event) {
+	if s.count == 0 {
+		return
+	}
+	first := min(s.count, len(s.buf)-s.head)
+	copy(dst, s.buf[s.head:s.head+first])
+	if first < s.count {
+		copy(dst[first:], s.buf[:s.count-first])
+	}
+}
+
+func (s *Storage) snapshotLocked() []*audit.Event {
+	if s.count == 0 {
+		return nil
+	}
+	out := make([]*audit.Event, s.count)
+	s.copyIntoLocked(out)
+	return out
 }
 
 // Query returns events matching the query in the total order of the
@@ -60,8 +135,7 @@ func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.
 	}
 	return func(yield func(*audit.Event, error) bool) {
 		s.mu.RLock()
-		// Copy to release lock quickly.
-		snapshot := slices.Clone(s.events)
+		snapshot := s.snapshotLocked()
 		s.mu.RUnlock()
 
 		asc := query.SortOrder == audit.SortOrderAsc
@@ -104,7 +178,7 @@ func (s *Storage) Count(_ context.Context, query *audit.Query) (int64, error) {
 		query = &audit.Query{}
 	}
 	s.mu.RLock()
-	snapshot := slices.Clone(s.events)
+	snapshot := s.snapshotLocked()
 	s.mu.RUnlock()
 
 	var count int64
@@ -121,24 +195,31 @@ func (s *Storage) Close(_ context.Context) error {
 	return nil
 }
 
-// Events returns all stored events (for test assertions).
+// Events returns all stored events from oldest to newest (for test assertions).
 func (s *Storage) Events() []*audit.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.events)
+	return s.snapshotLocked()
 }
 
 // Len returns the number of stored events.
 func (s *Storage) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return len(s.events)
+	return s.count
 }
 
-// Reset clears all stored events.
+// Cap returns the maximum number of events retained by the ring buffer.
+func (s *Storage) Cap() int {
+	return s.maxEvents
+}
+
+// Reset clears all stored events and releases their backing references.
 func (s *Storage) Reset() {
 	s.mu.Lock()
-	s.events = s.events[:0]
+	clear(s.buf)
+	s.head = 0
+	s.count = 0
 	s.mu.Unlock()
 }
 
