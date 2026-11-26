@@ -84,14 +84,17 @@ func isNumeric(v any) bool {
 	return (kind >= reflect.Int && kind <= reflect.Uint64) || kind == reflect.Float32 || kind == reflect.Float64
 }
 
-// numbersEqual compares a float claim in its native precision. For an exact
-// claim, compare the JSON spellings of both operands, including a configured
-// Go float's shortest round-trippable decimal.
+// numbersEqual compares two Go floats in their native precision. When either
+// operand is a [json.Number], or neither is a float, it compares exact decimal
+// values, taking a Go float as its shortest round-trippable decimal, so a
+// json.Number is never equated with a float it merely rounds to.
 func numbersEqual(a, b any) bool {
 	if !isNumeric(a) || !isNumeric(b) {
 		return false
 	}
-	if reflect.ValueOf(a).CanFloat() {
+	_, aExact := a.(json.Number)
+	_, bExact := b.(json.Number)
+	if !aExact && !bExact && (reflect.ValueOf(a).CanFloat() || reflect.ValueOf(b).CanFloat()) {
 		x, ok := floatNumber(a)
 		y, valid := floatNumber(b)
 		return ok && valid && x == y
