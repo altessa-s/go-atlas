@@ -50,11 +50,11 @@ type spanSink struct {
 	spans chan adapters.SpanData
 }
 
-func (s *spanSink) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (s *spanSink) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	for _, sp := range spans {
 		s.spans <- sp
 	}
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func TestPools(t *testing.T) {

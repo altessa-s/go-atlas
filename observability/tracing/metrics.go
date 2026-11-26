@@ -11,28 +11,64 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 )
 
-type exportMetrics struct {
-	exported, dropped, failures metrics.Counter
-	length                      metrics.Gauge
-	queueLength                 func() int
-	pendingDrops                atomic.Uint64
-	mu                          sync.Mutex
-	disabled                    bool // protected by mu
-	lastLength                  int
-	done                        chan struct{}
+const exporterLabel = "exporter"
+
+type exporterCounters struct {
+	rejected metrics.Counter
+	failures metrics.Counter
 }
 
-func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func() int) *exportMetrics {
+type exportMetrics struct {
+	exported     metrics.Counter
+	dropped      metrics.Counter
+	perExporter  []exporterCounters
+	length       metrics.Gauge
+	queueLength  func() int
+	pendingDrops atomic.Uint64
+	mu           sync.Mutex
+	disabled     bool // protected by mu
+	lastLength   int
+	done         chan struct{}
+}
+
+func newExportMetrics(ctx context.Context, meter metrics.Meter, exporters []adapters.Adapter, queueLength func() int) *exportMetrics {
 	if meter == nil || metrics.IsNoop(meter) {
 		return nil
 	}
 	m := metrics.MustMeter{Meter: meter.WithSubsystem("tracing")}
+	rejected := m.MustCounter(metrics.MetricOpts{
+		Name:       "spans_rejected_total",
+		Help:       "Spans rejected by the collector in partial-success responses.",
+		LabelNames: []string{exporterLabel},
+	})
+	failures := m.MustCounter(metrics.MetricOpts{
+		Name:       "export_failures_total",
+		Help:       "Failed batch export calls.",
+		LabelNames: []string{exporterLabel},
+	})
+
+	perExporter := make([]exporterCounters, len(exporters))
+	for i, exp := range exporters {
+		lbl := metrics.Labels{exporterLabel: exp.Name()}
+		perExporter[i] = exporterCounters{
+			rejected: rejected.WithLabels(lbl),
+			failures: failures.WithLabels(lbl),
+		}
+	}
+
 	stats := &exportMetrics{
-		exported:    m.MustCounter(metrics.MetricOpts{Name: "spans_exported_total", Help: "Spans in successful batch exports."}),
-		dropped:     m.MustCounter(metrics.MetricOpts{Name: "spans_dropped_total", Help: "Sampled spans dropped because the export queue was full."}),
-		failures:    m.MustCounter(metrics.MetricOpts{Name: "export_failures_total", Help: "Failed batch export calls."}),
+		exported: m.MustCounter(metrics.MetricOpts{
+			Name: "spans_exported_total",
+			Help: "Spans accepted by every exporter.",
+		}),
+		dropped: m.MustCounter(metrics.MetricOpts{
+			Name: "spans_dropped_total",
+			Help: "Sampled spans dropped because the export queue was full or the shutdown deadline expired.",
+		}),
+		perExporter: perExporter,
 		length:      m.MustGauge(metrics.MetricOpts{Name: "queue_length", Help: "Spans waiting in the export queue."}),
 		queueLength: queueLength,
 		done:        make(chan struct{}),
@@ -46,7 +82,7 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func
 		for {
 			select {
 			case <-ticker.C:
-				stats.sample(ctx)
+				stats.sample()
 			case <-ctx.Done():
 				return
 			}
@@ -55,34 +91,58 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func
 	return stats
 }
 
-// disable stops both metric writers and removes this tracer's queue gauge contribution.
-func (m *exportMetrics) disable() {
+// abandonAndDisable atomically claims any remaining waiting/inflight batches via
+// drain, records all pending and abandoned drops, zeroes queue_length, and
+// fences further metric writes. Lock order: m.mu -> p.mu (same as sample).
+func (m *exportMetrics) abandonAndDisable(drain func() uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.disabled = true
+	var extraDrops uint64
+	if drain != nil {
+		extraDrops = drain()
+	}
+	if m.disabled {
+		return
+	}
+	if drops := m.pendingDrops.Swap(0) + extraDrops; drops > 0 {
+		m.dropped.Add(float64(drops))
+	}
 	if m.lastLength != 0 {
 		m.length.Add(-float64(m.lastLength))
 		m.lastLength = 0
 	}
+	m.disabled = true
 }
 
-func (m *exportMetrics) recordExport(ctx context.Context, count int, err error) {
+// completeBatch transitions state from batchInflight to batchDone and records
+// per-exporter outcomes while holding m.mu, preventing double counting against
+// concurrent shutdown deadline abandonment.
+func (m *exportMetrics) completeBatch(state *atomic.Int32, acceptedByAll int, outcomes []adapters.ExporterOutcome) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.disabled || ctx.Err() != nil {
+	if m.disabled {
 		return
 	}
-	if err != nil {
-		m.failures.Inc()
-	} else {
-		m.exported.Add(float64(count))
+	if !state.CompareAndSwap(batchInflight, batchDone) {
+		return
+	}
+	if acceptedByAll > 0 {
+		m.exported.Add(float64(acceptedByAll))
+	}
+	for i, o := range outcomes {
+		if o.Failed {
+			m.perExporter[i].failures.Inc()
+		}
+		if o.Rejected > 0 {
+			m.perExporter[i].rejected.Add(float64(o.Rejected))
+		}
 	}
 }
 
-func (m *exportMetrics) sample(ctx context.Context) {
+func (m *exportMetrics) sample() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.disabled || ctx.Err() != nil {
+	if m.disabled {
 		return
 	}
 	if drops := m.pendingDrops.Swap(0); drops > 0 {

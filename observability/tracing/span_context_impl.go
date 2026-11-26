@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"sync"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
 
@@ -77,12 +78,14 @@ func snapshotParent(sc SpanContext) (*sampler.SpanContext, string) {
 			IsSampled: native.IsSampled(), IsRemote: native.remote,
 		}, native.traceState
 	}
-	if sc == nil || !sc.IsValid() {
+	if nilcheck.IsNil(sc) || !sc.IsValid() {
 		return nil, ""
 	}
 	var state string
 	if carrier, ok := sc.(interface{ TraceState() string }); ok {
-		state = carrier.TraceState()
+		if parsed, valid := ParseTraceState(carrier.TraceState()); valid {
+			state = parsed
+		}
 	}
 	return &sampler.SpanContext{
 		TraceID: traceIDOf(sc), SpanID: spanIDOf(sc),
@@ -151,9 +154,42 @@ type rawSpanContext interface {
 	SpanIDBytes() [8]byte
 }
 
+// isValidSpanContext reports whether sc is non-nil and carries valid non-zero IDs.
+func isValidSpanContext(sc SpanContext) bool {
+	if native, ok := sc.(*spanContextImpl); ok {
+		return native.IsValid()
+	}
+	if nilcheck.IsNil(sc) || !sc.IsValid() {
+		return false
+	}
+	return traceIDOf(sc) != [16]byte{} && spanIDOf(sc) != [8]byte{}
+}
+
+// traceStateOf returns sc's validated W3C tracestate, if any.
+func traceStateOf(sc SpanContext) string {
+	if native, ok := sc.(*spanContextImpl); ok {
+		if native == nil {
+			return ""
+		}
+		return native.traceState
+	}
+	if nilcheck.IsNil(sc) {
+		return ""
+	}
+	if carrier, ok := sc.(interface{ TraceState() string }); ok {
+		if parsed, valid := ParseTraceState(carrier.TraceState()); valid {
+			return parsed
+		}
+	}
+	return ""
+}
+
 // traceIDOf returns sc's trace ID, parsing the hex form only for foreign
 // SpanContext implementations.
 func traceIDOf(sc SpanContext) [16]byte {
+	if nilcheck.IsNil(sc) {
+		return [16]byte{}
+	}
 	if raw, ok := sc.(rawSpanContext); ok {
 		return raw.TraceIDBytes()
 	}
@@ -163,6 +199,9 @@ func traceIDOf(sc SpanContext) [16]byte {
 // spanIDOf returns sc's span ID, parsing the hex form only for foreign
 // SpanContext implementations.
 func spanIDOf(sc SpanContext) [8]byte {
+	if nilcheck.IsNil(sc) {
+		return [8]byte{}
+	}
 	if raw, ok := sc.(rawSpanContext); ok {
 		return raw.SpanIDBytes()
 	}

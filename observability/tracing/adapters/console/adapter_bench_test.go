@@ -38,7 +38,7 @@ func BenchmarkExportSpans_JSON(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := a.ExportSpans(ctx, spans); err != nil {
+		if _, err := a.ExportSpans(ctx, spans); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -51,7 +51,7 @@ func BenchmarkExportSpans_Pretty(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := a.ExportSpans(ctx, spans); err != nil {
+		if _, err := a.ExportSpans(ctx, spans); err != nil {
 			b.Fatal(err)
 		}
 	}

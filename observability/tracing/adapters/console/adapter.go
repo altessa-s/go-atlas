@@ -50,27 +50,27 @@ func (a *Adapter) Name() string {
 }
 
 // ExportSpans implements adapters.Adapter.
-func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) error {
+func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	if len(spans) == 0 {
-		return nil
+		return adapters.ExportResult{}, nil
 	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return adapters.ExportResult{}, ctx.Err()
 	case a.writing <- struct{}{}:
 	}
 	defer func() { <-a.writing }()
 
-	for _, span := range spans {
+	for i, span := range spans {
 		if err := ctx.Err(); err != nil {
-			return err
+			return adapters.ExportResult{Accepted: i}, err
 		}
 		if err := a.writeSpan(&span); err != nil {
-			return err
+			return adapters.ExportResult{Accepted: i}, err
 		}
 	}
 
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 // writeSpan writes a single span to the output.

@@ -22,11 +22,11 @@ type lifecycleAdapter struct{ events []string }
 
 func (*lifecycleAdapter) Name() string { return "lifecycle" }
 
-func (a *lifecycleAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a *lifecycleAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	for _, span := range spans {
 		a.events = append(a.events, span.Name)
 	}
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func (a *lifecycleAdapter) ForceFlush(context.Context) error {

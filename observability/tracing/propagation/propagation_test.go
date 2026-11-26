@@ -5,8 +5,10 @@
 package propagation
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -140,4 +142,202 @@ func TestRemoteSpanContext_TraceFlags(t *testing.T) {
 	ctx := tc.Extract(t.Context(), carrier)
 	remote := RemoteSpanContextFromContext(ctx)
 	require.Equal(t, tracing.TraceFlags(0x01), remote.TraceFlags())
+}
+
+func TestTraceContext_TracestateValidationAndBounds(t *testing.T) {
+	t.Parallel()
+
+	const validParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+	var manyMembers []string
+	for i := range 33 {
+		manyMembers = append(manyMembers, fmt.Sprintf("v%d=1", i))
+	}
+	var longValid []string
+	for i := range 10 {
+		longValid = append(longValid, fmt.Sprintf("vendor%d=%s", i, strings.Repeat("x", 60)))
+	}
+
+	tests := []struct {
+		name       string
+		tracestate string
+		wantEmpty  bool
+		wantExact  string
+	}{
+		{
+			name:       "64 KiB single member dropped",
+			tracestate: "vendor=" + strings.Repeat("a", 64*1024),
+			wantEmpty:  true,
+		},
+		{
+			name:       "malformed member without equals",
+			tracestate: "not-a-member",
+			wantEmpty:  true,
+		},
+		{
+			name:       "uppercase key rejected",
+			tracestate: "Vendor=1",
+			wantEmpty:  true,
+		},
+		{
+			name:       "duplicate keys rejected",
+			tracestate: "congo=1,congo=2",
+			wantEmpty:  true,
+		},
+		{
+			name:       "valid multi-tenant and OWS normalized",
+			tracestate: "  congo=t61rcWkgMzE , , 1a@rojo=00f067aa0ba902b7\t",
+			wantExact:  "congo=t61rcWkgMzE,1a@rojo=00f067aa0ba902b7",
+		},
+		{
+			name:       "more than 32 members bounded",
+			tracestate: strings.Join(manyMembers, ","),
+		},
+		{
+			name:       "exceeding 512 chars bounded",
+			tracestate: strings.Join(longValid, ","),
+		},
+	}
+
+	tc := NewTraceContext()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := tc.Extract(t.Context(), MapCarrier{
+				"traceparent": validParent,
+				"tracestate":  tt.tracestate,
+			})
+			remote := RemoteSpanContextFromContext(ctx)
+			require.NotNil(t, remote, "traceparent must remain valid regardless of tracestate")
+			got := remote.TraceState()
+			require.LessOrEqual(t, len(got), 512)
+			if got != "" {
+				require.LessOrEqual(t, strings.Count(got, ",")+1, 32)
+			}
+			if tt.wantEmpty {
+				require.Empty(t, got)
+			}
+			if tt.wantExact != "" {
+				require.Equal(t, tt.wantExact, got)
+			}
+		})
+	}
+}
+
+type minimalCarrier map[string]string
+
+func (c minimalCarrier) Get(key string) string { return c[key] }
+func (c minimalCarrier) Set(key, val string)   { c[key] = val }
+func (c minimalCarrier) Keys() []string {
+	keys := make([]string, 0, len(c))
+	for k := range c {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func TestTraceContext_InjectClearsRejectedTracestateOnReusedCarrier(t *testing.T) {
+	t.Parallel()
+
+	const validParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	rejectedStates := []struct {
+		name  string
+		value string
+	}{
+		{name: "oversized", value: "vendor=" + strings.Repeat("a", 64*1024)},
+		{name: "malformed", value: "not-a-valid-member"},
+		{name: "duplicate_key", value: "congo=1,congo=2"},
+	}
+
+	tc := NewTraceContext()
+	for _, rs := range rejectedStates {
+		t.Run(rs.name, func(t *testing.T) {
+			t.Parallel()
+
+			mc := MapCarrier{
+				"traceparent": validParent,
+				"tracestate":  rs.value,
+			}
+			ctx := tc.Extract(t.Context(), mc)
+			tc.Inject(ctx, mc)
+			_, exists := mc["tracestate"]
+			require.False(t, exists, "MapCarrier must remove rejected tracestate key")
+
+			hdr := http.Header{}
+			hdr.Set("Traceparent", validParent)
+			hdr.Set("Tracestate", rs.value)
+			hc := HeaderCarrier(hdr)
+			ctx = tc.Extract(t.Context(), hc)
+			tc.Inject(ctx, hc)
+			require.Empty(t, hdr.Values("Tracestate"), "HeaderCarrier must remove rejected Tracestate header")
+
+			minC := minimalCarrier{
+				"traceparent": validParent,
+				"tracestate":  rs.value,
+			}
+			ctx = tc.Extract(t.Context(), minC)
+			tc.Inject(ctx, minC)
+			require.Empty(t, minC.Get("tracestate"), "TextMapCarrier without Del must overwrite rejected tracestate")
+		})
+	}
+}
+
+func TestTraceContext_ExtractCombinesMultipleHTTPTracestateHeaders(t *testing.T) {
+	t.Parallel()
+
+	const validParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	tc := NewTraceContext()
+
+	t.Run("combines_valid_lines_in_wire_order", func(t *testing.T) {
+		t.Parallel()
+		hdr := http.Header{}
+		hdr.Set("Traceparent", validParent)
+		hdr.Add("Tracestate", "rojo=00f067aa0ba902b7")
+		hdr.Add("Tracestate", "congo=t61rcWkgMzE")
+
+		ctx := tc.Extract(t.Context(), HeaderCarrier(hdr))
+		remote := RemoteSpanContextFromContext(ctx)
+		require.NotNil(t, remote)
+		require.Equal(t, "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE", remote.TraceState())
+	})
+
+	t.Run("rejects_duplicate_keys_across_lines", func(t *testing.T) {
+		t.Parallel()
+		hdr := http.Header{}
+		hdr.Set("Traceparent", validParent)
+		hdr.Add("Tracestate", "congo=1")
+		hdr.Add("Tracestate", "congo=2")
+
+		ctx := tc.Extract(t.Context(), HeaderCarrier(hdr))
+		remote := RemoteSpanContextFromContext(ctx)
+		require.NotNil(t, remote)
+		require.Empty(t, remote.TraceState())
+	})
+
+	t.Run("rejects_malformed_second_line", func(t *testing.T) {
+		t.Parallel()
+		hdr := http.Header{}
+		hdr.Set("Traceparent", validParent)
+		hdr.Add("Tracestate", "congo=1")
+		hdr.Add("Tracestate", "InvalidKey=2")
+
+		ctx := tc.Extract(t.Context(), HeaderCarrier(hdr))
+		remote := RemoteSpanContextFromContext(ctx)
+		require.NotNil(t, remote)
+		require.Empty(t, remote.TraceState())
+	})
+
+	t.Run("rejects_oversized_combined_lines", func(t *testing.T) {
+		t.Parallel()
+		hdr := http.Header{}
+		hdr.Set("Traceparent", validParent)
+		for i := range 20 {
+			hdr.Add("Tracestate", fmt.Sprintf("v%d=%s", i, strings.Repeat("x", 250)))
+		}
+
+		ctx := tc.Extract(t.Context(), HeaderCarrier(hdr))
+		remote := RemoteSpanContextFromContext(ctx)
+		require.NotNil(t, remote)
+		require.Empty(t, remote.TraceState())
+	})
 }

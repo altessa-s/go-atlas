@@ -15,6 +15,12 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 )
 
+const (
+	batchWaiting int32 = iota
+	batchInflight
+	batchDone
+)
+
 type flushRequest struct {
 	ctx    context.Context
 	result chan error
@@ -22,6 +28,7 @@ type flushRequest struct {
 
 type batchProcessor struct {
 	adapter   adapters.Adapter
+	exporters []adapters.Adapter
 	queueSize int
 	batchSize int
 	timeout   time.Duration
@@ -33,6 +40,7 @@ type batchProcessor struct {
 	mu            sync.Mutex
 	spare         []adapters.SpanData
 	sealed        []*spanBatch // FIFO protected by mu
+	inflight      *spanBatch   // taken batch currently exporting, protected by mu
 	waiting       int          // spans in sealed batches, including unfinished writers
 	stopping      chan struct{}
 	done          chan struct{}
@@ -43,10 +51,25 @@ type batchProcessor struct {
 	lastExportErr error // worker-owned, consumed on flush
 }
 
+func flattenAdapters(a adapters.Adapter) []adapters.Adapter {
+	if m, ok := a.(*adapters.MultiAdapter); ok {
+		if children := m.Adapters(); len(children) > 0 {
+			out := make([]adapters.Adapter, 0, len(children))
+			for _, child := range children {
+				out = append(out, flattenAdapters(child)...)
+			}
+			return out
+		}
+	}
+	return []adapters.Adapter{a}
+}
+
 func newBatchProcessor(cfg *options) *batchProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
+	exporters := flattenAdapters(cfg.adapter)
 	p := &batchProcessor{
 		adapter:   cfg.adapter,
+		exporters: exporters,
 		queueSize: cfg.maxQueueSize,
 		batchSize: min(cfg.maxQueueSize, cfg.maxExportBatchSize),
 		timeout:   cfg.exportTimeout,
@@ -57,7 +80,7 @@ func newBatchProcessor(cfg *options) *batchProcessor {
 		cancel:    cancel,
 	}
 	p.openBatch()
-	p.metrics = newExportMetrics(ctx, cfg.meter, p.queueLength)
+	p.metrics = newExportMetrics(ctx, cfg.meter, exporters, p.queueLength)
 	go p.run(ctx, cfg.scheduledDelay)
 	return p
 }
@@ -76,6 +99,7 @@ func (p *batchProcessor) stopped() bool {
 type spanBatch struct {
 	reserved  atomic.Int64
 	remaining atomic.Int64
+	state     atomic.Int32
 	spans     []adapters.SpanData
 	done      chan struct{}
 	count     int // set when sealed under the queue lock
@@ -166,13 +190,17 @@ func (p *batchProcessor) snapshot(includePartial bool) int {
 	return len(p.sealed)
 }
 
-func (p *batchProcessor) take(ctx context.Context) []adapters.SpanData {
+func (p *batchProcessor) take(ctx context.Context) (*spanBatch, []adapters.SpanData) {
 	p.mu.Lock()
+	if len(p.sealed) == 0 {
+		p.mu.Unlock()
+		return nil, nil
+	}
 	b := p.sealed[0]
 	p.mu.Unlock()
 	select {
 	case <-ctx.Done():
-		return nil
+		return nil, nil
 	case <-b.done:
 	}
 
@@ -186,17 +214,67 @@ func (p *batchProcessor) take(ctx context.Context) []adapters.SpanData {
 		spare = b.spans
 	}
 	p.mu.Lock()
+	if len(p.sealed) == 0 || p.sealed[0] != b {
+		p.mu.Unlock()
+		return nil, nil
+	}
+	b.state.CompareAndSwap(batchWaiting, batchInflight)
 	if cap(spare) > cap(p.spare) {
 		p.spare = spare
 	}
 	p.sealed[0] = nil
 	p.sealed = p.sealed[1:]
 	p.waiting -= b.count
+	p.inflight = b
 	if p.active.Load() == nil {
 		p.openBatch()
 	}
 	p.mu.Unlock()
-	return spans
+	return b, spans
+}
+
+func (p *batchProcessor) claimUnfinishedLocked() uint64 {
+	var dropped uint64
+	if b := p.inflight; b != nil && b.state.CompareAndSwap(batchInflight, batchDone) {
+		dropped += uint64(b.count)
+	}
+	for _, b := range p.sealed {
+		if b.state.CompareAndSwap(batchWaiting, batchDone) {
+			dropped += uint64(b.count)
+		}
+	}
+	return dropped
+}
+
+func (p *batchProcessor) countUnfinished() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.claimUnfinishedLocked()
+}
+
+func (p *batchProcessor) drainUnfinished() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	dropped := p.claimUnfinishedLocked()
+	p.inflight = nil
+	p.sealed = nil
+	p.spare = nil
+	p.waiting = 0
+	return dropped
+}
+
+func (p *batchProcessor) fenceMetrics() {
+	if p.metrics != nil {
+		p.metrics.abandonAndDisable(p.countUnfinished)
+	}
+}
+
+func (p *batchProcessor) abandonRemainingAndFence() {
+	if p.metrics != nil {
+		p.metrics.abandonAndDisable(p.drainUnfinished)
+		return
+	}
+	p.drainUnfinished()
 }
 
 func (p *batchProcessor) forceFlush(ctx context.Context) error {
@@ -220,11 +298,9 @@ func (p *batchProcessor) forceFlush(ctx context.Context) error {
 }
 
 func (p *batchProcessor) shutdown(ctx context.Context) error {
-	if p.metrics != nil {
-		defer p.metrics.disable()
-	}
 	select {
 	case <-p.done:
+		p.fenceMetrics()
 		return p.shutdownErr
 	default:
 	}
@@ -239,11 +315,18 @@ func (p *batchProcessor) shutdown(ctx context.Context) error {
 			p.active.Store(nil)
 		}
 	}
+	shutdownCtx := p.shutdownCtx
 	p.mu.Unlock()
 	select {
 	case <-p.done:
+		p.abandonRemainingAndFence()
 		return p.shutdownErr
 	case <-ctx.Done():
+		if shutdownCtx != nil && shutdownCtx.Err() != nil {
+			p.abandonRemainingAndFence()
+		} else {
+			p.fenceMetrics()
+		}
 		return ctx.Err()
 	}
 }
@@ -269,22 +352,22 @@ func (p *batchProcessor) run(ctx context.Context, delay time.Duration) {
 		}
 	}
 
-	flushErr := p.flush(p.shutdownCtx)
-	p.shutdownErr = errors.Join(flushErr, p.adapter.Shutdown(p.shutdownCtx))
-	// A shutdown deadline can expire with spans still in the queue.
 	p.mu.Lock()
-	p.sealed = nil
-	p.spare = nil
-	p.waiting = 0
+	shutdownCtx := p.shutdownCtx
 	p.mu.Unlock()
+
+	flushErr := p.flush(shutdownCtx)
+	p.shutdownErr = errors.Join(flushErr, p.adapter.Shutdown(shutdownCtx))
 	p.cancel()
 	if p.metrics != nil {
 		<-p.metrics.done
-		p.metrics.sample(p.shutdownCtx)
 	}
+	p.abandonRemainingAndFence()
 	p.stopCancel()
 	p.stopCancel = nil
+	p.mu.Lock()
 	p.shutdownCtx = nil
+	p.mu.Unlock()
 }
 
 func (p *batchProcessor) flush(ctx context.Context) error {
@@ -293,8 +376,8 @@ func (p *batchProcessor) flush(ctx context.Context) error {
 	p.export(ctx, p.snapshot(true))
 	err := p.lastExportErr
 	p.lastExportErr = nil
-	if p.metrics != nil {
-		p.metrics.sample(ctx)
+	if p.metrics != nil && ctx.Err() == nil {
+		p.metrics.sample()
 	}
 	if ctx.Err() != nil {
 		return errors.Join(err, ctx.Err())
@@ -304,19 +387,37 @@ func (p *batchProcessor) flush(ctx context.Context) error {
 
 func (p *batchProcessor) export(ctx context.Context, count int) {
 	for count > 0 && ctx.Err() == nil {
-		batch := p.take(ctx)
-		if batch == nil {
+		b, batch := p.take(ctx)
+		if b == nil {
 			return
 		}
 		exportCtx, cancel := context.WithTimeout(ctx, p.timeout)
-		err := p.adapter.ExportSpans(exportCtx, batch)
+		res, outcomes, err := adapters.ExportBatch(exportCtx, p.exporters, batch)
 		cancel()
+
 		if err != nil {
 			p.lastExportErr = err
+			p.mu.Lock()
+			shutdownExpired := p.shutdownCtx != nil && p.shutdownCtx.Err() != nil
+			p.mu.Unlock()
+			if shutdownExpired {
+				// Leave b in batchInflight so shutdown deadline abandonment
+				// accounts for its spans in spans_dropped_total.
+				return
+			}
 		}
+
 		if p.metrics != nil {
-			p.metrics.recordExport(ctx, len(batch), err)
+			p.metrics.completeBatch(&b.state, res.Accepted, outcomes)
+		} else {
+			b.state.CompareAndSwap(batchInflight, batchDone)
 		}
+		p.mu.Lock()
+		if p.inflight == b {
+			p.inflight = nil
+		}
+		p.mu.Unlock()
+
 		count--
 	}
 }

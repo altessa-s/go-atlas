@@ -146,8 +146,8 @@ type spanCollector struct {
 	spans []adapters.SpanData
 }
 
-func (a *spanCollector) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a *spanCollector) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	a.spans = append(a.spans, spans...)
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 func (a *spanCollector) Spans() []adapters.SpanData { return a.spans }

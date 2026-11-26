@@ -189,6 +189,68 @@ func (s *SpanData) LinksIter() iter.Seq[SpanLink] {
 	return slices.Values(s.Links)
 }
 
+// ExportResult reports span-level acceptance for a completed export call.
+// Adapters without partial-rejection visibility set Accepted = len(spans) on
+// nil error; adapters that write spans incrementally may set Accepted > 0
+// alongside a non-nil error when an earlier prefix succeeded.
+type ExportResult struct {
+	Accepted int
+	Rejected int
+}
+
+// ExporterOutcome reports the normalized span-level outcome of one adapter
+// in an [ExportBatch] broadcast.
+type ExporterOutcome struct {
+	Accepted int
+	Rejected int
+	Failed   bool
+}
+
+// ExportBatch broadcasts spans to every adapter in exporters, even after one
+// fails, and aggregates span-level acceptance across the group.
+//
+// On a nil error, Rejected is clamped to [0, len(spans)] and Accepted is
+// len(spans) - Rejected. On a non-nil error, Accepted is clamped to
+// [0, len(spans)] so known partial acceptance is preserved, and Rejected is
+// clamped to [0, len(spans)]. Aggregate Accepted counts spans accepted by
+// every exporter; aggregate Rejected is the maximum per-exporter rejection.
+func ExportBatch(ctx context.Context, exporters []Adapter, spans []SpanData) (ExportResult, []ExporterOutcome, error) {
+	total := len(spans)
+	if len(exporters) == 0 {
+		return ExportResult{Accepted: total}, nil, nil
+	}
+	outcomes := make([]ExporterOutcome, len(exporters))
+	var errs []error
+	var maxRejected, maxUnaccepted int
+	for i, exp := range exporters {
+		res, err := exp.ExportSpans(ctx, spans)
+		var acc, rej int
+		if err != nil {
+			errs = append(errs, err)
+			acc = min(max(res.Accepted, 0), total)
+			rej = min(max(res.Rejected, 0), total)
+		} else {
+			rej = min(max(res.Rejected, 0), total)
+			acc = total - rej
+		}
+		outcomes[i] = ExporterOutcome{
+			Accepted: acc,
+			Rejected: rej,
+			Failed:   err != nil,
+		}
+		if unaccepted := total - acc; unaccepted > maxUnaccepted {
+			maxUnaccepted = unaccepted
+		}
+		if rej > maxRejected {
+			maxRejected = rej
+		}
+	}
+	return ExportResult{
+		Accepted: total - maxUnaccepted,
+		Rejected: maxRejected,
+	}, outcomes, errors.Join(errs...)
+}
+
 // Adapter is the interface that tracing backends must implement.
 // It exports [SpanData] to specific backend formats.
 // Implementations must be safe for concurrent use and honor cancellation
@@ -199,7 +261,7 @@ type Adapter interface {
 
 	// ExportSpans exports a batch of spans to the backend.
 	// The context may be used for cancellation and deadlines.
-	ExportSpans(ctx context.Context, spans []SpanData) error
+	ExportSpans(ctx context.Context, spans []SpanData) (ExportResult, error)
 
 	// Shutdown shuts down the adapter, flushing any remaining data.
 	// After Shutdown is called, ExportSpans should not be called.
@@ -221,6 +283,14 @@ func NewMultiAdapter(adapters ...Adapter) *MultiAdapter {
 	return &MultiAdapter{adapters: adapters}
 }
 
+// Adapters returns a snapshot of the wrapped child adapters.
+func (m *MultiAdapter) Adapters() []Adapter {
+	if m == nil {
+		return nil
+	}
+	return slices.Clone(m.adapters)
+}
+
 // Name implements Adapter.
 func (m *MultiAdapter) Name() string {
 	return "multi"
@@ -228,13 +298,13 @@ func (m *MultiAdapter) Name() string {
 
 // ExportSpans implements Adapter.
 // Broadcasts span export to every adapter, even after one fails, and returns
-// the failures joined with [errors.Join].
-func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) error {
-	errs := make([]error, 0, len(m.adapters))
-	for _, a := range m.adapters {
-		errs = append(errs, a.ExportSpans(ctx, spans))
+// the aggregate acceptance and failures joined with [errors.Join].
+func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) (ExportResult, error) {
+	if m == nil || len(m.adapters) == 0 {
+		return ExportResult{Accepted: len(spans)}, nil
 	}
-	return errors.Join(errs...)
+	res, _, err := ExportBatch(ctx, m.adapters, spans)
+	return res, err
 }
 
 // Shutdown implements Adapter.

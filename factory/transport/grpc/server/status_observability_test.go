@@ -66,11 +66,11 @@ type statusCapture struct {
 	spans chan adapters.SpanData
 }
 
-func (a statusCapture) ExportSpans(_ context.Context, spans []adapters.SpanData) error {
+func (a statusCapture) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
 	for _, s := range spans {
 		a.spans <- s
 	}
-	return nil
+	return adapters.ExportResult{Accepted: len(spans)}, nil
 }
 
 func TestFactoryFinalStatus(t *testing.T) {
