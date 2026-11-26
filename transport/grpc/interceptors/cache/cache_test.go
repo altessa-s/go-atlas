@@ -73,7 +73,9 @@ const testMethod = "/test.Service/Get"
 func callUnary(t *testing.T, cacher sharedcache.Cacher, req any, opts ...Option) any {
 	t.Helper()
 	opts = append([]Option{WithMethod(testMethod, &wrapperspb.StringValue{}), WithPublicMethods(testMethod), WithCacheHeaders(false)}, opts...)
-	unary := ServerInterceptor(cacher, opts...).ServerUnaryInterceptor()
+	interceptor, err := ServerInterceptor(cacher, opts...)
+	require.NoError(t, err)
+	unary := interceptor.ServerUnaryInterceptor()
 
 	want := wrapperspb.String("response")
 	resp, err := unary(t.Context(), req, &grpc.UnaryServerInfo{FullMethod: testMethod},

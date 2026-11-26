@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/cache"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+	"github.com/altessa-s/go-atlas/internal/transportconfig"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -24,11 +25,15 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
 const interceptorName = "cache"
+
+// ErrInvalidPublicMethod indicates a malformed public gRPC cache method name.
+var ErrInvalidPublicMethod = transportconfig.ErrInvalidPublicMethod
 
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
@@ -55,9 +60,9 @@ type cachedEntry struct {
 // Options configure method-specific caching behavior, compression settings, and
 // cache decision functions.
 //
-// Returns a configured interceptor that can be used with grpc.NewServer.
+// Returns [ErrInvalidPublicMethod] if a public method is malformed.
 // Supports unary gRPC methods using the driven interceptor pattern.
-func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(cacher cache.Cacher, opt ...Option) (interceptors.ServerInterceptor, error) {
 	opts := newOptions(opt...)
 	// Build the fallback decision after all options ran so WithDefaultTTL /
 	// WithCacheTTL take effect; an explicit WithCacheDecision is kept as is.
@@ -66,6 +71,9 @@ func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerIn
 	}
 	publicMethods := make(map[string]struct{}, len(opts.publicMethods))
 	for _, method := range opts.publicMethods {
+		if err := transportconfig.ValidatePublicMethod(method); err != nil {
+			return nil, err
+		}
 		publicMethods[method] = struct{}{}
 	}
 	i := &interceptor{
@@ -77,17 +85,17 @@ func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerIn
 		),
 		cacher:         cacher,
 		opts:           opts,
-		publicMethods:  publicMethods,
+		publicMethods:  coremaps.NewImmutableMap(publicMethods),
 		discriminators: newDiscriminators(opts.metadataKeys, opts.metadataProcessor, opts.readMaskHeader),
 	}
-	return interceptors.ServerDrivenInterceptor(i)
+	return interceptors.ServerDrivenInterceptor(i), nil
 }
 
 type interceptor struct {
 	interceptors.BaseInterceptor
 	cacher         cache.Cacher
 	opts           *options
-	publicMethods  map[string]struct{}
+	publicMethods  *coremaps.ImmutableMap[string, struct{}]
 	discriminators discriminators
 }
 
@@ -269,7 +277,7 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 
 	opts := d.interceptor.opts
 	method := d.meta.FullyMethodName
-	_, public := d.interceptor.publicMethods[method]
+	public := d.interceptor.publicMethods.Contains(method)
 	namespace, ok := cacheNamespace(ctx, opts.identityFunc, opts.authRequired, public)
 	if !ok {
 		return nil, nil //nolint:nilnil

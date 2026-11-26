@@ -35,7 +35,7 @@
 //
 // Example:
 //
-//	interceptor := cache.ServerInterceptor(memCache,
+//	interceptor, err := cache.ServerInterceptor(memCache,
 //	    cache.WithMethodPolicy(
 //	        cache.MethodPolicy{
 //	            Name:          "/api.Catalog/GetProduct",
@@ -46,6 +46,9 @@
 //	    cache.WithCompressionPreset(compression.PresetBalanced),
 //	)
 //
+//	if err != nil {
+//	    return err
+//	}
 //	opts, _ := interceptors.NewChain(interceptor).ServerOptions()
 //	server := grpc.NewServer(opts...)
 package cache

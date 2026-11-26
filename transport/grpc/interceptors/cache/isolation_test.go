@@ -34,7 +34,7 @@ func TestCacheSkipsUnmarkedAnonymousMethod(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+	unary := newCacheInterceptor(t, cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
 	for _, want := range []string{"first", "second"} {
 		got, err := unary(t.Context(), wrapperspb.String("same"), &grpc.UnaryServerInfo{FullMethod: echoMethod},
 			func(context.Context, any) (any, error) { return wrapperspb.String(want), nil })
@@ -49,7 +49,7 @@ func TestCachePartitionsVerifiedPrincipals(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+	unary := newCacheInterceptor(t, cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: echoMethod}
 	handler := func(ctx context.Context, _ any) (any, error) {
 		p, _ := principal.FromContext(ctx)
@@ -78,7 +78,7 @@ func TestCacheVerifiesFullTupleOnKeyCollision(t *testing.T) {
 			const otherMethod = "/test.Resources/GetOtherResource"
 			header := fieldmask.DefaultMetadataReadMaskHeader
 			cacher := newMapCacher()
-			unary := cache.ServerInterceptor(cacher,
+			unary := newCacheInterceptor(t, cacher,
 				cache.WithMethod(readMethod, &wrapperspb.StringValue{}),
 				cache.WithMethod(otherMethod, &wrapperspb.StringValue{}),
 				cache.WithMetadataKeys(header),
@@ -114,7 +114,7 @@ func TestCachePartitionsDefaultReadMasks(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher,
+	unary := newCacheInterceptor(t, cacher,
 		cache.WithMethod(readMethod, &pb.Resource{}), cache.WithPublicMethods(readMethod)).ServerUnaryInterceptor()
 	mask := fieldmask.ServerInterceptor().ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: readMethod}
@@ -142,7 +142,7 @@ func TestCachePreservesStatusDetails(t *testing.T) {
 		ResourceType: "test.Resource", ResourceName: "resources/1",
 	})
 	require.NoError(t, err)
-	si := cache.ServerInterceptor(newMapCacher(),
+	si := newCacheInterceptor(t, newMapCacher(),
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
 		cache.WithPublicMethods(echoMethod),
 		cache.WithCacheDecision(cache.DefaultSuccessAndErrorDecision(time.Minute, time.Minute)))
@@ -179,7 +179,7 @@ func TestCacheBypassesUnidentifiedCalls(t *testing.T) {
 			}
 
 			handler := func(context.Context, any) (any, error) { return wrapperspb.String("fresh"), nil }
-			unary := cache.ServerInterceptor(cacher, opts...).ServerUnaryInterceptor()
+			unary := newCacheInterceptor(t, cacher, opts...).ServerUnaryInterceptor()
 			if name == "custom credential" {
 				customAuth := auth.ServerInterceptor(auth.WithAuthFn(auth.AuthFunc(func(context.Context, auth.Request) (any, error) {
 					return struct{ ID string }{ID: "alice"}, nil
@@ -208,7 +208,7 @@ func TestCacheUsesCustomVerifiedNamespace(t *testing.T) {
 
 	cacher := newMapCacher()
 	type issuerKey struct{}
-	unary := cache.ServerInterceptor(cacher,
+	unary := newCacheInterceptor(t, cacher,
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
 		cache.WithAuthRequired(),
 		cache.WithIdentityFunc(func(ctx context.Context) (string, cache.IdentityState) {
@@ -234,7 +234,7 @@ func TestCacheBypassesCustomCredentialsWithInheritedPrincipal(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher,
+	unary := newCacheInterceptor(t, cacher,
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}), cache.WithAuthRequired(),
 	).ServerUnaryInterceptor()
 	ctx := principal.NewContext(t.Context(), principal.Principal{Subject: "upstream"})
@@ -261,7 +261,7 @@ func TestCachePartitionsGrantsAndIssuer(t *testing.T) {
 			t.Parallel()
 			tc.first.Subject, tc.second.Subject = "alice", "alice"
 			cacher := newMapCacher()
-			unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+			unary := newCacheInterceptor(t, cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
 
 			require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, tc.first, "first"))
 			require.Equal(t, "second", callWithCacheCredentials(t, t.Context(), unary, tc.second, "second"))
@@ -273,7 +273,7 @@ func TestCachePartitionsGrantsAndIssuer(t *testing.T) {
 	t.Run("grant order", func(t *testing.T) {
 		t.Parallel()
 		cacher := newMapCacher()
-		unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+		unary := newCacheInterceptor(t, cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
 		first := principal.Principal{Subject: "alice", Scopes: []string{"write", "read"}, Roles: []string{"owner", "admin"}}
 		second := principal.Principal{Subject: "alice", Scopes: []string{"read", "write"}, Roles: []string{"admin", "owner"}}
 		require.Equal(t, "first", callWithCacheCredentials(t, t.Context(), unary, first, "first"))

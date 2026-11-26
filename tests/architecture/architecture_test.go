@@ -327,7 +327,7 @@ func schemasDescribeSettings(e edge) bool {
 	return !strings.HasPrefix(e.dep, "core/") && !isSchema(e.dep) && e.dep != "config/internal" && !strings.HasPrefix(e.dep, "config/internal/") &&
 		!(e.pkg == "config/auth" && e.dep == "auth/oidc/rules") &&
 		!(e.pkg == "config/proxy" && e.dep == "net/proxyconfig") &&
-		!(e.pkg == "config/http" && e.dep == "internal/transportconfig") &&
+		!((e.pkg == "config/http" || e.pkg == "config/grpc") && e.dep == "internal/transportconfig") &&
 		e.dep != "net/egressrule" && e.dep != "service/scheduler/task" && e.dep != "service/scheduler/schedule"
 }
 

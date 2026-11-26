@@ -35,6 +35,6 @@ func TestCacheInterceptorPublicMethods(t *testing.T) {
 	require.NoError(t, cfg.Cache.Validate())
 	for _, invalid := range []string{"", "/api.Catalog/*", "GetProduct", " /api.Catalog/GetProduct"} {
 		cfg.Cache.PublicMethods = []string{invalid}
-		require.ErrorContains(t, cfg.Cache.Validate(), "PublicMethods")
+		require.ErrorIs(t, cfg.Cache.Validate(), grpcconfig.ErrInvalidPublicMethod)
 	}
 }

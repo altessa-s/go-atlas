@@ -50,6 +50,7 @@ assembling a chain manually. The default partitions by verified tenant, subject,
 issuer when available. Authenticated calls with an empty subject or unrecognized credentials bypass caching. For a server without auth, register
 both the method's response policy and its exact full RPC name with `WithPublicMethods`. Choose methods whose responses can safely be shared among
 anonymous callers. In the gRPC server factory, set `interceptors.cache.publicMethods` and register the policies with `UseCacheMethodPolicies`.
+Handle the error returned by `ServerInterceptor` when constructing the interceptor directly. A malformed entry returns `ErrInvalidPublicMethod`.
 
 Use `WithIdentityFunc` when the default cannot identify the current caller or the response depends on other verified attributes. Return a stable,
 nonempty namespace with the `Verified` state. Include the tenant, subject, authenticator or issuer, and every scope, role, or other verified claim

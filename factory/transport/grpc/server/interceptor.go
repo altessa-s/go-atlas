@@ -475,14 +475,19 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 	))
 
 	cacher := b.cacher
-	build := func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor {
+	build := func(authRequired bool, readMaskHeader string) (interceptors.ServerInterceptor, error) {
 		options := slices.AppendIf(stdslices.Clone(opts), authRequired, cache.WithAuthRequired())
 		options = slices.AppendIf(options, readMaskHeader != "" && readMaskHeader != fieldmask.DefaultMetadataReadMaskHeader,
 			cache.WithReadMaskHeader(readMaskHeader))
 		return cache.ServerInterceptor(cacher, options...)
 	}
+	interceptor, err := build(false, "")
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "cache interceptor"))
+		return b
+	}
 	b.interceptors = append(b.interceptors, &cacheRegistration{
-		ServerInterceptor: build(false, ""),
+		ServerInterceptor: interceptor,
 		build:             build,
 	})
 	return b
@@ -490,7 +495,7 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 
 type cacheRegistration struct {
 	interceptors.ServerInterceptor
-	build func(authRequired bool, readMaskHeader string) interceptors.ServerInterceptor
+	build func(authRequired bool, readMaskHeader string) (interceptors.ServerInterceptor, error)
 }
 
 func (i *cacheRegistration) Dependencies() []string {
@@ -499,7 +504,7 @@ func (i *cacheRegistration) Dependencies() []string {
 
 // resolveCacheInterceptors configures the cache from the registered chain.
 // The copy lets the builder be reused without changing a built server.
-func (b *ServerBuilder) resolveCacheInterceptors() []interceptors.ServerInterceptor {
+func (b *ServerBuilder) resolveCacheInterceptors() ([]interceptors.ServerInterceptor, error) {
 	var authRequired bool
 	var readMaskHeader string
 	for _, i := range b.interceptors {
@@ -516,10 +521,14 @@ func (b *ServerBuilder) resolveCacheInterceptors() []interceptors.ServerIntercep
 	resolved := stdslices.Clone(b.interceptors)
 	for idx, i := range resolved {
 		if registration, ok := i.(*cacheRegistration); ok {
-			resolved[idx] = registration.build(authRequired, readMaskHeader)
+			interceptor, err := registration.build(authRequired, readMaskHeader)
+			if err != nil {
+				return nil, b.WrapError(err, "cache interceptor")
+			}
+			resolved[idx] = interceptor
 		}
 	}
-	return resolved
+	return resolved, nil
 }
 
 // WithAuthInterceptor creates an authentication interceptor from the builder's configuration.

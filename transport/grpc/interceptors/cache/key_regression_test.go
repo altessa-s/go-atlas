@@ -116,7 +116,7 @@ func TestNewKeyGeneratorUsesInterceptorIdentity(t *testing.T) {
 
 	type credential struct{ ID string }
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher,
+	unary := newCacheInterceptor(t, cacher,
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
 		cache.WithKeyGenerator(cache.NewKeyGenerator(nil, nil)),
 		cache.WithIdentityFunc(func(ctx context.Context) (string, cache.IdentityState) {

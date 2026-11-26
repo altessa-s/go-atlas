@@ -40,10 +40,21 @@ func cacheTestBuilder() *ServerBuilder {
 		UseCacheMethodPolicies(grpccache.MethodPolicy{Name: cacheReadMethod, ResponseProto: &pb.Resource{}})
 }
 
+func TestFactoryCacheRejectsMalformedPublicMethods(t *testing.T) {
+	t.Parallel()
+
+	b := cacheTestBuilder()
+	b.cfg.Interceptors.Cache.PublicMethods = []string{"/test.Resources/*"}
+	_, err := b.WithCacheInterceptor().Build()
+	require.ErrorIs(t, err, grpccache.ErrInvalidPublicMethod)
+}
+
 func callCacheChain(t *testing.T, b *ServerBuilder) func(context.Context, grpc.UnaryHandler) (any, error) {
 	t.Helper()
 	require.Empty(t, b.errs)
-	ordered, err := interceptors.OrderServerInterceptors(b.resolveCacheInterceptors()...)
+	resolved, err := b.resolveCacheInterceptors()
+	require.NoError(t, err)
+	ordered, err := interceptors.OrderServerInterceptors(resolved...)
 	require.NoError(t, err)
 	unary := make([]grpc.UnaryServerInterceptor, 0, len(ordered))
 	for _, interceptor := range ordered {

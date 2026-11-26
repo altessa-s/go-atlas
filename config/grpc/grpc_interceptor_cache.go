@@ -5,15 +5,17 @@
 package grpcconfig
 
 import (
-	"regexp"
 	"time"
+
+	"github.com/altessa-s/go-atlas/internal/transportconfig"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-var fullRPCMethodName = regexp.MustCompile(`^/[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/[A-Za-z_][A-Za-z0-9_]*$`)
+// ErrInvalidPublicMethod indicates a malformed public gRPC cache method name.
+var ErrInvalidPublicMethod = transportconfig.ErrInvalidPublicMethod
 
 // Default values for CacheInterceptor.
 const (
@@ -107,8 +109,10 @@ func (c *CacheInterceptor) Validate() error {
 			validation.Field(&c.CompressionPreset, validation.Required,
 				ozzo_rules.OneOf(CacheCompressionPresetNone, CacheCompressionPresetFast,
 					CacheCompressionPresetBalanced, CacheCompressionPresetBest)),
-			validation.Field(&c.PublicMethods, validation.Each(validation.Required,
-				validation.Match(fullRPCMethodName).Error("must be a full gRPC method name such as /service.Service/Method"))),
+			validation.Field(&c.PublicMethods, validation.Each(validation.By(func(value any) error {
+				method, _ := value.(string)
+				return transportconfig.ValidatePublicMethod(method)
+			}))),
 		)
 	})
 }

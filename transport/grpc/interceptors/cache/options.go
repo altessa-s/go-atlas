@@ -72,7 +72,7 @@ type options struct {
 	methods map[string]*MethodPolicy `optgen:"default=make(map[string]*MethodPolicy)"`
 	// publicMethods lists exact full RPC names whose responses may be shared
 	// on unauthenticated calls. Each method still needs a response policy.
-	publicMethods []string
+	publicMethods []string `optval:"notrim"`
 	// keyGenerator overrides only the storage key. Identity checks and
 	// verification of the full request tuple still apply.
 	keyGenerator KeyGenerator

@@ -94,7 +94,7 @@ var baseModules = []targetModule{
 	{root: "security"},
 	{root: "transport/internal/authaudit", deps: []string{"audit"}},
 	{root: "transport/http", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit", "internal/transportconfig"}},
-	{root: "transport/grpc", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit"}},
+	{root: "transport/grpc", deps: []string{"transport", "net", "auth", "coord", "reliability", "transport/internal/authaudit", "internal/transportconfig"}},
 	// The gRPC adapter of the go-horai scheduler stays off the gRPC module.
 	{root: "transport/grpc/handlers/scheduler", deps: []string{"service/scheduler", "core"}},
 	{root: "messaging/eventbus", deps: []string{"core", "observability", "internal/txscope"}},

@@ -220,14 +220,10 @@ func WithPublicMethods(v ...string) Option {
 		if len(v) == 0 {
 			return
 		}
-		transformed := make([]string, len(v))
-		for i, element := range v {
-			transformed[i] = strings.TrimSpace(element)
-		}
-		deduped := make([]string, 0, len(transformed))
+		deduped := make([]string, 0, len(v))
 		{
-			seen := make(map[string]struct{}, len(transformed))
-			for _, item := range transformed {
+			seen := make(map[string]struct{}, len(v))
+			for _, item := range v {
 				if _, ok := seen[item]; ok {
 					continue
 				}
