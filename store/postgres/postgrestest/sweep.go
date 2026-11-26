@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/testdbname"
 )
 
 // Marker identifies database comments written by New, followed by a unique instance token.
@@ -133,9 +133,9 @@ func dropStale(ctx context.Context, admin *pgx.Conn, prefix string, cutoff time.
 	if err != nil {
 		return err
 	}
-	pattern := namePattern(prefix)
+	pattern := testdbname.Pattern(prefix)
 	for _, d := range candidates {
-		if !isMarker(d.marker) || !staleName(pattern, d.name, cutoff) {
+		if !isMarker(d.marker) || !testdbname.Stale(pattern, d.name, cutoff) {
 			continue
 		}
 		held, err := tryNameLock(ctx, admin, d.name)
@@ -167,17 +167,4 @@ var markerPattern = regexp.MustCompile(`^` + regexp.QuoteMeta(Marker) + `(; inst
 // 16-hex-digit instance token. A comment that merely starts with the marker does not qualify.
 func isMarker(comment string) bool {
 	return markerPattern.MatchString(comment)
-}
-
-func namePattern(prefix string) *regexp.Regexp {
-	return regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + `([0-9a-f]{8})_[0-9a-f]{8}$`)
-}
-
-func staleName(pattern *regexp.Regexp, name string, cutoff time.Time) bool {
-	m := pattern.FindStringSubmatch(name)
-	if m == nil {
-		return false
-	}
-	secs, err := strconv.ParseInt(m[1], 16, 64)
-	return err == nil && time.Unix(secs, 0).Before(cutoff)
 }

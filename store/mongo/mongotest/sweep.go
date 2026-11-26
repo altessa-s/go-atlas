@@ -6,17 +6,15 @@ package mongotest
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"regexp"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-atlas/internal/testdbname"
 )
 
 // sweepTimeout bounds the listing and dropping of stale databases.
@@ -24,14 +22,6 @@ const sweepTimeout = 30 * time.Second
 
 // sweeps holds one sync.OnceFunc per URI and prefix: the stale databases are swept by the first New of the process only.
 var sweeps sync.Map
-
-// databaseName returns a throwaway database name: the prefix, the creation time as 8 hex digits of Unix seconds, an underscore and
-// 8 random hex digits.
-func databaseName(prefix string, now time.Time) string {
-	suffix := make([]byte, databaseSuffixBytes)
-	_, _ = rand.Read(suffix)
-	return fmt.Sprintf("%s%08x_%s", prefix, now.Unix(), hex.EncodeToString(suffix))
-}
 
 // sweepStale drops, once per process for uri and prefix, every database named like a throwaway database of prefix and created
 // more than staleAge ago: the leftovers of runs killed before their cleanup. A name without a creation time is never dropped. The
@@ -58,20 +48,14 @@ func sweepStale(tb testing.TB, client *mongo.Client, uri, prefix string, staleAg
 
 // dropStale drops the throwaway databases of prefix created before cutoff and returns how many it dropped.
 func dropStale(ctx context.Context, client *mongo.Client, prefix string, cutoff time.Time) (int, error) {
-	quoted := regexp.QuoteMeta(prefix)
-	names, err := client.ListDatabaseNames(ctx, bson.D{{Key: "name", Value: bson.D{{Key: "$regex", Value: "^" + quoted}}}})
+	names, err := client.ListDatabaseNames(ctx, bson.D{{Key: "name", Value: bson.D{{Key: "$regex", Value: "^" + regexp.QuoteMeta(prefix)}}}})
 	if err != nil {
 		return 0, err
 	}
-	pattern := regexp.MustCompile(`^` + quoted + `([0-9a-f]{8})_[0-9a-f]{8}$`)
+	pattern := testdbname.Pattern(prefix)
 	dropped := 0
 	for _, name := range names {
-		m := pattern.FindStringSubmatch(name)
-		if m == nil {
-			continue
-		}
-		secs, err := strconv.ParseInt(m[1], 16, 64)
-		if err != nil || !time.Unix(secs, 0).Before(cutoff) {
+		if !testdbname.Stale(pattern, name, cutoff) {
 			continue
 		}
 		if err := client.Database(name).Drop(ctx); err != nil {
