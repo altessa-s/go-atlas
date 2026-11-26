@@ -50,25 +50,29 @@ var (
 func New(client redis.UniversalClient, filterName string, opt ...Option) *Storage {
 	opts := newOptions(opt...)
 
+	core := redisfilter.New(client, opts.keyPrefix+filterName, redisfilter.Commands{
+		Label:  "Bloom",
+		Exists: "BF.EXISTS",
+		// Inserts never create a missing filter: a live filter is recreated
+		// by the reserve path, which also clears the rebuild ready marker,
+		// and a vanished staging key fails the rebuild.
+		Add:         "BF.INSERT",
+		AddTokens:   []string{"NOCREATE", "ITEMS"},
+		AddBatch:    "BF.INSERT",
+		BatchTokens: []string{"NOCREATE", "ITEMS"},
+		Reserve:     "BF.RESERVE",
+		Info:        "BF.INFO",
+		// Re-inserting into a Bloom filter is idempotent, so inserts by
+		// every process sharing the filter are journaled and replayed
+		// onto a rebuild's replacement.
+		JournalAdds: true,
+	}, opts.falsePositiveRate, opts.expectedItems)
+	if opts.insecureTreatMissingAsEmpty {
+		core.TreatMissingAsEmpty()
+	}
 	return &Storage{
 		Base: redisbase.NewBase(client, opts.keyPrefix),
-		core: redisfilter.New(client, opts.keyPrefix+filterName, redisfilter.Commands{
-			Label:  "Bloom",
-			Exists: "BF.EXISTS",
-			// Inserts never create a missing filter: a live filter is recreated
-			// by the reserve path, which also clears the rebuild ready marker,
-			// and a vanished staging key fails the rebuild.
-			Add:         "BF.INSERT",
-			AddTokens:   []string{"NOCREATE", "ITEMS"},
-			AddBatch:    "BF.INSERT",
-			BatchTokens: []string{"NOCREATE", "ITEMS"},
-			Reserve:     "BF.RESERVE",
-			Info:        "BF.INFO",
-			// Re-inserting into a Bloom filter is idempotent, so inserts by
-			// every process sharing the filter are journaled and replayed
-			// onto a rebuild's replacement.
-			JournalAdds: true,
-		}, opts.falsePositiveRate, opts.expectedItems),
+		core: core,
 		opts: opts,
 	}
 }

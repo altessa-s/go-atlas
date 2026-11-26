@@ -167,3 +167,40 @@ func TestBase_CloseJoinsErrors(t *testing.T) {
 	err := b.Rebuild(t.Context(), &hookLoader{hookAt: -1}, nil, func() {})
 	require.ErrorIs(t, err, probfilter.ErrFilterClosed)
 }
+
+// journalingStore declares that it journals adds itself.
+type journalingStore struct{ *memStore }
+
+func (journalingStore) DistributedJournal() bool { return true }
+
+// TestBase_DistributedJournalSkipsLocalJournal checks that a store that
+// journals adds itself is not journaled a second time by the facade, so a
+// rebuild does not replay an add twice.
+func TestBase_DistributedJournalSkipsLocalJournal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		store facade.Store
+		want  []string
+	}{
+		{name: "local journal", store: newMemStore(), want: []string{"src", "x"}},
+		{name: "store journals", store: journalingStore{newMemStore()}, want: []string{"src"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := facade.NewBase(tc.store)
+			st := &fakeStaging{}
+			begin := func(context.Context) (facade.StageFunc, func(context.Context) error, error) {
+				return stageWith(st), nil, nil
+			}
+			loader := &hookLoader{values: []string{"src"}, count: 1, hookAt: 0, hook: func() {
+				require.NoError(t, b.Add(t.Context(), "x"))
+			}}
+
+			require.NoError(t, b.Rebuild(t.Context(), loader, begin, func() {}))
+			require.ElementsMatch(t, tc.want, st.snapshot())
+		})
+	}
+}

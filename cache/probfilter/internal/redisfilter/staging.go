@@ -263,6 +263,7 @@ func (s *Staging) Commit(ctx context.Context) error {
 	n, err := s.commit.Run(ctx, s.core.client, keys, argv...).Int()
 	switch {
 	case err == nil && n == 1:
+		s.live.markPublished()
 		return nil
 	case err == nil && n < 0:
 		// Definite: the script renamed nothing, and the lease and committed
@@ -281,6 +282,7 @@ func (s *Staging) Commit(ctx context.Context) error {
 	// discard the staging key (making any late attempt harmless) or fence.
 	committed, checkErr := s.core.client.Exists(context.WithoutCancel(ctx), marker).Result()
 	if checkErr == nil && committed == 1 {
+		s.live.markPublished()
 		return nil
 	}
 	return coreerrs.WrapOperation(errors.Join(probfilter.ErrCommitIndeterminate, err), op)
@@ -294,4 +296,12 @@ func (s *Staging) Abort(ctx context.Context) error {
 // markerKey is the commit marker key of this staging filter.
 func (s *Staging) markerKey() string {
 	return metaKey(s.live.filterKey, "committed", s.id)
+}
+
+// markPublished records that this process published the live filter, so a
+// later lookup that finds it or its ready marker gone reports
+// [probfilter.ErrFilterLost].
+func (c *Core) markPublished() {
+	c.seenKey.Store(true)
+	c.seenReady.Store(true)
 }

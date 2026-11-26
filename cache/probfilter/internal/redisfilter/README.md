@@ -37,7 +37,7 @@ error-wrapping, batching, and create-on-first-use behavior, parameterized by a `
 
 ## Rebuild journal
 
-With `Commands.JournalAdds` (Bloom only — a Cuckoo filter would store a duplicate fingerprint) inserts into the live filter run through a script that,
+With `Commands.JournalAdds` (the Cuckoo storage declares `DistributedJournal`, so its facade keeps no second journal that would replay an add twice) inserts into the live filter run through a script that,
 while the rebuild lease exists, also appends the inserted values to a journal list in the reserved namespace. `BeginRebuild` drops a stale journal;
 before the commit the rebuild drains the journal into the staging filter, and the commit script replays the remaining tail onto it and deletes the
 journal before the rename, so inserts by any process sharing the filter survive the rebuild. `Release` drops the journal. Each drain step is one script

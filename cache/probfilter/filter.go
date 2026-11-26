@@ -22,6 +22,15 @@ var ErrFilterClosed = errors.New("filter closed")
 // rebuild publishes a fresh snapshot, so there is nothing to retry.
 var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
 
+// ErrFilterLost is wrapped by a lookup error when a shared filter this process
+// has already seen no longer exists in Redis (a flush, an eviction or a manual
+// delete), or its contents are no longer those of the committed rebuild. An
+// absent answer would be false for every value, so the lookup fails closed and
+// the caller falls through to the authoritative store until a rebuild
+// publishes the filter again. The permissive mode is an explicit option of the
+// Redis storages, WithInsecureTreatMissingAsEmpty.
+var ErrFilterLost = errors.New("filter lost")
+
 // ErrRebuildJournalOverflow is wrapped by a Rebuild error when so many adds
 // arrived during the rebuild that its journal overflowed on every attempt.
 // The previous contents stay; retry when the add rate is lower.

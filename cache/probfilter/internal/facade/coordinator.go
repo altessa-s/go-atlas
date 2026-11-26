@@ -101,6 +101,9 @@ type Coordinator struct {
 	dirty bool
 	// journalLimit bounds len(journal); zero means [DefaultJournalLimit].
 	journalLimit int
+	// localJournalOff leaves journaling to the store; see
+	// [DistributedJournaler].
+	localJournalOff bool
 
 	// unresolved is a replacement whose commit outcome is unknown and whose
 	// abort failed: a delayed promotion of it could still replace the live
@@ -132,11 +135,19 @@ func (c *Coordinator) SetJournalLimit(n int) {
 	c.journalLimit = max(n, 0)
 }
 
+// disableLocalJournal makes adds skip the local journal because the store
+// journals them. Call it before the first rebuild.
+func (c *Coordinator) disableLocalJournal() {
+	c.journalMu.Lock()
+	defer c.journalMu.Unlock()
+	c.localJournalOff = true
+}
+
 // record journals value, or marks the journal overflowed when it is full.
 func (c *Coordinator) record(value string) {
 	c.journalMu.Lock()
 	defer c.journalMu.Unlock()
-	if c.dirty {
+	if c.dirty || c.localJournalOff {
 		return
 	}
 	limit := c.journalLimit

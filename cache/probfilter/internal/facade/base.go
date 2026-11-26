@@ -21,6 +21,16 @@ type Store interface {
 	Close(ctx context.Context) error
 }
 
+// DistributedJournaler is an optional capability of a [Store] that journals
+// the adds made during a rebuild itself, for every process sharing it (the
+// Redis Cuckoo storage). The facade then keeps no journal of its own: both
+// journals would replay an add onto the replacement, and a filter that counts
+// duplicates (Cuckoo) would hold it twice.
+type DistributedJournaler interface {
+	// DistributedJournal reports whether the store journals adds itself.
+	DistributedJournal() bool
+}
+
 // Base implements the operations the Bloom and Cuckoo facades share: fenced
 // lookups, journaled adds, coordinated deletes and rebuilds, observation and
 // Close. It is safe for concurrent use and must not be copied.
@@ -32,7 +42,11 @@ type Base struct {
 
 // NewBase returns a Base serving the live filter of store.
 func NewBase(store Store) *Base {
-	return &Base{store: store}
+	b := &Base{store: store}
+	if dj, ok := store.(DistributedJournaler); ok && dj.DistributedJournal() {
+		b.coord.disableLocalJournal()
+	}
+	return b
 }
 
 // MightExist checks if a value might exist in the filter. It fails with an

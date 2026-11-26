@@ -34,6 +34,22 @@ func WithExpansion(v int64) Option {
 	}
 }
 
+// WithInsecureTreatMissingAsEmpty makes a lookup of a filter that vanished
+// from Redis after this process saw it (a flush, an eviction or a manual
+// delete) answer false instead of failing with
+// [probfilter.ErrFilterLost]. Without it such a lookup fails closed, so the
+// caller reads the authoritative store until a rebuild publishes the filter
+// again. With it every lookup of a value the filter held answers "absent"
+// until then, which is a false negative. Use it only when losing the
+// filter must not add load to the authoritative store and the caller
+// tolerates false negatives.
+func WithInsecureTreatMissingAsEmpty() Option {
+	return func(o *options) {
+		value := true
+		o.insecureTreatMissingAsEmpty = value
+	}
+}
+
 // WithKeyPrefix sets the keyPrefix option.
 func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	return func(o *options) {

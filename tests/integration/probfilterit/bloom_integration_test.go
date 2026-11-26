@@ -392,3 +392,25 @@ func TestBloom_CloseAbortsRunningRebuild(t *testing.T) {
 	fx.requireNoRebuildLeftovers(t)
 	require.NoError(t, b.Rebuild(ctx, openLoader(values("next", 10), true)), "the lease must be free")
 }
+
+// TestBloom_LostFilterFailsClosed deletes the published filter key behind a
+// process that has seen it: lookups fail with ErrFilterLost instead of
+// answering absent, unless the storage opted into the insecure mode.
+func TestBloom_LostFilterFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	fx := newFixture(t)
+	strict := fx.bloom(t, bloomredis.WithExpectedItems(1500))
+	lenient := fx.bloom(t, bloomredis.WithExpectedItems(1500), bloomredis.WithInsecureTreatMissingAsEmpty())
+	ctx := t.Context()
+
+	require.NoError(t, strict.Rebuild(ctx, openLoader([]string{"a"}, true)))
+	requirePresent(t, strict, "a")
+	requirePresent(t, lenient, "a")
+
+	require.NoError(t, fx.admin.Del(ctx, fx.liveKey()).Err())
+
+	_, err := strict.MightExist(ctx, "a")
+	require.ErrorIs(t, err, probfilter.ErrFilterLost)
+	requireAbsent(t, lenient, "a")
+}
