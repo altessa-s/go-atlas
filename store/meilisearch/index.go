@@ -50,7 +50,7 @@ func (c *Client) IndexExists(ctx context.Context, indexName string) (bool, error
 		if classified := classifySDKError(err); classified != nil && errors.Is(classified, ErrIndexNotFound) {
 			return false, nil
 		}
-		return false, coreerrs.Wrapf(err, "get index %s", indexName)
+		return false, safeSDKError("get index", err)
 	}
 
 	return true, nil
@@ -71,7 +71,7 @@ func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, setti
 	if err != nil {
 		classified := classifySDKError(err)
 		if classified == nil || !errors.Is(classified, ErrIndexAlreadyExists) {
-			return coreerrs.Wrapf(err, "create index %s", name)
+			return safeSDKError("create index", err)
 		}
 		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
 	} else if err := c.awaitIndexCreation(ctx, name, info.TaskUID); err != nil {
@@ -97,7 +97,7 @@ func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, setti
 func (c *Client) awaitIndexCreation(ctx context.Context, name string, taskUID int64) error {
 	task, err := c.sdk.WaitForTask(ctx, taskUID, 0)
 	if err != nil {
-		return coreerrs.Wrapf(err, "wait for create index %s task %d", name, taskUID)
+		return safeSDKError("wait for create index task", err)
 	}
 	switch {
 	case task.Status == msdk.TaskStatusSucceeded:
@@ -106,7 +106,7 @@ func (c *Client) awaitIndexCreation(ctx context.Context, name string, taskUID in
 		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
 		return nil
 	default:
-		return coreerrs.Wrapf(taskFailure(taskUID, task), "create index %s", name)
+		return safeTaskError("create index task failed", taskUID, task)
 	}
 }
 
@@ -121,11 +121,11 @@ func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, sett
 		SortableAttributes:   settings.SortableAttributes,
 	})
 	if err != nil {
-		return coreerrs.Wrapf(err, "update settings for %s", indexName)
+		return safeSDKError("update index settings", err)
 	}
 
 	if err := c.WaitForTask(ctx, info.TaskUID, 0); err != nil {
-		return coreerrs.Wrapf(err, "update settings for %s", indexName)
+		return coreerrs.Wrap(err, "update index settings")
 	}
 
 	return nil
@@ -146,7 +146,7 @@ func (c *Client) DeleteIndex(ctx context.Context, name string) (int64, error) {
 			c.logger.DebugContext(ctx, "index already absent", slog.String("index", name))
 			return 0, nil
 		}
-		return 0, coreerrs.Wrapf(err, "delete index %s", name)
+		return 0, safeSDKError("delete index", err)
 	}
 
 	c.logger.DebugContext(ctx, "index deletion enqueued",
@@ -195,7 +195,7 @@ func (c *Client) SwapIndexes(ctx context.Context, pairs ...SwapPair) (int64, err
 
 	task, err := c.sdk.SwapIndexes(ctx, params)
 	if err != nil {
-		return 0, coreerrs.Wrapf(err, "swap indexes")
+		return 0, safeSDKError("swap indexes", err)
 	}
 
 	c.logger.DebugContext(ctx, "indexes swapped",

@@ -109,7 +109,7 @@ func TestNesting(t *testing.T) {
 				if other.viaRunner {
 					require.ErrorIs(t, err, uow.ErrForeignTransaction)
 				} else {
-					require.ErrorIs(t, err, postgres.ErrDifferentDatabase)
+					require.ErrorIs(t, err, postgres.ErrDatabaseMismatch)
 				}
 			}
 			check(as.ctx, a, b)

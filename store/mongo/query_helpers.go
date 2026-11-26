@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 
 	queryexplain "github.com/altessa-s/go-atlas/store/mongo/explain"
 )
@@ -82,7 +84,17 @@ func executeExplainIfRequested(ctx context.Context, collection *mongo.Collection
 	}
 
 	_, err := queryexplain.Run(ctx, collection, pipeline, hint, logger)
-	if err != nil {
-		logger.Warn("failed to execute query explain analysis", "error", err)
+	if err != nil && logger != nil {
+		attrs := []any{
+			slog.String("collection", collection.Name()),
+			slog.String("error_class", diagnostics.ErrorClass(err)),
+		}
+		if cmdErr, ok := errors.AsType[mongo.CommandError](err); ok {
+			attrs = append(attrs,
+				slog.Int64("error_code", int64(cmdErr.Code)),
+				slog.String("error_name", cmdErr.Name),
+			)
+		}
+		logger.WarnContext(ctx, "failed to execute query explain analysis", attrs...)
 	}
 }

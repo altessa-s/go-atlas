@@ -51,7 +51,7 @@ const deleteChunk = lockChunk
 // dispatch runs on the poll schedule.
 type Store struct {
 	db                 sqldialect.Pool
-	resolveTx          func(context.Context) (*sql.Tx, bool)
+	resolveTx          func(context.Context) (*sql.Tx, bool, error)
 	dialect            dialect
 	table              string // quoted
 	name               string // unqualified, for index names
@@ -283,7 +283,11 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 		return s.insert(ctx, tx, ttl, events)
 	}
 	if s.resolveTx != nil {
-		if tx, open := s.resolveTx(ctx); tx != nil {
+		tx, open, err := s.resolveTx(ctx)
+		if err != nil {
+			return err
+		}
+		if tx != nil {
 			if !open {
 				return sql.ErrTxDone
 			}

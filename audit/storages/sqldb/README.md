@@ -89,7 +89,7 @@ See the [PostgreSQL connection loss policy](../../../reliability/outbox/storages
 ## Caller transactions
 
 Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
-The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.
+Prepare the binding with `pools.Binding(ctx, name)`, then pass its pool and resolver to the factory with `UseSQLPool(db, resolve)`.
 
 If `StoreBatch` returns an error in a caller-owned transaction, the caller must roll back that transaction. Earlier chunks may already
 have been written.

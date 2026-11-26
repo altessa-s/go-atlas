@@ -97,9 +97,9 @@ func TestBatchAtomicAndIdempotent(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
 			type txKey struct{}
-			st, db, table := target.open(t, sqldb.WithMaxBatchRows(2), sqldb.WithTxResolver(func(ctx context.Context) (*sql.Tx, bool) {
+			st, db, table := target.open(t, sqldb.WithMaxBatchRows(2), sqldb.WithTxResolver(func(ctx context.Context) (*sql.Tx, bool, error) {
 				tx, ok := ctx.Value(txKey{}).(*sql.Tx)
-				return tx, ok
+				return tx, ok, nil
 			}))
 
 			batch := make([]*audit.Event, 5)

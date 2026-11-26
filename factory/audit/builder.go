@@ -52,7 +52,7 @@ type AuditorBuilder struct {
 	// Dependencies
 	dispatcher    audit.Dispatcher
 	sqlDB         *sql.DB
-	resolveTx     func(context.Context) (*sql.Tx, bool)
+	resolveTx     func(context.Context) (*sql.Tx, bool, error)
 	shutdownHooks *coreruntime.HookGroup
 	storages      map[auditconfig.StorageType]StorageBuilder
 }

@@ -111,6 +111,9 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 		}
 		pools[name] = db
 	}
+	if err := pools.Verify(ctx); err != nil {
+		return nil, err
+	}
 	if b.migrator != nil {
 		migrationCtx, cancel := corecontext.WithMaxTimeout(ctx, c.MigrationTimeout)
 		defer cancel()

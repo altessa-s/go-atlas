@@ -65,9 +65,9 @@ func TestSQLDispatchIgnoresBusinessTransaction(t *testing.T) {
 	t.Parallel()
 	forEachSQL(t, func(t *testing.T, f *fixture) {
 		ctx := t.Context()
-		resolve := func(ctx context.Context) (*sql.Tx, bool) {
+		resolve := func(ctx context.Context) (*sql.Tx, bool, error) {
 			tx, ok := ctx.Value(sqlTxKey{}).(*sql.Tx)
-			return tx, ok
+			return tx, ok, nil
 		}
 		store, err := outboxsql.New(f.sql.db, f.sql.dialect, outboxsql.WithTableName(f.sql.events),
 			outboxsql.WithAsynchronousCommit(), outboxsql.WithTxResolver(resolve))

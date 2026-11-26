@@ -72,7 +72,7 @@ func WithTransactionSettings(ctx context.Context, db *sql.DB, settings Transacti
 		return ctx, nil
 	}
 	query := strings.Join(local, "; ")
-	if tx, open := Tx(ctx); tx != nil {
+	if tx, open, _ := Tx(ctx); tx != nil {
 		if !open {
 			return nil, sql.ErrTxDone
 		}

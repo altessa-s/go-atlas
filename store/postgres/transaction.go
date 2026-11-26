@@ -35,12 +35,13 @@ type DBTX interface {
 // Tx returns the attached transaction and whether its scope is still open. A finished
 // transaction or savepoint returns its handle with false so statement resolvers can
 // fail closed. Use the handle only when open is true. Only the owner may end it.
-func Tx(ctx context.Context) (*sql.Tx, bool) {
+// The error result is always nil, allowing Tx to be used as a storage resolver.
+func Tx(ctx context.Context) (*sql.Tx, bool, error) {
 	t := attached(ctx)
 	if t == nil {
-		return nil, false
+		return nil, false, nil
 	}
-	return t.tx, t.open()
+	return t.tx, t.open(), nil
 }
 
 func attached(ctx context.Context) *transaction {
@@ -104,7 +105,7 @@ func WithPool(ctx context.Context, db, pool *sql.DB) context.Context {
 // CheckDatabase ensures that a transaction-bound operation uses its own connection pool.
 func CheckDatabase(ctx context.Context, db *sql.DB) error {
 	if current, ok := ctx.Value(transactionKey{}).(*transaction); ok && current.db != selectedPool(ctx, db) {
-		return ErrDifferentDatabase
+		return ErrDatabaseMismatch
 	}
 	return nil
 }
@@ -311,7 +312,7 @@ func withTransaction(
 	err = tx.Commit()
 	current.life.done.Store(true)
 	if err != nil {
-		kind, _ := Classify(err)
+		kind, _ := ClassifyContext(ctx, err)
 		safe := diagnostic("commit transaction", err)
 		state := sqldialect.SQLState(err)
 		if errors.Is(err, pgx.ErrTxCommitRollback) || (state != "" && state != "40003" && kind != ConnectionLost) || sqldialect.SafeToRetry(err) {

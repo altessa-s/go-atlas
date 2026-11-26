@@ -16,7 +16,7 @@
 //
 // The builder integrates with [natsconfig.Config] and [natsconfig.Consumer] to create NATS
 // connections with NKey, token, or username/password authentication, optional
-// TLS, automatic reconnection with unlimited buffer, and compression.
+// TLS, automatic reconnection with buffered outbound messages, and compression.
 //
 // JetStream consumer configurations are produced by
 // [ConsumerConfig], which maps [natsconfig.Consumer] fields

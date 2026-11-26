@@ -120,10 +120,10 @@ func TestPools(t *testing.T) {
 			ctx = context.WithValue(ctx, requestKey{}, "request")
 			work := func(txCtx context.Context) error {
 				require.True(t, postgres.InWriteTransaction(txCtx))
-				outer, ok := postgres.Tx(txCtx)
+				outer, ok, _ := postgres.Tx(txCtx)
 				require.True(t, ok)
 				require.NoError(t, postgres.WithTransaction(txCtx, db, func(inner context.Context) error {
-					tx, _ := postgres.Tx(inner)
+					tx, _, _ := postgres.Tx(inner)
 					require.Same(t, outer, tx)
 					_, err := q.ExecContext(inner, "INSERT INTO "+table+" VALUES (1)")
 					return err
@@ -138,7 +138,7 @@ func TestPools(t *testing.T) {
 				}), marker)
 				require.NoError(t, postgres.WithSavepoint(txCtx, db, func(child context.Context) error {
 					postgres.AfterCommitContext(child, func(fresh context.Context) {
-						_, ok := postgres.Tx(fresh)
+						_, ok, _ := postgres.Tx(fresh)
 						require.False(t, ok)
 						require.Nil(t, fresh.Done())
 						require.Equal(t, "request", fresh.Value(requestKey{}))
@@ -302,14 +302,14 @@ func testTimeouts(t *testing.T, db *sql.DB) {
 		_, err := postgres.Queryer(ctx, db).ExecContext(ctx, "SELECT pg_sleep(2)")
 		return err
 	})
-	kind, _ := postgres.Classify(err)
+	kind, _ := postgres.ClassifyContext(limited, err)
 	require.Equal(t, postgres.StatementTimeout, kind)
 	require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&after))
 	require.Equal(t, before, after)
 	expired, cancel := context.WithCancel(ctx)
 	cancel()
 	_, err = db.ExecContext(expired, "SELECT 1")
-	kind, _ = postgres.Classify(err)
+	kind, _ = postgres.ClassifyContext(expired, err)
 	require.Equal(t, postgres.Canceled, kind)
 }
 

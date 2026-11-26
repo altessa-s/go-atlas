@@ -44,7 +44,7 @@ type KeeperBuilder struct {
 
 	storages      map[idempotencyconfig.StorageType]StorageFunc
 	sqlDB         *sql.DB
-	resolveTx     func(context.Context) (*sql.Tx, bool)
+	resolveTx     func(context.Context) (*sql.Tx, bool, error)
 	shutdownHooks *coreruntime.HookGroup
 
 	// Dependencies

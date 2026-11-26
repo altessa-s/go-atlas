@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"time"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
 
@@ -22,12 +21,13 @@ import (
 // Returns nil only when the task finished as "succeeded". A task that
 // finished in any other terminal state (e.g. "failed") yields an error
 // wrapping [ErrTaskFailed] — match it with [errors.Is] — carrying the task
-// status and the Meilisearch error code/message. A canceled or expired ctx
-// aborts the wait and returns the underlying SDK error.
+// UID, status, and validated Meilisearch error code/type without raw message
+// text. A canceled or expired ctx aborts the wait and returns a sanitized
+// error preserving context error matching.
 func (c *Client) WaitForTask(ctx context.Context, taskUID int64, interval time.Duration) error {
 	task, err := c.sdk.WaitForTask(ctx, taskUID, interval)
 	if err != nil {
-		return coreerrs.Wrapf(err, "wait for task %d", taskUID)
+		return safeSDKError("wait for task", err)
 	}
 
 	if task.Status != msdk.TaskStatusSucceeded {
@@ -44,7 +44,5 @@ func (c *Client) WaitForTask(ctx context.Context, taskUID int64, interval time.D
 // taskFailure builds the [ErrTaskFailed] error for a task that reached a
 // terminal state other than "succeeded".
 func taskFailure(taskUID int64, task *msdk.Task) error {
-	return coreerrs.Wrapf(ErrTaskFailed,
-		"task %d finished with status %q (code %q: %s)",
-		taskUID, task.Status, task.Error.Code, task.Error.Message)
+	return safeTaskError("task failed", taskUID, task)
 }

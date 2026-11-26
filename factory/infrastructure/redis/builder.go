@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -51,11 +52,8 @@ type ClientBuilder struct {
 	healthCoordinator health.ScopedReporter
 	healthServiceName string
 	shutdownHooks     *coreruntime.HookGroup
-	// tlsConfig is applied to the field-based universal options when
-	// non-nil. The URI-based path (rediss://) picks up TLS through the
-	// scheme; field-based configs (Hosts/Password/Database) had no
-	// path to TLS at all before this hook — operators got plaintext
-	// connections silently regardless of deployment posture.
+	// tlsConfig overrides TLS settings on both the field-based and URI-based
+	// paths when non-nil; combining it with a non-TLS URI scheme is rejected.
 	tlsConfig *tls.Config
 	// skipPing and noHealth make construction independent of Redis being
 	// reachable (see SkipStartupPing and WithoutHealth).
@@ -63,10 +61,9 @@ type ClientBuilder struct {
 	noHealth bool
 }
 
-// WithTLSConfig installs a *tls.Config to apply to the Redis client.
-// Used by the field-based config path; the URI-based path ignores
-// this and reads TLS from the rediss:// scheme instead. Without this
-// hook, field-based configs silently fall back to plaintext.
+// WithTLSConfig installs a *tls.Config to apply to the Redis client on both
+// field-based and rediss:// URI configurations. Combining an injected TLS
+// config with a non-TLS connectionURI scheme fails with [coreerrs.ErrInvalidArgument].
 func (b *ClientBuilder) WithTLSConfig(cfg *tls.Config) *ClientBuilder {
 	b.tlsConfig = cfg
 	return b
@@ -260,7 +257,12 @@ func (b *ClientBuilder) universalOptionsFromURI() (*redis.UniversalOptions, erro
 	}
 	b.applyCommonOptions(opts)
 
-	if parsed.TLSConfig != nil {
+	if b.tlsConfig != nil {
+		if parsed.TLSConfig == nil {
+			return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "injected Redis TLS configuration requires a rediss:// connectionURI")
+		}
+		opts.TLSConfig = b.tlsConfig
+	} else if parsed.TLSConfig != nil {
 		opts.TLSConfig = parsed.TLSConfig
 	}
 

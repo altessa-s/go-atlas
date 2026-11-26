@@ -5,16 +5,36 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
+	"runtime"
+	"slices"
+	"sync"
+	"sync/atomic"
+	"time"
+	"weak"
 
 	"github.com/altessa-s/go-slogx"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+)
+
+const (
+	identityResolveTimeout = 5 * time.Second
+	identityFailureTTL     = time.Second
+	controlIdentityQuery   = "SELECT system_identifier::text, current_database() FROM pg_control_system()"
+	databaseIdentityQuery  = "SELECT current_database()"
 )
 
 // Open creates a bounded pool and verifies connectivity and transaction-pool role defaults.
@@ -51,6 +71,7 @@ func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (poo
 	if o.meter != nil && !metrics.IsNoop(o.meter) {
 		owner.stop = observePool(db, o.meter, o.poolName)
 	}
+	registerPoolLogger(db, o.logger)
 	o.logger.DebugContext(ctx, "PostgreSQL pool opened", slogx.Module("postgres"), "pool", o.poolName)
 	return db, nil
 }
@@ -122,21 +143,195 @@ func (p Pools) CloseContext(ctx context.Context) error {
 	return err
 }
 
-// Binding returns the named pool and a resolver for transactions owned by the group. Pools in the group must serve the same logical database.
-// A missing name returns a nil database, which the caller must check.
-func (p Pools) Binding(name string) (*sql.DB, func(context.Context) (*sql.Tx, bool)) {
-	members := make(map[*sql.DB]struct{}, len(p))
-	for _, db := range p {
-		members[db] = struct{}{}
+// Verify eagerly resolves the database identity of every pool in the group and
+// returns [ErrDatabaseMismatch] if any two pools serve different databases.
+func (p Pools) Verify(ctx context.Context) error {
+	var groupID dbIdentity
+	for _, name := range slices.Sorted(maps.Keys(p)) {
+		db := p[name]
+		if db == nil {
+			return coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "nil PostgreSQL pool")
+		}
+		id, err := resolvePoolIdentity(ctx, db)
+		if err != nil {
+			return err
+		}
+		if groupID.database == "" {
+			groupID = id
+			continue
+		}
+		if !groupID.equal(id) {
+			return fmt.Errorf("%w: pool %q serves another database", ErrDatabaseMismatch, name)
+		}
+		groupID.systemID = cmp.Or(groupID.systemID, id.systemID)
 	}
-	return p[name], func(ctx context.Context) (*sql.Tx, bool) {
-		t, ok := ctx.Value(transactionKey{}).(*transaction)
-		if !ok {
-			return nil, false
+	return nil
+}
+
+// Binding prepares the named pool and a resolver for transactions owned by the group.
+// For groups with multiple distinct pools, call Binding before opening transactions.
+// It resolves pool identities so that a resolver call never needs another connection.
+// A transaction from a different database in the group is rejected with [ErrDatabaseMismatch].
+// A missing name or failed identity lookup returns a construction error.
+func (p Pools) Binding(ctx context.Context, name string) (*sql.DB, func(context.Context) (*sql.Tx, bool, error), error) {
+	boundPool := p[name]
+	if boundPool == nil {
+		return nil, nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "missing PostgreSQL pool")
+	}
+	identities := make(map[*sql.DB]dbIdentity, len(p))
+	for _, db := range p {
+		if db == nil {
+			return nil, nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "nil PostgreSQL pool")
 		}
-		if _, member := members[t.db]; !member {
-			return nil, false
+		identities[db] = dbIdentity{}
+	}
+	if len(identities) > 1 {
+		for _, name := range slices.Sorted(maps.Keys(p)) {
+			db := p[name]
+			if identities[db].database != "" {
+				continue
+			}
+			id, err := resolvePoolIdentity(ctx, db)
+			if err != nil {
+				return nil, nil, err
+			}
+			identities[db] = id
 		}
-		return t.tx, t.open()
+	}
+	boundID := identities[boundPool]
+	return boundPool, func(ctx context.Context) (*sql.Tx, bool, error) {
+		t := attached(ctx)
+		if t == nil {
+			return nil, false, nil
+		}
+		txID, member := identities[t.db]
+		if !member {
+			return nil, false, nil
+		}
+		open := t.open()
+		if open && t.db != boundPool && !boundID.equal(txID) {
+			return nil, false, ErrDatabaseMismatch
+		}
+		return t.tx, open, nil
+	}, nil
+}
+
+type dbIdentity struct {
+	systemID string
+	database string
+}
+
+func (a dbIdentity) equal(b dbIdentity) bool {
+	if a.database == "" || b.database == "" || a.database != b.database {
+		return false
+	}
+	return a.systemID == "" || b.systemID == "" || a.systemID == b.systemID
+}
+
+type poolIdentityEntry struct {
+	lookup   atomic.Pointer[poolIdentityLookup]
+	logger   atomic.Pointer[slog.Logger]
+	infoOnce sync.Once
+}
+
+// Read the result only after done is closed. A failed lookup can be replaced
+// once its retry time passes.
+type poolIdentityLookup struct {
+	done    chan struct{}
+	id      dbIdentity
+	err     error
+	retryAt time.Time
+}
+
+var poolIdentities sync.Map // map[weak.Pointer[sql.DB]]*poolIdentityEntry
+
+func identityEntryFor(db *sql.DB) *poolIdentityEntry {
+	key := weak.Make(db)
+	if existing, ok := poolIdentities.Load(key); ok {
+		if entry, ok := existing.(*poolIdentityEntry); ok {
+			return entry
+		}
+	}
+	fresh := &poolIdentityEntry{}
+	actual, loaded := poolIdentities.LoadOrStore(key, fresh)
+	if !loaded {
+		runtime.AddCleanup(db, func(k weak.Pointer[sql.DB]) {
+			poolIdentities.Delete(k)
+		}, key)
+	}
+	entry, ok := actual.(*poolIdentityEntry)
+	if !ok {
+		return fresh
+	}
+	return entry
+}
+
+func registerPoolLogger(db *sql.DB, logger *slog.Logger) {
+	if db == nil || logger == nil {
+		return
+	}
+	identityEntryFor(db).logger.Store(logger)
+}
+
+func resolvePoolIdentity(ctx context.Context, db *sql.DB) (dbIdentity, error) {
+	queryCtx, cancel := corecontext.WithMaxTimeout(corecontext.OrBackground(ctx), identityResolveTimeout)
+	defer cancel()
+
+	entry := identityEntryFor(db)
+	for {
+		if err := queryCtx.Err(); err != nil {
+			return dbIdentity{}, err
+		}
+		current := entry.lookup.Load()
+		if current != nil {
+			select {
+			case <-queryCtx.Done():
+				return dbIdentity{}, queryCtx.Err()
+			case <-current.done:
+			}
+			if current.err == nil || time.Now().Before(current.retryAt) {
+				return current.id, current.err
+			}
+		}
+		next := &poolIdentityLookup{done: make(chan struct{})}
+		if !entry.lookup.CompareAndSwap(current, next) {
+			continue
+		}
+		next.id, next.err = readPoolIdentity(queryCtx, db, entry)
+		if next.err != nil {
+			next.retryAt = time.Now().Add(identityFailureTTL)
+		}
+		close(next.done)
+		return next.id, next.err
+	}
+}
+
+func readPoolIdentity(queryCtx context.Context, db *sql.DB, entry *poolIdentityEntry) (dbIdentity, error) {
+	var id dbIdentity
+	err := db.QueryRowContext(queryCtx, controlIdentityQuery).Scan(&id.systemID, &id.database)
+	if err != nil {
+		if !isUnreadableControlSystem(err) {
+			return dbIdentity{}, diagnostic("verify PostgreSQL database identity", err)
+		}
+		if fallbackErr := db.QueryRowContext(queryCtx, databaseIdentityQuery).Scan(&id.database); fallbackErr != nil {
+			return dbIdentity{}, diagnostic("verify PostgreSQL database identity", fallbackErr)
+		}
+		logger := cmp.Or(entry.logger.Load(), slog.Default())
+		entry.infoOnce.Do(func() {
+			logger.InfoContext(queryCtx, "PostgreSQL cluster identity could not be verified; using database name only", slogx.Module("postgres"))
+		})
+	}
+	if id.database == "" {
+		return dbIdentity{}, errors.New("empty PostgreSQL database identity")
+	}
+	return id, nil
+}
+
+func isUnreadableControlSystem(err error) bool {
+	switch sqldialect.SQLState(err) {
+	case "42501", "42883", "0A000":
+		return true
+	default:
+		return false
 	}
 }

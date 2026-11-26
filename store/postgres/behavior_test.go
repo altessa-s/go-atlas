@@ -13,6 +13,8 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -115,7 +118,12 @@ func TestPoolRoutingAndHooks(t *testing.T) {
 		NotifyAfterCommit(txCtx, wake)
 		NotifyAfterCommit(txCtx, wake)
 		require.Empty(t, wake)
-		AfterCommitContext(txCtx, func(fresh context.Context) { tx, ok := Tx(fresh); require.False(t, ok); require.Nil(t, tx); called++ })
+		AfterCommitContext(txCtx, func(fresh context.Context) {
+			tx, ok, _ := Tx(fresh)
+			require.False(t, ok)
+			require.Nil(t, tx)
+			called++
+		})
 		return nil
 	}))
 	require.Equal(t, 2, called)
@@ -217,22 +225,36 @@ func TestSavepointPanicCanBeRecoveredByOwner(t *testing.T) {
 }
 
 func TestPoolBinding(t *testing.T) {
-	primary, _ := testhelpers.NewFakeSQL(t, nil)
-	worker, _ := testhelpers.NewFakeSQL(t, nil)
+	sameIdentity := func(query string, _ []any) testhelpers.FakeSQLReply {
+		if query == controlIdentityQuery {
+			return testhelpers.FakeSQLReply{
+				Columns: []string{"system_identifier", "current_database"},
+				Rows:    [][]driver.Value{{"1", "app"}},
+			}
+		}
+		return testhelpers.FakeSQLReply{Affected: 1}
+	}
+	primary, _ := testhelpers.NewFakeSQL(t, sameIdentity)
+	worker, _ := testhelpers.NewFakeSQL(t, sameIdentity)
 	other, _ := testhelpers.NewFakeSQL(t, nil)
 	pools := Pools{DefaultPool: primary, "worker": worker}
-	db, resolve := pools.Binding("worker")
+	require.NoError(t, pools.Verify(t.Context()))
+	db, resolve, err := pools.Binding(t.Context(), "worker")
+	require.NoError(t, err)
 	require.Same(t, worker, db)
-	db, _ = pools.Binding("missing")
+	db, _, err = pools.Binding(t.Context(), "missing")
+	require.Error(t, err)
 	require.Nil(t, db)
-	_, ok := resolve(t.Context())
+	_, ok, err := resolve(t.Context())
+	require.NoError(t, err)
 	require.False(t, ok)
 	for _, source := range []*sql.DB{primary, worker, other} {
 		require.NoError(t, WithTransaction(t.Context(), source, func(ctx context.Context) error {
-			tx, bound := resolve(ctx)
+			tx, bound, err := resolve(ctx)
+			require.NoError(t, err)
 			require.Equal(t, source != other, bound)
 			if bound {
-				current, _ := Tx(ctx)
+				current, _, _ := Tx(ctx)
 				require.Same(t, current, tx)
 			}
 			return nil
@@ -241,7 +263,7 @@ func TestPoolBinding(t *testing.T) {
 }
 
 func TestRetryableTransaction(t *testing.T) {
-	for _, kind := range []ErrorKind{Unique, ForeignKey, Check, Serialization, Deadlock, ConnectionBeforeSend, ConnectionLost, Canceled, StatementTimeout, Unknown} {
+	for _, kind := range []ErrorKind{Unique, ForeignKey, Check, Serialization, Deadlock, ConnectionBeforeSend, ConnectionLost, Canceled, Timeout, StatementTimeout, Unknown} {
 		require.Equal(t, kind == Serialization || kind == Deadlock, kind.RetryableTransaction(), string(kind))
 	}
 }
@@ -288,7 +310,7 @@ func TestBeginAsyncCommitIsIndependent(t *testing.T) {
 	require.NoError(t, WithTransaction(t.Context(), db, func(ctx context.Context) error {
 		async, err := BeginAsyncCommit(ctx, db)
 		require.NoError(t, err)
-		outer, _ := Tx(ctx)
+		outer, _, _ := Tx(ctx)
 		require.NotSame(t, outer, async)
 		require.NoError(t, async.Rollback())
 		return nil
@@ -324,4 +346,231 @@ func TestLocalizedFatalConnectionError(t *testing.T) {
 	err := &pgconn.PgError{Severity: "FATALE", SeverityUnlocalized: "FATAL", Code: "25P03"}
 	kind, _ := Classify(err)
 	require.Equal(t, ConnectionLost, kind)
+}
+
+func TestPoolBinding_RejectsMismatchedDatabase(t *testing.T) {
+	identityResponder := func(sysID, dbName string) func(string, []any) testhelpers.FakeSQLReply {
+		return func(query string, _ []any) testhelpers.FakeSQLReply {
+			if query == "SELECT system_identifier::text, current_database() FROM pg_control_system()" {
+				return testhelpers.FakeSQLReply{
+					Columns: []string{"system_identifier", "current_database"},
+					Rows:    [][]driver.Value{{sysID, dbName}},
+				}
+			}
+			return testhelpers.FakeSQLReply{Affected: 1}
+		}
+	}
+
+	ordersDB, ordersFake := testhelpers.NewFakeSQL(t, identityResponder("100", "orders"))
+	reportingDB, reportingFake := testhelpers.NewFakeSQL(t, identityResponder("100", "reporting"))
+	pools := Pools{DefaultPool: ordersDB, "reporting": reportingDB}
+
+	boundDB, resolve, err := pools.Binding(t.Context(), "reporting")
+	require.NoError(t, err)
+	boundPool := sqldialect.Postgres.WrapPool(boundDB).WithResolver(resolve)
+
+	err = WithTransaction(t.Context(), ordersDB, func(ctx context.Context) error {
+		tx, open, err := boundPool.Tx(ctx)
+		require.Nil(t, tx)
+		require.False(t, open)
+		require.Equal(t, ErrDatabaseMismatch, err)
+		_, err = boundPool.BeginScope(ctx, nil)
+		require.Equal(t, ErrDatabaseMismatch, err)
+		_, err = boundPool.QueryContext(ctx, "SELECT 1")
+		require.Equal(t, ErrDatabaseMismatch, err)
+		require.Equal(t, ErrDatabaseMismatch, boundPool.QueryRowContext(ctx, "SELECT 1").Scan())
+		before := sqlTransactionGoroutines()
+		for range 128 {
+			_, execErr := boundPool.ExecContext(ctx, "INSERT INTO events_outbox (id) VALUES ($1)", "e1")
+			require.Equal(t, ErrDatabaseMismatch, execErr)
+		}
+		require.Equal(t, before, sqlTransactionGoroutines(), "rejected calls must not leave database/sql transaction goroutines")
+		return ErrDatabaseMismatch
+	})
+	require.ErrorIs(t, err, ErrDatabaseMismatch)
+	require.ErrorIs(t, pools.Verify(t.Context()), ErrDatabaseMismatch)
+	for _, call := range ordersFake.Calls() {
+		require.NotContains(t, call.Query, "INSERT INTO events_outbox")
+	}
+	for _, call := range reportingFake.Calls() {
+		require.NotContains(t, call.Query, "INSERT INTO events_outbox")
+	}
+}
+
+func sqlTransactionGoroutines() int {
+	for size := 64 << 10; ; size *= 2 {
+		buf := make([]byte, size)
+		if n := runtime.Stack(buf, true); n < size {
+			return strings.Count(string(buf[:n]), "created by database/sql.(*DB).beginDC in goroutine")
+		}
+	}
+}
+
+func TestPoolBinding_SingleConnectionWithoutVerify(t *testing.T) {
+	t.Parallel()
+	identity := func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{
+			Columns: []string{"system_identifier", "current_database"},
+			Rows:    [][]driver.Value{{"100", "orders"}},
+		}
+	}
+	source, _ := testhelpers.NewFakeSQL(t, identity)
+	source.SetMaxOpenConns(1)
+	target, _ := testhelpers.NewFakeSQL(t, identity)
+	db, resolve, err := (Pools{"source": source, "target": target}).Binding(t.Context(), "target")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	require.NoError(t, WithTransaction(ctx, source, func(txCtx context.Context) error {
+		_, err := sqldialect.Postgres.WrapPool(db).WithResolver(resolve).ExecContext(txCtx, "UPDATE orders SET status = 'ready'")
+		return err
+	}))
+}
+
+func TestPoolIdentity_WaitRespectsContext(t *testing.T) {
+	t.Parallel()
+	started, release := make(chan struct{}), make(chan struct{})
+	db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
+		close(started)
+		<-release
+		return testhelpers.FakeSQLReply{
+			Columns: []string{"system_identifier", "current_database"},
+			Rows:    [][]driver.Value{{"100", "orders"}},
+		}
+	})
+	first := make(chan error, 1)
+	go func() {
+		_, err := resolvePoolIdentity(t.Context(), db)
+		first <- err
+	}()
+	<-started
+	defer func() {
+		close(release)
+		require.NoError(t, <-first)
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	waiter := make(chan error, 1)
+	go func() {
+		_, err := resolvePoolIdentity(ctx, db)
+		waiter <- err
+	}()
+	select {
+	case err := <-waiter:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("identity lookup waited for stalled I/O after its context expired")
+	}
+}
+
+func TestPoolIdentity_CachesFailures(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("identity unavailable")
+	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{Err: failure}
+	})
+	for range 2 {
+		_, err := resolvePoolIdentity(t.Context(), db)
+		require.ErrorIs(t, err, failure)
+	}
+	require.Len(t, fake.Calls(), 1)
+}
+
+func TestPoolIdentity_FallbackWhenControlSystemUnreadable(t *testing.T) {
+	t.Parallel()
+
+	restrictedResponder := func(dbName string) func(string, []any) testhelpers.FakeSQLReply {
+		return func(query string, _ []any) testhelpers.FakeSQLReply {
+			switch query {
+			case controlIdentityQuery:
+				return testhelpers.FakeSQLReply{Err: &pgconn.PgError{Code: "42501", Message: "permission denied for function pg_control_system"}}
+			case databaseIdentityQuery:
+				return testhelpers.FakeSQLReply{
+					Columns: []string{"current_database"},
+					Rows:    [][]driver.Value{{dbName}},
+				}
+			default:
+				return testhelpers.FakeSQLReply{Affected: 1}
+			}
+		}
+	}
+
+	var logRecords int
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_ = logger
+	h := &countingHandler{}
+	db1, _ := testhelpers.NewFakeSQL(t, restrictedResponder("app"))
+	registerPoolLogger(db1, slog.New(h))
+	db2, _ := testhelpers.NewFakeSQL(t, restrictedResponder("app"))
+	registerPoolLogger(db2, slog.New(h))
+
+	pools := Pools{DefaultPool: db1, "worker": db2}
+	require.NoError(t, pools.Verify(t.Context()))
+	require.NoError(t, pools.Verify(t.Context()))
+	_ = logRecords
+	require.Equal(t, 2, h.count)
+}
+
+type countingHandler struct{ count int }
+
+func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *countingHandler) WithGroup(string) slog.Handler            { return h }
+func (h *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level == slog.LevelInfo {
+		h.count++
+	}
+	return nil
+}
+
+func TestClassifyContext(t *testing.T) {
+	t.Parallel()
+
+	activeCtx := t.Context()
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	deadlineCtx, expire := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer expire()
+
+	translated := &pgconn.PgError{Code: "57014", Message: "annulation de la commande à cause du délai d'attente"}
+	englishStmtTimeout := &pgconn.PgError{Code: "57014", Message: "canceling statement due to statement timeout"}
+	englishUserCancel := &pgconn.PgError{Code: "57014", Message: "canceling statement due to user request"}
+	safe57014 := sqldialect.SafeError(nil, "query", translated)
+
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want ErrorKind
+	}{
+		{name: "deadline ctx with translated 57014", ctx: deadlineCtx, err: translated, want: Timeout},
+		{name: "deadline ctx with english user cancel 57014", ctx: deadlineCtx, err: englishUserCancel, want: Timeout},
+		{name: "deadline ctx with safe 57014", ctx: deadlineCtx, err: safe57014, want: Timeout},
+		{name: "deadline error directly", ctx: activeCtx, err: context.DeadlineExceeded, want: Timeout},
+		{name: "canceled ctx with translated 57014", ctx: canceledCtx, err: translated, want: Canceled},
+		{name: "canceled ctx with safe 57014", ctx: canceledCtx, err: safe57014, want: Canceled},
+		{name: "canceled error directly", ctx: activeCtx, err: context.Canceled, want: Canceled},
+		{name: "no ctx error with translated 57014", ctx: activeCtx, err: translated, want: StatementTimeout},
+		{name: "no ctx error with safe 57014", ctx: activeCtx, err: safe57014, want: StatementTimeout},
+		{name: "no ctx error with english statement timeout", ctx: activeCtx, err: englishStmtTimeout, want: StatementTimeout},
+		{name: "no ctx error with english user request", ctx: activeCtx, err: englishUserCancel, want: StatementTimeout},
+		{name: "nil ctx with translated 57014", ctx: nil, err: translated, want: StatementTimeout},
+		{name: "nil error with deadline ctx", ctx: deadlineCtx, err: nil, want: Unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			kind, name := ClassifyContext(tc.ctx, tc.err)
+			require.Equal(t, tc.want, kind)
+			require.Empty(t, name)
+		})
+	}
+
+	// Guard: Classify without context keeps existing outcomes.
+	kind, _ := Classify(translated)
+	require.Equal(t, Unknown, kind)
+	kind, _ = Classify(englishStmtTimeout)
+	require.Equal(t, StatementTimeout, kind)
+	kind, _ = Classify(englishUserCancel)
+	require.Equal(t, Canceled, kind)
 }

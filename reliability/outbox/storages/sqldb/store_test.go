@@ -438,8 +438,8 @@ func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			db, fake := testhelpers.NewFakeSQL(t, readyRows(nil, 1))
 			var business *sql.Tx
-			store, err := sqldb.New(db, d, sqldb.WithAsynchronousCommit(), sqldb.WithTxResolver(func(context.Context) (*sql.Tx, bool) {
-				return business, business != nil
+			store, err := sqldb.New(db, d, sqldb.WithAsynchronousCommit(), sqldb.WithTxResolver(func(context.Context) (*sql.Tx, bool, error) {
+				return business, business != nil, nil
 			}))
 			require.NoError(t, err)
 			tx, err := db.BeginTx(ctx, nil)

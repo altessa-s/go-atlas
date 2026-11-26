@@ -23,19 +23,21 @@ type sqlStateError interface {
 	SQLState() string
 }
 
-func (s *options) resolveTx(ctx context.Context) (*sql.Tx, bool) {
+func (s *options) resolveTx(ctx context.Context) (*sql.Tx, bool, error) {
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
-		return tx, true
+		return tx, true, nil
 	}
 	if s.txResolver != nil {
 		return s.txResolver(ctx)
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 func (s *Storage) operationError(ctx context.Context, err error, op string) error {
-	if _, ok := s.db.Tx(ctx); ok && restartRequired(err) {
-		err = errors.Join(ErrRestartTransaction, err)
+	if restartRequired(err) {
+		if _, open, _ := s.db.Tx(ctx); open {
+			err = errors.Join(ErrRestartTransaction, err)
+		}
 	}
 	return coreerrs.WrapOperation(err, op)
 }

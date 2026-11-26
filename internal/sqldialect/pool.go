@@ -18,26 +18,27 @@ import (
 type Pool struct {
 	*sql.DB
 	postgres bool
-	resolve  func(context.Context) (*sql.Tx, bool)
+	resolve  func(context.Context) (*sql.Tx, bool, error)
 }
 
 // WrapPool uses the application pool for this SQL dialect.
 func (s Style) WrapPool(db *sql.DB) Pool { return Pool{DB: db, postgres: s == Postgres} }
 
 // WithResolver returns a pool routing statements through the transaction supplied per call.
-func (p Pool) WithResolver(resolve func(context.Context) (*sql.Tx, bool)) Pool {
+func (p Pool) WithResolver(resolve func(context.Context) (*sql.Tx, bool, error)) Pool {
 	p.resolve = resolve
 	return p
 }
 
 // Tx resolves a caller-owned transaction. A non-nil handle with false is a closed
 // binding: operations must fail with sql.ErrTxDone before touching the pool.
-func (p Pool) Tx(ctx context.Context) (*sql.Tx, bool) {
+// A resolver error prevents both transaction and pool execution.
+func (p Pool) Tx(ctx context.Context) (*sql.Tx, bool, error) {
 	if p.resolve != nil {
-		tx, open := p.resolve(ctx)
-		return tx, tx != nil && open
+		tx, open, err := p.resolve(ctx)
+		return tx, tx != nil && open, err
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 // Scope represents a local or caller-owned transaction for a multi-statement store operation.
@@ -48,13 +49,17 @@ type Scope struct {
 
 // BeginScope joins the caller's transaction or begins a new one.
 func (p Pool) BeginScope(ctx context.Context, opts *sql.TxOptions) (Scope, error) {
-	if tx, open := p.Tx(ctx); tx != nil {
+	tx, open, err := p.Tx(ctx)
+	if err != nil {
+		return Scope{}, err
+	}
+	if tx != nil {
 		if !open {
 			return Scope{}, sql.ErrTxDone
 		}
 		return Scope{Tx: tx}, nil
 	}
-	tx, err := p.BeginTx(ctx, opts)
+	tx, err = p.BeginTx(ctx, opts)
 	return Scope{Tx: tx, owned: true}, err
 }
 
@@ -77,7 +82,11 @@ func (t Scope) Rollback() error {
 // ExecContext runs a standalone statement. Explicit transactions execute
 // their own statements on *sql.Tx.
 func (p Pool) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if tx, open := p.Tx(ctx); tx != nil {
+	tx, open, err := p.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if tx != nil {
 		if !open {
 			return nil, sql.ErrTxDone
 		}
@@ -137,7 +146,11 @@ func (r Rows) Close() error {
 
 // QueryContext returns rows for the caller to consume and close.
 func (p Pool) QueryContext(ctx context.Context, query string, args ...any) (Rows, error) {
-	if tx, open := p.Tx(ctx); tx != nil {
+	tx, open, resolveErr := p.Tx(ctx)
+	if resolveErr != nil {
+		return Rows{}, resolveErr
+	}
+	if tx != nil {
 		if !open {
 			return Rows{}, sql.ErrTxDone
 		}
@@ -175,7 +188,11 @@ func (r Row) Scan(dest ...any) error {
 // QueryRowContext examines only the query startup error. Scan retains
 // database/sql's single-row, type conversion and no-rows semantics.
 func (p Pool) QueryRowContext(ctx context.Context, query string, args ...any) Row {
-	if tx, open := p.Tx(ctx); tx != nil {
+	tx, open, err := p.Tx(ctx)
+	if err != nil {
+		return Row{err: err}
+	}
+	if tx != nil {
 		if !open {
 			return Row{err: sql.ErrTxDone}
 		}

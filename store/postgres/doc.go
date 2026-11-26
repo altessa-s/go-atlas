@@ -9,5 +9,7 @@
 // identifies the selected pool's open write transaction. [WithTxRetries] enables whole-body
 // replay for replay-safe roots. Cross-pool nesting and independent commits in replayable
 // bodies are rejected. Transaction completion belongs to the owner.
+// Prepare [Pools.Binding] during construction to reuse group transactions without
+// acquiring another connection at statement time.
 // [Open] accepts observability dependencies through functional options.
 package postgres

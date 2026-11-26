@@ -41,9 +41,9 @@ func TestStoreRollback(t *testing.T) {
 		require.NoError(t, err)
 	})
 	type transactionKey struct{}
-	resolve := func(ctx context.Context) (*sql.Tx, bool) {
+	resolve := func(ctx context.Context) (*sql.Tx, bool, error) {
 		tx, ok := ctx.Value(transactionKey{}).(*sql.Tx)
-		return tx, ok
+		return tx, ok, nil
 	}
 	type querier interface {
 		QueryRowContext(context.Context, string, ...any) *sql.Row

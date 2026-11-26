@@ -78,9 +78,13 @@ injected client. Origin comparison uses the scheme, canonical host with its trai
 | `Client.DeleteDocuments(ctx, index, ids)`                         | Delete by ID list                                          |
 | `Client.DeleteDocumentsByFilter(ctx, index, filter)`              | Delete by Meilisearch filter expression (see SECURITY)     |
 | `Client.FetchDocuments(ctx, index, filter, offset, limit)`        | Paginated fetch by filter; returns `*FetchResult` with raw hits and total (see SECURITY) |
-| `Client.GetAllDocumentIDs(ctx, index)`                            | Paginated ID list (default `"id"` primary key)             |
+| `Client.GetAllDocumentIDs(ctx, index)`                            | Paginated ID list (default `"id"` primary key; string and numeric IDs) |
 | `Client.GetAllDocumentIDsWithPrimaryKey(ctx, index, key)`         | Same, but with an explicit primary-key field name          |
 | `Client.Search(ctx, req)`                                         | Full-text search; returns `*SearchResult` with raw JSON hits and estimated total |
+
+`GetAllDocumentIDs` and `GetAllDocumentIDsWithPrimaryKey` decode both string and numeric (`json.Number`) primary keys and fail with
+`ErrInvalidDocumentID` when a document lacks a valid scalar primary key. Offset paging over a live, mutating index is best-effort: a delete and
+insert between pages can shift offsets and skip a row even when `total` is unchanged. Run against a quiescent index or reconcile twice.
 
 ### Tasks
 
@@ -93,15 +97,19 @@ Write methods (`IndexDocuments`, `DeleteDocuments`, `SwapIndexes`, …) are fire
 
 ## Errors
 
+**Breaking change.** Sanitized diagnostics unwrap to package sentinels such as `ErrTaskFailed` or `ErrRequestFailed`. The error chain no longer
+exposes `*meilisearch.Error` from the SDK, so callers using `errors.As` for SDK fields must switch to the wrapper's predicates and sentinels.
+
 | Sentinel                 | Predicate                          | Maps to Meilisearch code   |
 |--------------------------|------------------------------------|----------------------------|
 | `ErrIndexNotFound`       | `IsErrorIndexNotFound(err)`        | `index_not_found`          |
 | `ErrIndexAlreadyExists`  | `IsErrorIndexAlreadyExists(err)`   | `index_already_exists`     |
 | `ErrTaskFailed`          | `errors.Is(err, ErrTaskFailed)`    | task terminal status ≠ `succeeded` |
+| `ErrInvalidDocumentID`   | `errors.Is(err, ErrInvalidDocumentID)` | missing, null, or non-scalar primary key |
 
-Use the predicates to classify API errors: they match the sentinel or the raw SDK error code. Methods return the SDK error wrapped as is (the sentinels
-only drive internal decisions such as `IndexExists` and `DeleteIndex` treating a missing index as absent), so `errors.Is(err, ErrIndexNotFound)` can
-report false where `IsErrorIndexNotFound(err)` reports true.
+Use the predicates to classify API errors: they match the sentinel or the validated API error code. Returned errors render only the operation,
+task UID, status, HTTP status, and validated Meilisearch `code`/`type` — raw server `message` text and request/response bodies are omitted so
+document values and search filters cannot leak into logs.
 
 ## Security
 

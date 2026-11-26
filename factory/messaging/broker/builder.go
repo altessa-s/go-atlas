@@ -61,7 +61,7 @@ type BrokerBuilder struct {
 	providers        map[brokerconfig.Provider]ProviderFunc
 	outboxStorages   map[outboxconfig.StorageType]outboxfactory.StorageFunc
 	sqlDB            *sql.DB
-	resolveTx        func(context.Context) (*sql.Tx, bool)
+	resolveTx        func(context.Context) (*sql.Tx, bool, error)
 	sqlListener      outboxsql.Listener
 	shutdownHooks    *coreruntime.HookGroup
 }
