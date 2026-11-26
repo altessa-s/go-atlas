@@ -67,7 +67,7 @@ func BenchmarkProvider_AllowAllUntagged(b *testing.B) {
 	client, mr := redistest.RedisClient(b)
 	redistest.ServeTopology(mr, "master", "0")
 	fake := clock.NewFake(time.Unix(0, 0))
-	p := redis.New(client, redis.WithClock(fake))
+	p := redis.New(client, redis.WithTestClock(fake))
 	ctx := b.Context()
 	limits := []storages.Limit{
 		{Key: "host:a", Limit: 1_000_000, Period: time.Millisecond},

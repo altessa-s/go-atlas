@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package redis provides Redis-based rate limit storage for distributed tokenbucket deployments.
-// Uses sorted sets with atomic Lua scripts and sliding window algorithm for consistency.
+// Uses sorted sets with atomic Lua scripts and sliding window algorithm for consistency. Both scripts take window time from the Redis primary.
 //
 // [Provider.AllowAll] implements [storages.MultiStorage] with one script over
 // every key. On a sharded or unknown client the keys of one call must

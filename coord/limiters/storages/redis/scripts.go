@@ -6,6 +6,17 @@ package redis
 
 import "github.com/redis/go-redis/v9"
 
+// windowTime uses the script's Redis primary clock for every key in a call.
+const windowTime = `
+local function window_time(test_now)
+    if test_now ~= '' then
+        return tonumber(test_now)
+    end
+    local now = redis.call('TIME')
+    return now[1] * 1000 + math.floor(now[2] / 1000)
+end
+`
+
 // luaScript implements sliding window rate limiting using Redis Lua script.
 // This ensures atomicity of the rate limiting operations.
 //
@@ -15,14 +26,14 @@ import "github.com/redis/go-redis/v9"
 // the limit. The caller passes a random nonce; the score keeps the request
 // timestamp for window pruning and reset calculation.
 //
-// ARGV[1] (window) and ARGV[3] (now) are in milliseconds. Passing whole
+// ARGV[1] (window) and ARGV[3] (test time) are in milliseconds. Passing whole
 // seconds truncated sub-second periods: a 500 ms window became 0 and
 // EXPIRE 0 deleted every recorded request, so nothing was ever limited.
-var luaScript = redis.NewScript(`
+var luaScript = redis.NewScript(windowTime + `
 local key = KEYS[1]
 local window = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
+local now = window_time(ARGV[3])
 local member = ARGV[4]
 
 -- Remove expired entries. The lower bound is -inf, not 0: an injected clock
@@ -69,12 +80,12 @@ return {limit, remaining, reset_time, 1}  -- 1 = allowed
 // the sliding window of luaScript per key: it prunes and counts every
 // window first and adds to them only when all admit.
 //
-// ARGV[1] is now in milliseconds; key i (1-based) has its window, limit and
+// ARGV[1] is the optional test time in milliseconds; key i (1-based) has its window, limit and
 // unique member at ARGV[3i-1], ARGV[3i] and ARGV[3i+1]. The reply is the
 // 1-based index of the first refusing key (0 when every key admitted),
 // followed by remaining and reset per key.
-var luaScriptMulti = redis.NewScript(`
-local now = tonumber(ARGV[1])
+var luaScriptMulti = redis.NewScript(windowTime + `
+local now = window_time(ARGV[1])
 local n = #KEYS
 local windows, limits, counts, resets = {}, {}, {}, {}
 local refused = 0

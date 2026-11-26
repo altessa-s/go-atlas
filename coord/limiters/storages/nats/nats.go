@@ -184,7 +184,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 // [jetstream.ErrKeyExists] unwrapped when another writer updated the key
 // since it was read.
 func (p *Provider) tryAllow(ctx context.Context, key string, limit, windowMs int64) (*storages.LimitInfo, error) {
-	now := time.Now().UnixMilli()
+	now := p.options.clock.Now().UnixMilli()
 
 	data, revision, err := p.loadBucket(ctx, key)
 	if err != nil {

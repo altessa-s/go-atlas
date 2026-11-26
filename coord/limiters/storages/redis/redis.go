@@ -7,6 +7,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -30,7 +31,8 @@ const memberBytes = 8
 // Provider implements a Redis-based rate limiting provider using sliding window algorithm.
 type Provider struct {
 	redisbase.Base
-	clock clock.Clock
+	clock     clock.Clock
+	testClock clock.Clock
 
 	verified     atomic.Pointer[primaryVerification]
 	verification *singleflight.Group[*redis.Client, struct{}]
@@ -43,6 +45,7 @@ func New(client redis.UniversalClient, opt ...Option) *Provider {
 	return &Provider{
 		Base:         redisbase.NewBase(client, opts.keyPrefix),
 		clock:        opts.clock,
+		testClock:    opts.testClock,
 		verification: singleflight.New[*redis.Client, struct{}](),
 	}
 }
@@ -58,7 +61,6 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	panics.Must(period > 0, "period must be greater than 0")
 
 	redisKey := p.Key(key)
-	now := p.clock.Now().UnixMilli()
 	windowMs := max(period.Milliseconds(), 1)
 
 	// ZSET members are unique by value, so concurrent same-ms ZADDs with
@@ -67,7 +69,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	// window is far below any meaningful failure rate.
 	member := id.NewHex(memberBytes)
 
-	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowMs, limit, now, member).Result()
+	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowMs, limit, p.testTimestamp(), member).Result()
 	if err != nil {
 		return nil, coreerrs.Wrap(err, "redis rate limit script error")
 	}
@@ -88,6 +90,14 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	}
 
 	return info, nil
+}
+
+// testTimestamp returns an empty argument in production, selecting Redis TIME.
+func (p *Provider) testTimestamp() string {
+	if p.testClock != nil {
+		return strconv.FormatInt(p.testClock.Now().UnixMilli(), 10)
+	}
+	return ""
 }
 
 // Reset resets the rate limit for a specific key.

@@ -18,11 +18,11 @@ import (
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 )
 
-// TestProvider_WithClock: the scripts score and prune the windows by the
+// TestProvider_WithTestClock: the scripts score and prune the windows by the
 // injected clock, so advancing a fake clock frees slots without a real wait
 // (miniredis does not expire keys without FastForward, so only the pruning by
 // the clock can free them).
-func TestProvider_WithClock(t *testing.T) {
+func TestProvider_WithTestClock(t *testing.T) {
 	t.Parallel()
 	epoch := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
@@ -38,7 +38,7 @@ func TestProvider_WithClock(t *testing.T) {
 			ctx := t.Context()
 			client, _ := redistest.RedisClient(t)
 			fake := clock.NewFake(time.Time{})
-			p := redis.New(client, redis.WithClock(fake))
+			p := redis.New(client, redis.WithTestClock(fake))
 			allow := func() error {
 				if tc.all {
 					_, err := p.AllowAll(ctx, []storages.Limit{{Key: "z", Limit: 1, Period: time.Minute}})
@@ -59,7 +59,7 @@ func TestProvider_WithClock(t *testing.T) {
 		ctx := t.Context()
 		client, _ := redistest.RedisClient(t)
 		fake := clock.NewFake(epoch)
-		p := redis.New(client, redis.WithClock(fake))
+		p := redis.New(client, redis.WithTestClock(fake))
 
 		_, err := p.Allow(ctx, "k", 1, time.Hour)
 		require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestProvider_WithClock(t *testing.T) {
 		client, mr := redistest.RedisClient(t)
 		redistest.ServeTopology(mr, "master", "0")
 		fake := clock.NewFake(epoch)
-		p := redis.New(client, redis.WithClock(fake))
+		p := redis.New(client, redis.WithTestClock(fake))
 		limits := []storages.Limit{
 			{Key: "a", Limit: 1, Period: time.Hour},
 			{Key: "b", Limit: 2, Period: time.Hour},
@@ -93,4 +93,39 @@ func TestProvider_WithClock(t *testing.T) {
 		_, err = p.AllowAll(ctx, limits)
 		require.NoError(t, err, "the windows must expire on the fake clock")
 	})
+}
+
+func TestProvider_ReplicaClockSkew(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"single", "multi"} {
+		for _, order := range []string{"slow-first", "fast-first"} {
+			t.Run(mode+"/"+order, func(t *testing.T) {
+				t.Parallel()
+				client, mr := redistest.RedisClient(t)
+				now := time.Unix(1_800_000_000, 0)
+				mr.SetTime(now)
+				slow := redis.New(client, redis.WithClock(clock.NewFake(now)))
+				fast := redis.New(client, redis.WithClock(clock.NewFake(now.Add(2*time.Second))))
+				first, second := slow, fast
+				if order == "fast-first" {
+					first, second = fast, slow
+				}
+				allow := func(p *redis.Provider) error {
+					if mode == "multi" {
+						_, err := p.AllowAll(t.Context(), []storages.Limit{
+							{Key: "{replica}:one", Limit: 1, Period: time.Second},
+							{Key: "{replica}:two", Limit: 1, Period: time.Second},
+						})
+						return err
+					}
+					_, err := p.Allow(t.Context(), "one", 1, time.Second)
+					return err
+				}
+				require.NoError(t, allow(first))
+				require.ErrorIs(t, allow(second), limiters.ErrLimitExceeded)
+				mr.SetTime(now.Add(time.Second))
+				require.NoError(t, allow(second), "server time crossing the window frees the quota")
+			})
+		}
+	}
 }

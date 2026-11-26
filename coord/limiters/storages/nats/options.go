@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas-core/time/clock"
 )
 
 const (
@@ -61,6 +62,9 @@ type options struct {
 	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
 	// key in it, including keys of other processes sharing the bucket.
 	migrateBucketTTL bool
+
+	// WithClock sets the clock used for sliding-window decisions.
+	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
 }
 
 func defaultBucket() string {
