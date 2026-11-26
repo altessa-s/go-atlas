@@ -7,7 +7,6 @@ package factory
 import (
 	"cmp"
 	"context"
-	"errors"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/audit"
@@ -23,7 +22,7 @@ import (
 
 // ErrConnRequired is returned when the ClickHouse audit storage is built
 // without a connection.
-var ErrConnRequired = errors.New("audit: clickhouse connection is required for storage type clickhouse")
+var ErrConnRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "audit: clickhouse connection is required for storage type clickhouse")
 
 // MinRecommendedBatchSize is the smallest dispatch batch size the builder
 // accepts without a warning: every flush creates a part the server has to

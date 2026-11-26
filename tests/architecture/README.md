@@ -27,6 +27,7 @@ go test ./tests/architecture
 | Optgen field tags | Validates `optgen:"manual"` and `opt:"-"`, forbids `optgen:"-"`, and requires doc comments on non-generated fields |
 | Factory mirror layout | Enforces `factory/<path>` mirrors `<path>` and external factories live under `factory/ext/<module>` |
 | Factory health dependencies | Rejects references to `health.Coordinator` in `factory/` outside `factory/observability/health` |
+| Factory sentinel errors | Verifies factory builders and provider constructors wrap core factory and invalid-argument sentinels |
 | Auth option roles | Verifies variadic constructor option types are mutually distinct per role in `auth/jwt`, `auth/selfjwt`, and `auth/oauth2client` |
 | Public transport APIs | Checks public transport declarations for internal types and runs both server lifecycles from a separate consumer module. |
 | Transport error logging | Typed AST check on `./transport/...` and `./internal/transport/...` rejects raw `error` arguments and `.Error()` strings outside `internal/diagnostics.LogError` and error classifiers. |

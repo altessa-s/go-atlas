@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -29,7 +28,7 @@ const ensureIndexesTimeout = 30 * time.Second
 var (
 	// ErrClientRequired is returned when the MongoDB lock provider is built
 	// without a database.
-	ErrClientRequired = errors.New("dlock: mongo database is required for provider mongo")
+	ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "dlock: mongo database is required for provider mongo")
 	// ErrConfigRequired is returned when the distribution lock configuration
 	// has no mongo block.
 	ErrConfigRequired = fmt.Errorf("dlock: mongo configuration is required for provider mongo: %w", corefactory.ErrConfigRequired)

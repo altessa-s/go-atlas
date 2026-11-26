@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/reliability/outbox/internal/watchutil"
+
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -58,11 +60,11 @@ func (h *captureHandler) byLevel(level slog.Level) []string {
 }
 
 // A deployment that never answers must be visible without flooding the log:
-// the first failure is warned about, then every watchLogEvery-th.
+// the first failure is warned about, then every watchutil.LogEvery failures.
 func TestLogProbe_WarnsAtABoundedRate(t *testing.T) {
 	t.Parallel()
 
-	const failures = 3*watchLogEvery + 5
+	const failures = 3*watchutil.LogEvery + 5
 
 	h := &captureHandler{}
 	calls := 0
@@ -79,7 +81,7 @@ func TestLogProbe_WarnsAtABoundedRate(t *testing.T) {
 	require.True(t, supported)
 	require.Equal(t, failures+1, calls)
 
-	require.Len(t, h.byLevel(slog.LevelWarn), 1+failures/watchLogEvery)
+	require.Len(t, h.byLevel(slog.LevelWarn), 1+failures/watchutil.LogEvery)
 	require.Len(t, h.byLevel(slog.LevelInfo), 1)
 }
 

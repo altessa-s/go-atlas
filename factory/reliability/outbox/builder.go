@@ -10,17 +10,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
-	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	reliabilitysql "github.com/altessa-s/go-atlas/factory/reliability/internal/sqlstore"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
@@ -207,23 +206,16 @@ func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *outboxconfig.SQL
 	opts = slices.AppendIf(opts, cfg.AsynchronousCommit, outboxsql.WithAsynchronousCommit())
 	opts = slices.AppendIf(opts, notify, outboxsql.WithNotify(), outboxsql.WithListener(b.sqlListener))
 	opts = slices.AppendIf(opts, notify && cfg.NotifyChannel != "", outboxsql.WithNotifyChannel(cfg.NotifyChannel))
-	store, err := outboxsql.New(b.sqlDB, outboxsql.Dialect(cfg.Dialect), opts...)
-	if err != nil {
-		return nil, b.WrapError(err, "failed to create outbox store")
-	}
-	if cfg.EnsureSchema {
-		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)
-		defer cancel()
-		if err := store.EnsureSchema(schemaCtx); err != nil {
-			return nil, b.WrapError(err, "ensure outbox schema")
+	return reliabilitysql.Build(ctx, cfg.EnsureSchema, func() (*outboxsql.Store, error) {
+		store, err := outboxsql.New(b.sqlDB, outboxsql.Dialect(cfg.Dialect), opts...)
+		if err != nil {
+			return nil, b.WrapError(err, "failed to create outbox store")
 		}
-	}
-	return store, nil
+		return store, nil
+	}, func(err error) error {
+		return b.WrapError(err, "ensure outbox schema")
+	})
 }
-
-// ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the
-// config asks for it, so a lock wait cannot stall startup indefinitely.
-const ensureSchemaTimeout = 30 * time.Second
 
 // onShutdown registers hook in the builder's scope, defaulting to the
 // process-wide registry.

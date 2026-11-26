@@ -32,6 +32,12 @@ type Driver interface {
 	PostCall(ctx context.Context, resp any, err error) error
 }
 
+// DriverUnaryResponse can replace the response of a successful unary server
+// handler after PostCall succeeds. A non-nil error discards the response.
+type DriverUnaryResponse interface {
+	PostCallResponse(ctx context.Context, resp any) (any, error)
+}
+
 // DriverStream extends Driver for streaming RPCs.
 // It provides hooks for individual messages sent or received in a stream.
 type DriverStream interface {

@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,4 +173,41 @@ func TestBaseServer_GracefulShutdown_NotStarted(t *testing.T) {
 		return errors.New("should not be called")
 	})
 	require.NoError(t, err)
+}
+
+func TestBaseServer_AddressRaceDuringFailingStart(t *testing.T) {
+	t.Parallel()
+
+	s := NewBaseServer(
+		WithAddress("127.0.0.1:0"),
+		WithTimeouts(timeouts.Lifecycle{
+			StartupVerification: time.Second,
+			ShutdownGraceful:    time.Second,
+			ShutdownWarning:     time.Second,
+		}),
+	)
+
+	var stop atomic.Bool
+	ready := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		close(ready)
+		for !stop.Load() {
+			_ = s.Address()
+			_ = s.HasListener()
+			_ = s.Listener()
+		}
+	})
+	<-ready
+
+	wantErr := errors.New("early start failure")
+	for range 25 {
+		err := s.Start("test", func(_ net.Listener, errCh chan<- error) {
+			errCh <- wantErr
+		})
+		require.ErrorIs(t, err, wantErr)
+	}
+
+	stop.Store(true)
+	wg.Wait()
 }

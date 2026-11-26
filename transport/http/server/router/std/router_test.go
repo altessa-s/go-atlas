@@ -227,3 +227,24 @@ func TestRouter_MultipleMiddleware(t *testing.T) {
 
 	require.Equal(t, "ABH", order)
 }
+
+func TestRoute_DuplicateMethods_InitializeDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	r := New()
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	r.Handle("POST /x", h).Methods("POST")
+	r.Methods("GET", "GET", "HEAD").Path("/y").Handler(h)
+
+	require.NotPanics(t, r.Initialize)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/x", nil))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	recGet := httptest.NewRecorder()
+	r.ServeHTTP(recGet, httptest.NewRequest(http.MethodGet, "/x", nil))
+	require.NotEqual(t, http.StatusCreated, recGet.Code)
+}

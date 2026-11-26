@@ -5,11 +5,11 @@
 package factory
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/cache/generation"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	memorygen "github.com/altessa-s/go-atlas/cache/generation/storages/memory"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -57,7 +57,7 @@ func (b *GenerationStoreBuilder) UseLogger(v *slog.Logger) *GenerationStoreBuild
 // type replaces the earlier one; the in-process store is built in.
 func (b *GenerationStoreBuilder) UseStore(typ storageconfig.CacheStorageType, build GenerationStoreFunc) *GenerationStoreBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseStore %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseStore %q: nil function", typ))
 		return b
 	}
 	if b.stores == nil {

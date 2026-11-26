@@ -34,7 +34,8 @@ combinations are rejected:
 
 - `WithAllowAllOrigins` + `WithAllowCredentials`.
 - `WithAllowCredentials` + a `WithAllowedOriginPatterns` regex that matches arbitrary origins (e.g. `.*`, `^https?://.*$`, or an empty pattern) or is
-  not anchored at the end with `$` (`^https://.*\.example\.com` also matches `https://x.example.com.evil.io`).
+  not anchored at both start (`^`) and end (`$`) on every top-level alternative (`example\.com$` matches `https://evilexample.com`, and
+  `^https://.*\.example\.com` matches `https://x.example.com.evil.io`).
 
 Domain-anchored patterns such as `^https://[a-z0-9-]+\.example\.com$` are unaffected. Anchor your patterns to your own domains.
 

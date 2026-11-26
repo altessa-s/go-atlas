@@ -5,13 +5,14 @@
 package factory
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -30,7 +31,7 @@ func (b *TracerBuilder) UseDefaultLogger() *TracerBuilder {
 // same type replaces the earlier one.
 func (b *TracerBuilder) UseAdapter(typ observabilityconfig.TracingType, build AdapterBuilder) *TracerBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseAdapter %q: nil builder", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseAdapter %q: nil builder", typ))
 		return b
 	}
 	if b.adapters == nil {

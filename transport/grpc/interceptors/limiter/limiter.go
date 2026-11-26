@@ -122,10 +122,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 }
 
 func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD, error) {
-	md, _ := metadata.FromOutgoingContext(ctx)
-	if md == nil {
-		md = metadata.New(nil)
-	}
+	md := metadata.MD{}
 
 	if i.ShouldIgnore(method) {
 		i.LogIgnored(ctx, method)

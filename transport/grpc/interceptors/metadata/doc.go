@@ -9,8 +9,11 @@
 // [CallMetadata] is created once per RPC by [NewCallMetadata] and stored in the
 // context via [NewContext]. Subsequent interceptors retrieve it with [FromContext]
 // or use the convenience helper [EnsureInContext] which creates metadata on
-// demand. Parsed method names are cached process-wide in a [sync.Map] for
-// efficient repeated lookups.
+// demand. Registered server method names are cached process-wide in a bounded
+// cache for efficient repeated lookups. The Atlas gRPC server installs the
+// registration check automatically. Standalone gRPC servers can install it
+// with [ServerMethodOptions]. Unknown and client method names do not add
+// cache entries.
 //
 // The [Interceptor] function returns a [driver.DrivenInterceptor] that the
 // [interceptors.Chain] automatically prepends, so all downstream

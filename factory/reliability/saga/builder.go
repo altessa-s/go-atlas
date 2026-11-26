@@ -9,15 +9,14 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
-	corecontext "github.com/altessa-s/go-atlas-core/context"
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	reliabilitysql "github.com/altessa-s/go-atlas/factory/reliability/internal/sqlstore"
 	memorystore "github.com/altessa-s/go-atlas/reliability/saga/storages/memory"
 	sqlstore "github.com/altessa-s/go-atlas/reliability/saga/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -148,25 +147,16 @@ func missingStorage(typ sagaconfig.StorageType, client string) (saga.Storage, er
 		"with UseStorage(%q, %sfactory.Builder(%s))", typ, typ, typ, typ, client)
 }
 
-// ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the
-// config asks for it, so a lock wait cannot stall startup indefinitely.
-const ensureSchemaTimeout = 30 * time.Second
-
 // buildSQLStore creates the SQL store. With EnsureSchema set it creates the
 // table through the store's idempotent EnsureSchema; otherwise it performs no
 // I/O and the schema is expected to exist.
 func (b *Builder[T]) buildSQLStore(ctx context.Context, cfg *sagaconfig.SQLStorageConfig) (*sqlstore.Store, error) {
-	store, err := sqlstore.New(b.sqlDB, sqlstore.Dialect(cfg.Dialect),
-		sqlstore.WithTableName(cfg.Table), sqlstore.WithTxResolver(b.resolveTx))
-	if err != nil || !cfg.EnsureSchema {
-		return store, err
-	}
-	schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)
-	defer cancel()
-	if err := store.EnsureSchema(schemaCtx); err != nil {
-		return nil, b.WrapError(err, "ensure saga schema")
-	}
-	return store, nil
+	return reliabilitysql.Build(ctx, cfg.EnsureSchema, func() (*sqlstore.Store, error) {
+		return sqlstore.New(b.sqlDB, sqlstore.Dialect(cfg.Dialect),
+			sqlstore.WithTableName(cfg.Table), sqlstore.WithTxResolver(b.resolveTx))
+	}, func(err error) error {
+		return b.WrapError(err, "ensure saga schema")
+	})
 }
 
 // orchestratorOptions translates the config and injected dependencies into

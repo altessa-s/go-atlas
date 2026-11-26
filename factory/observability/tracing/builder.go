@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 
@@ -107,10 +106,10 @@ func (b *TracerBuilder) createAdapter(ctx context.Context) (adapters.Adapter, er
 		}
 		return createConsoleAdapter(consoleCfg, b.consoleWriter), nil
 	case observabilityconfig.TracingTypeOTLP:
-		return nil, fmt.Errorf("tracing type %q is not registered: add factory/observability/tracing/adapters/otlp "+
+		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "tracing type %q is not registered: add factory/observability/tracing/adapters/otlp "+
 			"with UseAdapter(%q, otlpfactory.Builder())", b.cfg.Type, b.cfg.Type)
 	default:
-		return nil, fmt.Errorf("unknown tracing type: %s", b.cfg.Type)
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unknown tracing type: %s", b.cfg.Type)
 	}
 }
 
@@ -141,6 +140,6 @@ func (b *TracerBuilder) createSampler() (sampler.Sampler, error) {
 		root := sampler.NewTraceIDRatio(cfg.Ratio)
 		return sampler.NewParentBased(root), nil
 	default:
-		return nil, fmt.Errorf("unknown sampler type: %s", cfg.Type)
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unknown sampler type: %s", cfg.Type)
 	}
 }

@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -22,7 +21,7 @@ import (
 var (
 	// ErrClientRequired is returned when the Redis generation store is built
 	// without a client.
-	ErrClientRequired = errors.New("cache: redis client is required for generation store type redis")
+	ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "cache: redis client is required for generation store type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
 	ErrConfigRequired = fmt.Errorf("cache: redis configuration is required for generation store type redis: %w", corefactory.ErrConfigRequired)

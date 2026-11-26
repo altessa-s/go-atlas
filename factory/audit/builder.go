@@ -187,7 +187,7 @@ func (b *AuditorBuilder) createStorage(ctx context.Context) (audit.Storage, erro
 // ErrSQLDBRequired is returned by [AuditorBuilder.Build] when the configured
 // storage type is "sqldb" but no database was supplied via
 // [AuditorBuilder.UseSQLDB].
-var ErrSQLDBRequired = errors.New("audit: sql database is required for storage type sqldb")
+var ErrSQLDBRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "audit: sql database is required for storage type sqldb")
 
 // ensureSchemaTimeout bounds the schema creation createSQLStorage runs when
 // the config asks for it, so a lock wait cannot stall startup indefinitely.

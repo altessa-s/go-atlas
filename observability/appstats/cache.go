@@ -56,6 +56,10 @@ var metricCollectionTasks = []func(context.Context, int64){
 }
 
 func (m *CachedMetrics) initialize() {
+	m.CPUTimestamp.Store(0)
+	m.MemoryTimestamp.Store(0)
+	m.NetworkTimestamp.Store(0)
+	m.ProcessTimestamp.Store(0)
 	m.ServiceCPU.Store(zeroPercent)
 	m.SystemCPU.Store(zeroPercent)
 	m.MemoryData.Store(&MemoryLoadData{

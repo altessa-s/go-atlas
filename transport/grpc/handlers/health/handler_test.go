@@ -7,13 +7,16 @@ package health
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 var _ HealthWatcher = (*health.Coordinator)(nil)
@@ -51,5 +54,31 @@ func TestHealthWatcherSeam(t *testing.T) {
 
 	listErr := errors.New("list failed")
 	_, err = New(fakeWatcher{err: listErr}).List(t.Context(), &grpc_health_v1.HealthListRequest{})
-	require.ErrorIs(t, err, listErr)
+	require.Equal(t, codes.Internal, status.Code(err))
+}
+
+func TestList_SanitizesErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("backend error hidden", func(t *testing.T) {
+		t.Parallel()
+		secretErr := errors.New("dial 10.0.0.5:6379: secret")
+		_, err := New(fakeWatcher{err: secretErr}).List(t.Context(), &grpc_health_v1.HealthListRequest{})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, codes.Internal, st.Code())
+		require.NotContains(t, st.Message(), "10.0.0.5")
+		require.NotContains(t, st.Message(), "secret")
+		require.False(t, errors.Is(err, secretErr))
+	})
+
+	t.Run("coordinator shutdown", func(t *testing.T) {
+		t.Parallel()
+		shutdownErr := fmt.Errorf("list: %w", health.ErrCoordinatorShutdown)
+		_, err := New(fakeWatcher{err: shutdownErr}).List(t.Context(), &grpc_health_v1.HealthListRequest{})
+		require.Error(t, err)
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.False(t, errors.Is(err, shutdownErr))
+	})
 }

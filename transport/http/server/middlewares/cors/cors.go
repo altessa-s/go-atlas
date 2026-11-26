@@ -208,32 +208,53 @@ var broadOriginCanaries = []string{
 }
 
 // firstBroadOriginPattern returns the first pattern that matches a canary foreign
-// origin or is not anchored at the end, or nil when every pattern is suitably
-// narrow. A pattern without a trailing `$` matches any origin that merely starts
-// with an allowed one (`^https://.*\.example\.com` also matches
-// https://x.example.com.evil.io), which no fixed canary can detect. Returning the
-// regexp (not its string) avoids conflating "not found" with an empty-string
-// pattern, which itself matches everything.
+// origin or is not anchored at both start and end, or nil when every pattern is
+// suitably narrow. A pattern without a leading `^` matches suffix-confused domains
+// (`example\.com$` matches https://evilexample.com), and one without a trailing `$`
+// matches any origin that merely starts with an allowed one (`^https://.*\.example\.com`
+// also matches https://x.example.com.evil.io), neither of which a fixed canary can
+// detect. Returning the regexp (not its string) avoids conflating "not found" with an
+// empty-string pattern, which itself matches everything.
 func firstBroadOriginPattern(patterns []*regexp.Regexp) *regexp.Regexp {
 	for _, pattern := range patterns {
 		if pattern == nil {
 			continue
 		}
-		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) || !endAnchored(pattern) {
+		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) || !fullyAnchored(pattern) {
 			return pattern
 		}
 	}
 	return nil
 }
 
-// endAnchored reports whether every match of pattern must end at the end of
-// the input.
-func endAnchored(pattern *regexp.Regexp) bool {
+// fullyAnchored reports whether every top-level alternative of pattern must
+// begin at the start of the input and end at the end of the input.
+func fullyAnchored(pattern *regexp.Regexp) bool {
 	re, err := syntax.Parse(pattern.String(), syntax.Perl)
 	if err != nil {
 		return false
 	}
-	return endsAtText(re)
+	return startsAtText(re) && endsAtText(re)
+}
+
+func startsAtText(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpBeginText, syntax.OpBeginLine:
+		return true
+	case syntax.OpConcat:
+		return len(re.Sub) > 0 && startsAtText(re.Sub[0])
+	case syntax.OpCapture:
+		return len(re.Sub) > 0 && startsAtText(re.Sub[0])
+	case syntax.OpAlternate:
+		for _, sub := range re.Sub {
+			if !startsAtText(sub) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func endsAtText(re *syntax.Regexp) bool {

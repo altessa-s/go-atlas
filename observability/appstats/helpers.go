@@ -155,8 +155,14 @@ func CPULoad(ctx context.Context) (*CPULoadData, error) {
 		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
 
-	serviceCP := cachedMetrics.ServiceCPU.Load().(string) //nolint:errcheck
-	systemCPU := cachedMetrics.SystemCPU.Load().(string)  //nolint:errcheck
+	serviceCP, ok := cachedMetrics.ServiceCPU.Load().(string)
+	if !ok {
+		serviceCP = zeroPercent
+	}
+	systemCPU, ok := cachedMetrics.SystemCPU.Load().(string)
+	if !ok {
+		systemCPU = zeroPercent
+	}
 
 	return &CPULoadData{
 		Service: serviceCP,

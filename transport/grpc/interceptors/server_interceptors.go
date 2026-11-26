@@ -99,6 +99,10 @@ func (i *DrivenServerInterceptor) ServerUnaryInterceptor() grpc.UnaryServerInter
 			return nil, postErr
 		}
 
+		if responseDriver, ok := d.(driver.DriverUnaryResponse); ok && err == nil {
+			return responseDriver.PostCallResponse(newCtx, resp)
+		}
+
 		return resp, err
 	}
 }

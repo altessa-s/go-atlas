@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"slices"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-aip/fieldmask/update"
@@ -22,9 +21,11 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	pbfieldbehavior "github.com/altessa-s/go-aip/fieldbehavior"
 	sharedrecovery "github.com/altessa-s/go-atlas/internal/transport/recovery"
@@ -42,16 +43,20 @@ func Name() string { return interceptorName }
 var ID = interceptors.Ref(interceptorName)
 
 var (
-	_ driver.DrivenInterceptor = (*interceptor)(nil)
-	_ driver.DriverStream      = (*requestInterceptor)(nil)
-	_ interceptors.Interceptor = (*interceptor)(nil)
+	_ interceptors.ServerInterceptor = (*interceptor)(nil)
+	_ driver.DrivenInterceptor       = (*interceptor)(nil)
+	_ driver.DriverUnaryResponse     = (*requestInterceptor)(nil)
+	_ driver.DriverStream            = (*requestInterceptor)(nil)
+	_ driver.DriverStreamPreSend     = (*requestInterceptor)(nil)
+	_ interceptors.Interceptor       = (*interceptor)(nil)
 )
 
 // interceptor implements the fieldbehavior gRPC interceptor.
 type interceptor struct {
 	interceptors.BaseInterceptor
-	opts      *options
-	stripOpts []pbfieldbehavior.Option
+	opts       *options
+	stripOpts  []pbfieldbehavior.Option
+	detectOpts []pbfieldbehavior.Option
 	// updates applies the update_mask of Update requests.
 	updates *updatemask.Normalizer
 }
@@ -92,9 +97,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
-	stripOpts := []pbfieldbehavior.Option{
-		pbfieldbehavior.WithMaxDepth(opts.maxStripDepth),
-	}
+	maxDepth := pbfieldbehavior.WithMaxDepth(opts.maxStripDepth)
 
 	if opts.updateNormalizer == nil {
 		opts.updateNormalizer = updatemask.New()
@@ -107,12 +110,24 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		opts:      opts,
-		stripOpts: stripOpts,
-		updates:   opts.updateNormalizer,
+		opts:       opts,
+		stripOpts:  []pbfieldbehavior.Option{maxDepth},
+		detectOpts: []pbfieldbehavior.Option{maxDepth, pbfieldbehavior.WithStrict(true)},
+		updates:    opts.updateNormalizer,
 	}
 
-	return interceptors.ServerDrivenInterceptor(ic)
+	return ic
+}
+
+// ServerUnaryInterceptor returns a unary server interceptor that strips
+// request fields and removes populated INPUT_ONLY fields from a response copy.
+func (i *interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return interceptors.ServerDrivenInterceptor(i).ServerUnaryInterceptor()
+}
+
+// ServerStreamInterceptor returns a streaming server interceptor.
+func (i *interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
+	return interceptors.ServerDrivenInterceptor(i).ServerStreamInterceptor()
 }
 
 // classify returns the configured Kind for fullMethod, falling back to the
@@ -146,27 +161,15 @@ func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error)
 	return nil, nil //nolint:nilnil // Proceed to handler.
 }
 
-// PostCall runs the response-side Strip after the handler returns. A handler
-// error short-circuits the strip — the response body, if any, is not exposed
-// to the wire by gRPC in that case.
-func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error) error {
-	if err != nil {
-		return err
-	}
+// PostCall passes through the handler error. Response replacement is handled
+// by PostCallResponse for unary calls and PreMsgSend for streams.
+func (ri *requestInterceptor) PostCall(_ context.Context, _ any, err error) error {
+	return err
+}
 
-	if ri.meta != nil && ri.meta.IsClient {
-		return nil
-	}
-
-	if ri.shouldSkip() || ri.opts.skipResponse {
-		return nil
-	}
-
-	if stripErr := ri.stripResponse(ctx, resp); stripErr != nil {
-		return stripErr
-	}
-
-	return nil
+// PostCallResponse sanitizes the unary response returned by the handler.
+func (ri *requestInterceptor) PostCallResponse(ctx context.Context, resp any) (any, error) {
+	return ri.stripResponse(ctx, resp)
 }
 
 // PostMsgReceive runs on every incoming streaming message and applies the
@@ -191,62 +194,8 @@ func (ri *requestInterceptor) PostMsgReceive(ctx context.Context, req any, err e
 // transport and strips INPUT_ONLY fields from it. The handler's message is not
 // mutated: when it holds a populated INPUT_ONLY field, a clone is stripped and
 // sent instead.
-func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, err error) {
-	// Detection and cloning run outside runStrip; recover their panics the same
-	// way so a traversal failure becomes codes.Internal, not a crashed SendMsg.
-	defer func() {
-		if recover() == nil {
-			return
-		}
-		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
-			slog.String("side", "response"),
-			slog.String("category", sharedrecovery.PanicCategory),
-		)
-		out = nil
-		err = interceptors.NewError(
-			status.New(codes.Internal, "Internal Error"),
-			sharedrecovery.ErrPanicRecovered,
-		)
-	}()
-
-	if ri.meta != nil && ri.meta.IsClient {
-		return m, nil
-	}
-
-	if ri.shouldSkip() || ri.opts.skipResponse {
-		return m, nil
-	}
-
-	msg, ok := m.(proto.Message)
-	if !ok {
-		return m, nil
-	}
-
-	// A strict pass detects populated INPUT_ONLY fields without mutating msg.
-	detectErr := pbfieldbehavior.StripResponse(msg, append(slices.Clone(ri.stripOpts), pbfieldbehavior.WithStrict(true))...)
-	if detectErr == nil {
-		return m, nil
-	}
-
-	// Any failure other than a violation (e.g. ErrMaxDepthExceeded) rejects the
-	// message before it is cloned.
-	if _, ok := errors.AsType[*pbfieldbehavior.BehaviorViolationError](detectErr); !ok {
-		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), nil,
-			slog.String("grpc.code", codes.Internal.String()),
-			slog.String("classification", diagnostics.ErrorClass(detectErr)),
-			slog.String("side", "response"),
-			slog.String("kind", "response"),
-		)
-		return nil, interceptors.NewError(status.New(codes.Internal, "Internal Error"), detectErr)
-	}
-
-	// Strip a clone so the handler's message stays intact.
-	clone := proto.Clone(msg)
-	if err := ri.runStrip(ctx, clone, pbfieldbehavior.StripResponse, "response", "response"); err != nil {
-		return nil, err
-	}
-
-	return clone, nil
+func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (any, error) {
+	return ri.stripResponse(ctx, m)
 }
 
 // PostMsgSent passes the send result through; responses are stripped before
@@ -288,14 +237,114 @@ func (ri *requestInterceptor) stripRequest(ctx context.Context, req any) error {
 	return nil
 }
 
-// stripResponse applies StripResponse to resp.
-func (ri *requestInterceptor) stripResponse(ctx context.Context, resp any) error {
-	msg, ok := resp.(proto.Message)
-	if !ok {
-		return nil
+// stripResponse checks the response without mutating it and copies it only
+// when there are populated INPUT_ONLY fields to remove.
+func (ri *requestInterceptor) stripResponse(ctx context.Context, resp any) (out any, err error) {
+	if (ri.meta != nil && ri.meta.IsClient) || ri.shouldSkip() || ri.opts.skipResponse {
+		return resp, nil
 	}
 
-	return ri.runStrip(ctx, msg, pbfieldbehavior.StripResponse, "response", "response")
+	msg, ok := resp.(proto.Message)
+	if !ok || msg == nil {
+		return resp, nil
+	}
+
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
+			slog.String("side", "response"),
+			slog.String("category", sharedrecovery.PanicCategory),
+		)
+		out = nil
+		err = interceptors.NewError(
+			status.New(codes.Internal, "Internal Error"),
+			sharedrecovery.ErrPanicRecovered,
+		)
+	}()
+
+	reflected := msg.ProtoReflect()
+	if !reflected.IsValid() {
+		return resp, nil
+	}
+
+	// The strip walk skips irrelevant subtrees and fields it will clear.
+	// Clone and marshaling can traverse them, so check the entire graph.
+	if !withinResponseDepth(reflected, ri.opts.maxStripDepth) {
+		return nil, ri.stripFailure(ctx, pbfieldbehavior.ErrMaxDepthExceeded, "response", "response")
+	}
+	detectErr := pbfieldbehavior.StripResponse(msg, ri.detectOpts...)
+	if detectErr == nil {
+		return resp, nil
+	}
+	if !errors.Is(detectErr, pbfieldbehavior.ErrBehaviorViolation) {
+		return nil, ri.stripFailure(ctx, detectErr, "response", "response")
+	}
+
+	clone := proto.Clone(msg)
+	if err := ri.runStrip(ctx, clone, pbfieldbehavior.StripResponse, "response", "response"); err != nil {
+		return nil, err
+	}
+	return clone, nil
+}
+
+func withinResponseDepth(msg protoreflect.Message, remaining int) bool {
+	if remaining < 0 {
+		return false
+	}
+
+	desc := msg.Descriptor()
+	fields := desc.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if isMessageKind(fd.Kind()) && msg.Has(fd) && !fieldWithinResponseDepth(fd, msg.Get(fd), remaining-1) {
+			return false
+		}
+	}
+	if desc.ExtensionRanges().Len() == 0 {
+		return true
+	}
+
+	// Only messages that support extensions need to enumerate populated fields
+	// through Range. Extension descriptors are absent from desc.Fields().
+	fits := true
+	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		if fd.IsExtension() && isMessageKind(fd.Kind()) {
+			fits = fieldWithinResponseDepth(fd, v, remaining-1)
+		}
+		return fits
+	})
+	return fits
+}
+
+func fieldWithinResponseDepth(fd protoreflect.FieldDescriptor, v protoreflect.Value, remaining int) bool {
+	switch {
+	case fd.IsMap():
+		if !isMessageKind(fd.MapValue().Kind()) {
+			return true
+		}
+		fits := true
+		v.Map().Range(func(_ protoreflect.MapKey, entry protoreflect.Value) bool {
+			fits = withinResponseDepth(entry.Message(), remaining)
+			return fits
+		})
+		return fits
+	case fd.IsList():
+		list := v.List()
+		for i := range list.Len() {
+			if !withinResponseDepth(list.Get(i).Message(), remaining) {
+				return false
+			}
+		}
+		return true
+	default:
+		return withinResponseDepth(v.Message(), remaining)
+	}
+}
+
+func isMessageKind(kind protoreflect.Kind) bool {
+	return kind == protoreflect.MessageKind || kind == protoreflect.GroupKind
 }
 
 // stripFn is the shared signature of every fieldbehavior.Strip* entry point.
@@ -334,17 +383,7 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 			return interceptors.NewError(buildViolationStatus(violation), stripErr)
 		}
 
-		ri.LogError(ctx, "fieldbehavior strip failed", method, nil,
-			slog.String("grpc.code", codes.Internal.String()),
-			slog.String("classification", diagnostics.ErrorClass(stripErr)),
-			slog.String("side", side),
-			slog.String("kind", label),
-		)
-
-		return interceptors.NewError(
-			status.New(codes.Internal, "Internal Error"),
-			stripErr,
-		)
+		return ri.stripFailure(ctx, stripErr, label, side)
 	}
 
 	ri.LogDebug(ctx, "fieldbehavior strip applied", method,
@@ -353,6 +392,16 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 	)
 
 	return nil
+}
+
+func (ri *requestInterceptor) stripFailure(ctx context.Context, err error, label, side string) error {
+	ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), nil,
+		slog.String("grpc.code", codes.Internal.String()),
+		slog.String("classification", diagnostics.ErrorClass(err)),
+		slog.String("side", side),
+		slog.String("kind", label),
+	)
+	return interceptors.NewError(status.New(codes.Internal, "Internal Error"), err)
 }
 
 // buildViolationStatus renders a request the walk rejects as InvalidArgument
