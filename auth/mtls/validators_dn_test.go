@@ -106,8 +106,8 @@ func TestDNValidatorsCompareEveryField(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			subjErr := mtls.SubjectValidator(tc.want)(t.Context(), cert)
-			issErr := mtls.IssuerValidator(tc.want)(t.Context(), cert)
+			subjErr := checkedValidator(t)(mtls.SubjectValidator(tc.want))(t.Context(), cert)
+			issErr := checkedValidator(t)(mtls.IssuerValidator(tc.want))(t.Context(), cert)
 			if tc.match {
 				require.NoError(t, subjErr)
 				require.NoError(t, issErr)
@@ -121,7 +121,6 @@ func TestDNValidatorsCompareEveryField(t *testing.T) {
 
 func TestDNValidatorsRejectUncheckableAttribute(t *testing.T) {
 	t.Parallel()
-	cert := parsedDNCert(t, fullDN())
 	unsupported := pkix.Name{
 		CommonName: "billing",
 		ExtraNames: []pkix.AttributeTypeAndValue{{Type: oidTitle, Value: 42}},
@@ -129,9 +128,12 @@ func TestDNValidatorsRejectUncheckableAttribute(t *testing.T) {
 
 	// A configuration the matcher cannot check fails closed for every
 	// certificate, even when another candidate would match.
-	require.ErrorIs(t, mtls.SubjectValidator(unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
-	require.ErrorIs(t, mtls.IssuerValidator(unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
-	require.ErrorIs(t, mtls.SubjectValidator(fullDN(), unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
+	_, err := mtls.SubjectValidator(unsupported)
+	require.ErrorIs(t, err, mtls.ErrUnsupportedDNAttribute)
+	_, err = mtls.IssuerValidator(unsupported)
+	require.ErrorIs(t, err, mtls.ErrUnsupportedDNAttribute)
+	_, err = mtls.SubjectValidator(fullDN(), unsupported)
+	require.ErrorIs(t, err, mtls.ErrUnsupportedDNAttribute)
 }
 
 func TestDNValidatorsCopyConfiguration(t *testing.T) {
@@ -141,7 +143,7 @@ func TestDNValidatorsCopyConfiguration(t *testing.T) {
 		Locality:   []string{"Shelbyville"},
 		ExtraNames: []pkix.AttributeTypeAndValue{{Type: oidTitle, Value: "admin"}},
 	}
-	subject := mtls.SubjectValidator(want)
+	subject := checkedValidator(t)(mtls.SubjectValidator(want))
 
 	// Mutating the caller's slices after construction must not change policy.
 	want.Locality[0] = "Springfield"

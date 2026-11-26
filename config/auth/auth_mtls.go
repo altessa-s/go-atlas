@@ -85,7 +85,10 @@ func (c *MTLS) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.TrustDomains, validation.Each(validation.By(validTrustDomain))),
 		validation.Field(&c.ExpiryLeeway, validation.When(c.CheckExpiry, validationconfig.PositiveDuration())),
-		validation.Field(&c.IssuerKeyIDs, validation.Each(validation.By(validHexString))),
+		validation.Field(&c.AllowedSubjectCNs, validation.Each(validation.Required)),
+		validation.Field(&c.AllowedIssuerCNs, validation.Each(validation.Required)),
+		validation.Field(&c.AllowedDNSNames, validation.Each(validation.Required, validation.By(nonBlankValue))),
+		validation.Field(&c.IssuerKeyIDs, validation.Each(validation.Required, validation.By(validHexString))),
 		validation.Field(&c.RequiredEKUs, validation.Each(validation.In("clientAuth", "serverAuth", "any"))),
 	)
 }
@@ -114,8 +117,12 @@ func validTrustDomain(value any) error {
 // validHexString reports whether value is a hex-decodable string.
 func validHexString(value any) error {
 	s, _ := value.(string)
-	if _, err := hex.DecodeString(s); err != nil {
-		return fmt.Errorf("must be hex-encoded: %w", err)
+	decoded, err := hex.DecodeString(s)
+	if err != nil {
+		return errors.New("must be hex encoded")
+	}
+	if len(decoded) == 0 {
+		return errors.New("must not decode to an empty key ID")
 	}
 	return nil
 }

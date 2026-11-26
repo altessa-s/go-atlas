@@ -180,14 +180,14 @@ func TestSubjectValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "billing", Organization: []string{"Acme"}}}
 
-	require.NoError(t, mtls.SubjectValidator()(t.Context(), cert)) // empty is a no-op
-	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "billing"})(t.Context(), cert))
+	require.NoError(t, checkedValidator(t)(mtls.SubjectValidator())(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "billing"}))(t.Context(), cert))
 	// Any-of: matches the second candidate.
-	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "x"}, pkix.Name{CommonName: "billing"})(t.Context(), cert))
-	require.ErrorIs(t, mtls.SubjectValidator(pkix.Name{CommonName: "other"})(t.Context(), cert), mtls.ErrSubjectMismatch)
+	require.NoError(t, checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "x"}, pkix.Name{CommonName: "billing"}))(t.Context(), cert))
+	require.ErrorIs(t, checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "other"}))(t.Context(), cert), mtls.ErrSubjectMismatch)
 	// Subset: the Organization must also match.
 	require.ErrorIs(t,
-		mtls.SubjectValidator(pkix.Name{CommonName: "billing", Organization: []string{"Evil"}})(t.Context(), cert),
+		checkedValidator(t)(mtls.SubjectValidator(pkix.Name{CommonName: "billing", Organization: []string{"Evil"}}))(t.Context(), cert),
 		mtls.ErrSubjectMismatch)
 }
 
@@ -195,31 +195,31 @@ func TestIssuerValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{Issuer: pkix.Name{CommonName: "Acme Root CA"}}
 
-	require.NoError(t, mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})(t.Context(), cert))
-	require.ErrorIs(t, mtls.IssuerValidator(pkix.Name{CommonName: "Evil CA"})(t.Context(), cert), mtls.ErrIssuerMismatch)
+	require.NoError(t, checkedValidator(t)(mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"}))(t.Context(), cert))
+	require.ErrorIs(t, checkedValidator(t)(mtls.IssuerValidator(pkix.Name{CommonName: "Evil CA"}))(t.Context(), cert), mtls.ErrIssuerMismatch)
 }
 
 func TestAuthorityKeyIDValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{AuthorityKeyId: []byte{1, 2, 3}}
 
-	require.NoError(t, mtls.AuthorityKeyIDValidator()(t.Context(), cert)) // empty is a no-op
-	require.NoError(t, mtls.AuthorityKeyIDValidator([]byte{9}, []byte{1, 2, 3})(t.Context(), cert))
-	require.ErrorIs(t, mtls.AuthorityKeyIDValidator([]byte{9})(t.Context(), cert), mtls.ErrUntrustedCA)
+	require.NoError(t, checkedValidator(t)(mtls.AuthorityKeyIDValidator())(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, checkedValidator(t)(mtls.AuthorityKeyIDValidator([]byte{9}, []byte{1, 2, 3}))(t.Context(), cert))
+	require.ErrorIs(t, checkedValidator(t)(mtls.AuthorityKeyIDValidator([]byte{9}))(t.Context(), cert), mtls.ErrUntrustedCA)
 }
 
 func TestDNSNameValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{DNSNames: []string{"api.example.org"}}
 
-	require.NoError(t, mtls.DNSNameValidator()(t.Context(), cert)) // empty is a no-op
-	require.NoError(t, mtls.DNSNameValidator("api.example.org")(t.Context(), cert))
-	require.NoError(t, mtls.DNSNameValidator("other.org", "api.example.org")(t.Context(), cert)) // any-of
-	require.ErrorIs(t, mtls.DNSNameValidator("other.org")(t.Context(), cert), mtls.ErrDNSNameMismatch)
+	require.NoError(t, checkedValidator(t)(mtls.DNSNameValidator())(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, checkedValidator(t)(mtls.DNSNameValidator("api.example.org"))(t.Context(), cert))
+	require.NoError(t, checkedValidator(t)(mtls.DNSNameValidator("other.org", "api.example.org"))(t.Context(), cert)) // any-of
+	require.ErrorIs(t, checkedValidator(t)(mtls.DNSNameValidator("other.org"))(t.Context(), cert), mtls.ErrDNSNameMismatch)
 
 	// Wildcard SANs are honored via VerifyHostname.
 	wild := &x509.Certificate{DNSNames: []string{"*.example.org"}}
-	require.NoError(t, mtls.DNSNameValidator("api.example.org")(t.Context(), wild))
+	require.NoError(t, checkedValidator(t)(mtls.DNSNameValidator("api.example.org"))(t.Context(), wild))
 }
 
 func TestEKUValidator(t *testing.T) {
@@ -363,4 +363,13 @@ func TestValidatorContextAndAuditReason(t *testing.T) {
 	require.ErrorAs(t, err, new(policyError))
 	require.Len(t, sink.got, 1)
 	require.Equal(t, "peer_suspended", sink.got[0].Reason)
+}
+
+func checkedValidator(t testing.TB) func(mtls.CertValidator, error) mtls.CertValidator {
+	t.Helper()
+	return func(validator mtls.CertValidator, err error) mtls.CertValidator {
+		t.Helper()
+		require.NoError(t, err)
+		return validator
+	}
 }

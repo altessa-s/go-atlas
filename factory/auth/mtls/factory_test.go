@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/spiffe"
 	"github.com/altessa-s/go-atlas/factory/auth/mtls"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
@@ -187,4 +188,26 @@ func TestAuthenticatorAddsExtraOptions(t *testing.T) {
 	p, err := a.Authenticate(t.Context(), cert(t, "spiffe://example.org/x", time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	require.Equal(t, "example.org", p)
+}
+
+func TestBlankPinsRejected(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		set  func(*authconfig.MTLS)
+	}{
+		{"subject CN", func(c *authconfig.MTLS) { c.AllowedSubjectCNs = []string{""} }},
+		{"issuer CN", func(c *authconfig.MTLS) { c.AllowedIssuerCNs = []string{""} }},
+		{"issuer key ID", func(c *authconfig.MTLS) { c.IssuerKeyIDs = []string{""} }},
+		{"DNS name", func(c *authconfig.MTLS) { c.AllowedDNSNames = []string{""} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &authconfig.MTLS{AllowAnyTrustDomain: true}
+			tc.set(cfg)
+			_, err := factory.New(cfg).Options()
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.Error(t, cfg.Validate())
+		})
+	}
 }

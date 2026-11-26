@@ -44,8 +44,8 @@
 // Validators receive the authentication context. Errors implementing [AuditReasoner]
 // can supply a stable audit reason for custom failures.
 // [SubjectValidator] and [IssuerValidator] pin every populated DN field and
-// Names/ExtraNames string attribute. Unsupported attribute values fail closed
-// with [ErrUnsupportedDNAttribute].
+// Names/ExtraNames string attribute. The pin constructors return an error for
+// empty entries. Unsupported DN attributes return [ErrUnsupportedDNAttribute].
 //
 // # Usage
 //
