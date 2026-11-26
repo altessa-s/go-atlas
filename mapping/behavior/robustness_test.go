@@ -139,3 +139,70 @@ func TestCleanKeepsSharedNodesShared(t *testing.T) {
 	require.NotSame(t, leaf, cp.A)
 	require.Empty(t, cp.Note)
 }
+
+type chainNode struct{ Next *chainNode }
+
+type clearedSubtree struct {
+	Secret *chainNode `behavior:"output_only"`
+	Name   string
+}
+
+type embeddedWithChild struct{ Child struct{ X int } }
+
+type flattened struct {
+	embeddedWithChild
+	Tags []string
+}
+
+// TestCleanDepthRulesMatchStrip: Clean accepts what Strip accepts. A deep acyclic recursive collection is a leaf of the walk, a
+// subtree cleared whole is never descended, and a flattened embedded struct costs no depth.
+func TestCleanDepthRulesMatchStrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("deep acyclic recursive collection", func(t *testing.T) {
+		t.Parallel()
+		deep := recursiveTree{}
+		for range 5000 {
+			deep = recursiveTree{deep}
+		}
+		in := treeHolder{Tree: deep, Secret: "s"}
+		cp, err := behavior.Clean(in, behavior.WithKinds(behavior.InputOnly))
+		require.NoError(t, err)
+		require.Empty(t, cp.Secret)
+		require.Equal(t, "s", in.Secret)
+	})
+
+	t.Run("cleared subtree beyond the depth budget", func(t *testing.T) {
+		t.Parallel()
+		head := &chainNode{}
+		for range 100 {
+			head = &chainNode{Next: head}
+		}
+		in := clearedSubtree{Secret: head, Name: "n"}
+		require.NoError(t, behavior.Strip(new(in), behavior.WithKinds(behavior.OutputOnly), behavior.WithMaxDepth(3)))
+		cp, err := behavior.Clean(in, behavior.WithKinds(behavior.OutputOnly), behavior.WithMaxDepth(3))
+		require.NoError(t, err)
+		require.Nil(t, cp.Secret)
+		require.NotNil(t, in.Secret)
+	})
+
+	t.Run("flattened embedded struct", func(t *testing.T) {
+		t.Parallel()
+		in := flattened{Tags: []string{"a"}}
+		opts := []behavior.Option{behavior.WithKinds(behavior.OutputOnly), behavior.WithMaxDepth(1)}
+		require.NoError(t, behavior.Strip(new(in), opts...))
+		_, err := behavior.Clean(in, opts...)
+		require.NoError(t, err)
+	})
+
+	t.Run("real nesting still bounded", func(t *testing.T) {
+		t.Parallel()
+		head := &chainNode{}
+		for range 100 {
+			head = &chainNode{Next: head}
+		}
+		type holder struct{ Chain *chainNode }
+		_, err := behavior.Clean(holder{Chain: head}, behavior.WithKinds(behavior.OutputOnly), behavior.WithMaxDepth(3))
+		require.ErrorIs(t, err, behavior.ErrMaxDepthExceeded)
+	})
+}

@@ -135,7 +135,8 @@ func Clean[S any](v S, opts ...Option) (S, error) {
 	}
 
 	cp := v
-	c := cloner{maxDepth: max(1, o.maxDepth)}
+	o.maxDepth = max(1, o.maxDepth)
+	c := cloner{o: o}
 	if err := c.cloneValue(reflect.ValueOf(&cp).Elem(), 0); err != nil {
 		return v, err
 	}
@@ -199,40 +200,43 @@ func foldViolations(obj Object, prefix string, out *[]Violation) {
 	}
 }
 
-// cloner deep-copies reachable data. Pointers, maps and slices are memoized by their source identity, so shared nodes stay shared in
-// the clone and a cycle terminates; depth counts nested structs against the same budget [Strip] enforces.
+// cloner deep-copies the data [Strip] can reach, following the same plan as the strip walk: only fields the walk descends into are
+// copied, a field cleared whole is not descended, promoted fields of embedded structs cost no depth, and every nested struct costs
+// the depth [resolve] charges. Pointers, maps and slices are memoized by source identity, so shared nodes stay shared in the clone
+// and a cycle terminates.
 type cloner struct {
-	maxDepth int
-	seen     map[cloneKey]reflect.Value
+	o    *options
+	seen map[cloneKey]reflect.Value
+	// made holds the pointers this cloner created, so a pointer reached twice is copied once.
+	made map[cloneKey]struct{}
 }
 
-func (c *cloner) remember(key cloneKey, clone reflect.Value) {
-	if c.seen == nil {
-		c.seen = make(map[cloneKey]reflect.Value)
-	}
-	c.seen[key] = clone
-}
-
-// cloneKey identifies a pointer, map or slice of the source by its type, address and length.
+// cloneKey identifies a pointer, map or slice by its type, address and length.
 type cloneKey struct {
 	t   reflect.Type
 	p   unsafe.Pointer
 	len int
 }
 
-// cloneValue deep-copies the reachable exported data of the settable value v in
-// place, so mutating it cannot affect the source. Opaque structs (no settable
-// fields, e.g. time.Time) are left as the value copy. Unexported embedded
-// structs are copied too, because their exported fields are promoted to the
-// parent and [Strip] reaches them; other unexported fields keep their shallow
-// copy. Interface-typed values are leaves: the walk never mutates through an
-// interface (stripping one clears the field itself), so the pointee is safely
-// shared with the source. It returns [ErrMaxDepthExceeded] when nested structs
-// exceed the budget.
+func (c *cloner) remember(key cloneKey, clone reflect.Value) {
+	if c.seen == nil {
+		c.seen = make(map[cloneKey]reflect.Value)
+		c.made = make(map[cloneKey]struct{})
+	}
+	c.seen[key] = clone
+	if clone.Kind() == reflect.Pointer {
+		c.made[cloneKey{t: clone.Type(), p: clone.UnsafePointer()}] = struct{}{}
+	}
+}
+
+// cloneValue deep-copies the settable value v in place, so mutating what the strip walk reaches cannot affect the source. Opaque
+// structs (no exported fields, e.g. time.Time) stay the value copy. Interface-typed values are leaves: the walk never mutates through
+// an interface (stripping one clears the field itself), so the pointee is safely shared. It returns [ErrMaxDepthExceeded] when
+// nested structs exceed the budget [Strip] enforces.
 func (c *cloner) cloneValue(v reflect.Value, depth int) error {
 	switch v.Kind() {
 	case reflect.Pointer:
-		return c.clonePointer(v, depth)
+		return c.clonePointer(v, depth, true)
 	case reflect.Struct:
 		return c.cloneStruct(v, depth)
 	case reflect.Slice:
@@ -251,8 +255,12 @@ func (c *cloner) cloneValue(v reflect.Value, depth int) error {
 	return nil
 }
 
-func (c *cloner) clonePointer(v reflect.Value, depth int) error {
+// clonePointer replaces the pointer v with a pointer to a copy of its target, descending into the copy when descend is set.
+func (c *cloner) clonePointer(v reflect.Value, depth int, descend bool) error {
 	if v.IsNil() {
+		return nil
+	}
+	if _, ok := c.made[cloneKey{t: v.Type(), p: v.UnsafePointer()}]; ok {
 		return nil
 	}
 	key := cloneKey{t: v.Type(), p: v.UnsafePointer()}
@@ -263,31 +271,59 @@ func (c *cloner) clonePointer(v reflect.Value, depth int) error {
 	nv := reflect.New(v.Type().Elem())
 	c.remember(key, nv)
 	nv.Elem().Set(v.Elem())
-	if err := c.cloneValue(nv.Elem(), depth); err != nil {
-		return err
-	}
 	v.Set(nv)
+	if descend {
+		return c.cloneValue(nv.Elem(), depth)
+	}
 	return nil
 }
 
 func (c *cloner) cloneStruct(v reflect.Value, depth int) error {
-	if depth > c.maxDepth {
+	if depth > c.o.maxDepth {
 		return ErrMaxDepthExceeded
 	}
-	for i := range v.NumField() { //nolint:modernize // Value.Fields would also build the unused StructField per field
-		fld := v.Field(i)
-		if !fld.CanSet() {
-			if !v.Type().Field(i).Anonymous || !fld.CanAddr() || indirectStructType(fld.Type()) == nil {
-				continue
-			}
-			// An unexported embedded struct promotes its exported fields; give them storage of their own.
-			fld = reflect.NewAt(fld.Type(), unsafe.Pointer(fld.UnsafeAddr())).Elem()
+	infos, err := fieldsFor(v.Type(), c.o.tagName)
+	if err != nil {
+		return err
+	}
+	for _, info := range infos {
+		skip := info.kindMask&c.o.kindsMask != 0 || !info.recurse
+		if skip && len(info.index) == 1 {
+			continue
 		}
-		if err := c.cloneValue(fld, depth+1); err != nil {
+		fv, ok := c.fieldFor(v, info.index)
+		if !ok || skip {
+			continue
+		}
+		if err := c.cloneValue(fv, depth+1); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// fieldFor returns the settable field at index of v. Embedded pointers on the way, even of unexported types, are replaced by copies
+// first, so a promoted field never aliases storage of the source. It reports false when a nil embedded pointer makes the field
+// unreachable.
+func (c *cloner) fieldFor(v reflect.Value, index []int) (reflect.Value, bool) {
+	cur := v
+	for i, x := range index {
+		f := cur.Field(x)
+		if !f.CanSet() && f.CanAddr() {
+			f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
+		}
+		if i < len(index)-1 && f.Kind() == reflect.Pointer {
+			if f.IsNil() {
+				return reflect.Value{}, false
+			}
+			if err := c.clonePointer(f, 0, false); err != nil {
+				return reflect.Value{}, false
+			}
+			f = f.Elem()
+		}
+		cur = f
+	}
+	return cur, true
 }
 
 func (c *cloner) cloneSlice(v reflect.Value, depth int) error {
