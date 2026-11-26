@@ -18,7 +18,7 @@ func TestWatchCloseJoinsAdmittedDelivery(t *testing.T) {
 	for _, managerClose := range []bool{false, true} {
 		synctest.Test(t, func(t *testing.T) {
 			w := newWatchManager()
-			r := w.subscribe(WatchOptions{BufferSize: 1, BufferOverflowPolicy: OverflowPolicyBlock})
+			r := w.subscribe(t.Context(), WatchOptions{BufferSize: 1, BufferOverflowPolicy: OverflowPolicyBlock})
 			var s *subscriber
 			for sub := range w.subscribers {
 				s = sub
@@ -28,7 +28,7 @@ func TestWatchCloseJoinsAdmittedDelivery(t *testing.T) {
 			go func() {
 				<-release
 				defer s.inFlight.Done()
-				w.sendEvent(s, PolicyEvent{})
+				w.sendEvent(t.Context(), s, PolicyEvent{})
 			}()
 			closed := make(chan struct{})
 			go func() {

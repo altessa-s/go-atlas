@@ -54,7 +54,7 @@
 //	    return err
 //	}
 //
-//	// Subscribe to policy events
+//	// Subscribe to policy events until ctx is canceled
 //	watch, _ := manager.Watch(ctx, opa.DefaultWatchOptions())
 //	defer watch.Stop()
 //

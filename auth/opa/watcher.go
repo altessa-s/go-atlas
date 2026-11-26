@@ -6,6 +6,7 @@ package opa
 
 import (
 	"cmp"
+	"context"
 	"sync"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
@@ -28,6 +29,7 @@ type subscriber struct {
 	inFlight       sync.WaitGroup
 	stopping       bool // protected by watchManager.mu
 	closedOnce     sync.Once
+	stopContext    func() bool
 }
 
 // newWatchManager creates a new watch manager.
@@ -38,7 +40,7 @@ func newWatchManager() *watchManager {
 }
 
 // subscribe creates a new subscription with the given options.
-func (w *watchManager) subscribe(opts WatchOptions) *WatchResult {
+func (w *watchManager) subscribe(ctx context.Context, opts WatchOptions) *WatchResult {
 	bufferSize := cmp.Or(opts.BufferSize, DefaultWatchBufferSize)
 
 	sub := &subscriber{
@@ -67,6 +69,7 @@ func (w *watchManager) subscribe(opts WatchOptions) *WatchResult {
 		}
 	}
 	w.subscribers[sub] = struct{}{}
+	sub.stopContext = context.AfterFunc(ctx, func() { w.unsubscribe(sub) })
 	w.mu.Unlock()
 
 	return &WatchResult{
@@ -99,6 +102,7 @@ func (s *subscriber) stopAdmission() {
 
 func (s *subscriber) finish() {
 	s.closedOnce.Do(func() {
+		s.stopContext()
 		s.inFlight.Wait()
 		close(s.ch)
 	})
@@ -108,7 +112,7 @@ func (s *subscriber) finish() {
 // snapshot under RLock and events are delivered after the lock is released,
 // so a slow consumer using OverflowPolicyBlock cannot stall the entire
 // broadcast path or prevent unsubscribe from acquiring the write lock.
-func (w *watchManager) broadcast(event PolicyEvent) {
+func (w *watchManager) broadcast(ctx context.Context, event PolicyEvent) {
 	w.mu.RLock()
 	subs := make([]*subscriber, 0, len(w.subscribers))
 	for sub := range w.subscribers {
@@ -129,7 +133,7 @@ func (w *watchManager) broadcast(event PolicyEvent) {
 		}
 		sub.inFlight.Add(1)
 		w.mu.RUnlock()
-		w.sendEvent(sub, event)
+		w.sendEvent(ctx, sub, event)
 		sub.inFlight.Done()
 	}
 }
@@ -137,7 +141,7 @@ func (w *watchManager) broadcast(event PolicyEvent) {
 // sendEvent sends an event to a subscriber according to its overflow policy.
 // Every path includes <-sub.done so that in-flight sends bail out promptly
 // when the subscriber is being closed.
-func (w *watchManager) sendEvent(sub *subscriber, event PolicyEvent) {
+func (w *watchManager) sendEvent(ctx context.Context, sub *subscriber, event PolicyEvent) {
 	select {
 	case <-sub.done:
 		return
@@ -148,6 +152,7 @@ func (w *watchManager) sendEvent(sub *subscriber, event PolicyEvent) {
 	case OverflowPolicyBlock:
 		select {
 		case sub.ch <- event:
+		case <-ctx.Done():
 		case <-sub.done:
 		}
 

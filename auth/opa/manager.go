@@ -269,7 +269,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	bundle, err := m.source.Fetch(ctx)
 	if err != nil {
 		m.lastError.Store(&err)
-		m.broadcastError(err)
+		m.broadcastError(ctx, err)
 		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "fetch_error"}).Inc()
 		return coreerrs.JoinWrap(ErrBundleFetchFailed, err)
 	}
@@ -287,7 +287,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	if len(bundle.Data) > 0 {
 		if loadErr := loadBundleData(ctx, store, bundle.Data); loadErr != nil {
 			m.lastError.Store(&loadErr)
-			m.broadcastError(loadErr)
+			m.broadcastError(ctx, loadErr)
 			m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "prepare_error"}).Inc()
 			return coreerrs.JoinWrap(ErrQueryPrepareFailed, loadErr)
 		}
@@ -311,7 +311,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	pq, err := r.PrepareForEval(ctx)
 	if err != nil {
 		m.lastError.Store(&err)
-		m.broadcastError(err)
+		m.broadcastError(ctx, err)
 		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "prepare_error"}).Inc()
 		return coreerrs.JoinWrap(ErrQueryPrepareFailed, err)
 	}
@@ -343,7 +343,7 @@ func (m *Manager) reload(ctx context.Context) error {
 		slog.Int("modules", bundle.ModuleCount()))
 
 	// Broadcast update event
-	m.watchManager.broadcast(PolicyEvent{
+	m.watchManager.broadcast(ctx, PolicyEvent{
 		Type:             EventTypePolicyUpdated,
 		Source:           m.source.Name(),
 		Revision:         bundle.Revision,
@@ -388,8 +388,8 @@ func writeBundleData(ctx context.Context, store storage.Store, txn storage.Trans
 }
 
 // broadcastError sends an error event to all subscribers.
-func (m *Manager) broadcastError(err error) {
-	m.watchManager.broadcast(PolicyEvent{
+func (m *Manager) broadcastError(ctx context.Context, err error) {
+	m.watchManager.broadcast(ctx, PolicyEvent{
 		Type:       EventTypePolicyError,
 		Source:     m.source.Name(),
 		OccurredAt: time.Now(),
@@ -398,7 +398,8 @@ func (m *Manager) broadcastError(err error) {
 }
 
 // Watch creates a subscription to policy events.
-// Events are delivered when policies are updated or when errors occur.
+// Events are delivered when policies are updated or when errors occur. The
+// subscription stops when ctx is canceled.
 // When opts.BufferSize is zero, the manager-level WithWatchChannelSize
 // value is used as the event channel buffer size.
 func (m *Manager) Watch(ctx context.Context, opts WatchOptions) (*WatchResult, error) {
@@ -408,7 +409,11 @@ func (m *Manager) Watch(ctx context.Context, opts WatchOptions) (*WatchResult, e
 
 	opts.BufferSize = cmp.Or(opts.BufferSize, m.opts.watchChannelSize)
 
-	return m.watchManager.subscribe(opts), nil
+	if opts.BufferSize < 0 {
+		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "watch buffer size must be non-negative")
+	}
+
+	return m.watchManager.subscribe(ctx, opts), nil
 }
 
 // Close releases all resources and stops watching. It returns once the poll

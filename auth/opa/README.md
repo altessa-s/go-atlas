@@ -75,6 +75,7 @@ an object with a new property. Duplicate properties and children beneath scalars
 failure, and a successful fetch of that revision clears the health error.
 
 `NewManager` takes ownership of its source on success. On construction failure the caller owns cleanup. `StartWatching(ctx)` stops when its context is
+canceled. A `Watch(ctx, opts)` subscription closes when its own context is canceled. Blocked event deliveries also stop when the reload context is
 canceled. `StartWatchingUntilClose` uses the manager lifetime. `Close` detaches scheduled callbacks and health checks, joins polling, reloads, and event
 deliveries, then closes the source.
 
