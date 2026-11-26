@@ -8,7 +8,7 @@
 // # Capacity and cleanup
 //
 // [WithMaxBuckets] caps the number of tracked keys. A new key at the cap
-// first reclaims every window that has expired, which loses no state; when
+// first reclaims an expired window from the per-shard expiry indexes; when
 // none has, [WithEviction] decides. [EvictionLRU] (the default) evicts the
 // least recently used live window, so a stream of new keys can push out a
 // busy key and reset its limit. [EvictionReject] refuses the new key with

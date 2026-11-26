@@ -54,9 +54,12 @@ func TestProvider_AtCapacity_ReclaimsExpiredBeforeLive(t *testing.T) {
 				require.True(t, p.tracked("hot"), "the live window must outlive the expired ones")
 				_, err = p.Allow(ctx, "hot", 1, time.Hour)
 				require.ErrorIs(t, err, limiters.ErrLimitExceeded, "the hot key must keep its limit")
+				require.NotEqual(t, p.tracked("short-1"), p.tracked("short-2"), "reclaim only the slot needed")
+				require.Equal(t, 3, p.total(t))
+				_, err = p.Allow(ctx, "another", 1, time.Hour)
+				require.NoError(t, err)
 				require.False(t, p.tracked("short-1"))
 				require.False(t, p.tracked("short-2"))
-				require.Equal(t, 2, p.total(t))
 			})
 		}
 	}
@@ -110,7 +113,7 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 			defer sh.mu.Unlock()
 			b := sh.buckets["old"]
 			b.requests[0] = time.Now().Add(-2 * time.Hour)
-			p.lowerExpiry(b.expiry())
+			p.refreshExpiry(sh, b)
 		}},
 		{name: "reset window", free: func(t *testing.T, p *Provider) { require.NoError(t, p.Reset(t.Context(), "old")) }},
 		{name: "idle cleanup", free: func(_ *testing.T, p *Provider) {

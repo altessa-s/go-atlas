@@ -82,13 +82,15 @@ func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []
 ) {
 	now := p.options.clock.Now()
 	missing := p.resolveLocked(limits, idx, buckets)
-	if all && missing > p.freeSlots() && p.purgeDue(now) {
-		p.purgeLocked(now)
+	for all && missing > p.freeSlots() && p.purgeDue(now) {
+		if p.reclaimLocked(now, missing-p.freeSlots()) == 0 {
+			break
+		}
 		missing = p.resolveLocked(limits, idx, buckets)
 	}
 
 	// Check every window before taking anything.
-	infos, refused := p.checkWindowsLocked(limits, buckets, now)
+	infos, refused := p.checkWindowsLocked(limits, idx, buckets, now)
 	if refused >= 0 {
 		// A refused request still counts as use, as in Allow.
 		for i, b := range buckets {
@@ -129,7 +131,7 @@ func (p *Provider) allowAllLocked(limits []storages.Limit, idx []int, buckets []
 // checkWindowsLocked checks the window of every limit without taking a
 // slot and returns the infos and the index of the first refused limit, or
 // -1. A new key has an empty window, which admits any positive limit.
-func (p *Provider) checkWindowsLocked(limits []storages.Limit, buckets []*bucket, now time.Time) ([]storages.LimitInfo, int) {
+func (p *Provider) checkWindowsLocked(limits []storages.Limit, idx []int, buckets []*bucket, now time.Time) ([]storages.LimitInfo, int) {
 	infos := make([]storages.LimitInfo, len(limits))
 	refused := -1
 	for i, b := range buckets {
@@ -139,11 +141,8 @@ func (p *Provider) checkWindowsLocked(limits []storages.Limit, buckets []*bucket
 		}
 		info, ok := b.apply(now, limits[i].Limit, limits[i].Period, false)
 		infos[i] = info
-		if limits[i].Period != b.window {
-			// A shorter period than the window was recorded with can empty
-			// it; keep it reclaimable even when this call fails below.
-			p.lowerExpiry(b.expiry())
-		}
+		// Pruning can empty the window even if capacity checks later fail.
+		p.refreshExpiry(&p.shards[idx[i]], b)
 		if !ok && refused < 0 {
 			refused = i
 		}

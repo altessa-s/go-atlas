@@ -24,8 +24,9 @@ The clock must not go backwards: a window keeps its request timestamps in non-de
 
 ## Capacity
 
-A new key at `MaxBuckets` first reclaims every window that has expired: its requests have all left the window, so dropping it loses nothing. The
-provider tracks a lower bound of the earliest expiry and sweeps only once it has passed, so a full provider with only live windows pays no sweep.
+A new key at `MaxBuckets` first reclaims an expired window. Each shard indexes its windows by expiry, so admissions inspect only the first entry
+in each shard and remove only as many expired windows as needed. The provider tracks a lower bound on the earliest expiry to skip reclamation
+when every window is still live.
 When nothing has expired, `WithEviction` decides:
 
 | Policy           | New key at the cap                              | Trade-off                                                                        |
