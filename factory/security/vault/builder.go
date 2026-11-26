@@ -7,7 +7,6 @@ package factory
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -100,7 +99,7 @@ func (b *VaultBuilder) createAuthMethod() (auth.Method, error) {
 		}
 		return userpass.New(cfg.Userpass.Username, cfg.Userpass.Password.Expose(), auth.WithMountPathOption[*auth.MountPathMethod](cfg.Userpass.MountPath)), nil
 	default:
-		return nil, fmt.Errorf("unknown vault auth method: %s", cfg.Method)
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unknown vault auth method: %s", cfg.Method)
 	}
 }
 

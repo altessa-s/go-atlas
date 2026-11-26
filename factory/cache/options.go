@@ -5,10 +5,11 @@
 package factory
 
 import (
-	"fmt"
 	"log/slog"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // --- Dependency methods ---
@@ -29,7 +30,7 @@ func (b *StorageBuilder) UseDefaultLogger() *StorageBuilder {
 // type replaces the earlier one; the memory storage is built in.
 func (b *StorageBuilder) UseStorage(typ storageconfig.CacheStorageType, build StorageFunc) *StorageBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseStorage %q: nil function", typ))
 		return b
 	}
 	if b.storages == nil {

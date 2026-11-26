@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"math"
 	"time"
 
@@ -19,11 +18,12 @@ import (
 	cuckoostorages "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages"
 	cuckooredis "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages/redis"
 	probfilterfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // ErrClientRequired is returned when the Redis Cuckoo storage is built
 // without a client.
-var ErrClientRequired = errors.New("probfilter: redis client is required for Cuckoo storage type redis")
+var ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "probfilter: redis client is required for Cuckoo storage type redis")
 
 // evictionCheckTimeout bounds the eviction-policy check of the storage.
 const evictionCheckTimeout = 5 * time.Second

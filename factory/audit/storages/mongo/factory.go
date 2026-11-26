@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -18,11 +17,12 @@ import (
 	mongostorage "github.com/altessa-s/go-atlas/audit/storages/mongo"
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	auditfactory "github.com/altessa-s/go-atlas/factory/audit"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // ErrDatabaseRequired is returned when the MongoDB audit storage is built
 // without a database.
-var ErrDatabaseRequired = errors.New("audit: mongo database is required for storage type mongo")
+var ErrDatabaseRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "audit: mongo database is required for storage type mongo")
 
 // Builder returns the storage builder of the mongo type, ready for
 // auditfactory.AuditorBuilder.UseStorage. The storage writes to db; the

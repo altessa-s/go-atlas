@@ -7,7 +7,6 @@ package factory
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 // validationOptionsFromConfig constructs validation options from configuration.
 func validationOptionsFromConfig(cfg *authconfig.OIDCValidation, clockSkew time.Duration) ([]oidc.ValidationOption, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("validation configuration is required")
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "validation configuration is required")
 	}
 
 	opts := make([]oidc.ValidationOption, 0, estimatedValidationOptionsCount)
@@ -55,7 +55,7 @@ func validationOptionsFromConfig(cfg *authconfig.OIDCValidation, clockSkew time.
 // presetFromConfig creates a validation preset from configuration.
 func presetFromConfig(preset *authconfig.OIDCPreset, clockSkew time.Duration) (*oidc.ValidationPreset, error) {
 	if preset == nil {
-		return nil, fmt.Errorf("preset configuration is required")
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "preset configuration is required")
 	}
 	opts := make([]oidc.ValidationOption, 0, estimatedValidationOptionsCount)
 	opts = append(opts,

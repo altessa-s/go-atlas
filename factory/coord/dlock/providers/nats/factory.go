@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -27,7 +26,7 @@ import (
 var (
 	// ErrClientRequired is returned when the NATS lock provider is built
 	// without a connection.
-	ErrClientRequired = errors.New("dlock: nats connection is required for provider nats")
+	ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "dlock: nats connection is required for provider nats")
 	// ErrConfigRequired is returned when the distribution lock configuration
 	// has no nats block.
 	ErrConfigRequired = fmt.Errorf("dlock: nats configuration is required for provider nats: %w", corefactory.ErrConfigRequired)

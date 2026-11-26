@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,11 +17,12 @@ import (
 	bloomstorages "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages"
 	bloomredis "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/redis"
 	probfilterfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // ErrClientRequired is returned when the Redis Bloom storage is built without
 // a client.
-var ErrClientRequired = errors.New("probfilter: redis client is required for Bloom storage type redis")
+var ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "probfilter: redis client is required for Bloom storage type redis")
 
 // evictionCheckTimeout bounds the eviction-policy check of the storage.
 const evictionCheckTimeout = 5 * time.Second

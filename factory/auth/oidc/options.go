@@ -5,14 +5,15 @@
 package factory
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	probfilterfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -49,7 +50,7 @@ func (b *ProviderBuilder) UseRevocationBloomStorage(
 	typ probfilterconfig.StorageType, build probfilterfactory.BloomStorageFunc,
 ) *ProviderBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseRevocationBloomStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseRevocationBloomStorage %q: nil function", typ))
 		return b
 	}
 	if b.bloomStorages == nil {
@@ -70,7 +71,7 @@ func (b *ProviderBuilder) UseRevocationCuckooStorage(
 	typ probfilterconfig.StorageType, build probfilterfactory.CuckooStorageFunc,
 ) *ProviderBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseRevocationCuckooStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseRevocationCuckooStorage %q: nil function", typ))
 		return b
 	}
 	if b.cuckooStorages == nil {

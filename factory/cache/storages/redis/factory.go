@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -21,7 +20,7 @@ import (
 var (
 	// ErrClientRequired is returned when the Redis cache storage is built
 	// without a client.
-	ErrClientRequired = errors.New("cache: redis client is required for storage type redis")
+	ErrClientRequired = corefactory.Errorf(corefactory.ErrDependencyRequired, "cache: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
 	ErrConfigRequired = fmt.Errorf("cache: redis configuration is required for storage type redis: %w", corefactory.ErrConfigRequired)

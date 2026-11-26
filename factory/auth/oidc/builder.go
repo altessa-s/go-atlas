@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
@@ -65,7 +64,7 @@ func (b *ProviderBuilder) Build(ctx context.Context) (*oidc.Provider, error) {
 	}
 
 	if b.cfg == nil {
-		return nil, fmt.Errorf("configuration is required")
+		return nil, corefactory.ErrConfigRequired
 	}
 
 	opts, err := b.buildProviderOptions(ctx)

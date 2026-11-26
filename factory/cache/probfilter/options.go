@@ -5,13 +5,14 @@
 package factory
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/cache/probfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -33,7 +34,7 @@ func (b *FilterBuilder) UseDefaultLogger() *FilterBuilder {
 // replaces the earlier one; the memory storage is built in.
 func (b *FilterBuilder) UseBloomStorage(typ probfilterconfig.StorageType, build BloomStorageFunc) *FilterBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseBloomStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseBloomStorage %q: nil function", typ))
 		return b
 	}
 	if b.bloomStorages == nil {
@@ -48,7 +49,7 @@ func (b *FilterBuilder) UseBloomStorage(typ probfilterconfig.StorageType, build 
 // replaces the earlier one; the memory storage is built in.
 func (b *FilterBuilder) UseCuckooStorage(typ probfilterconfig.StorageType, build CuckooStorageFunc) *FilterBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseCuckooStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseCuckooStorage %q: nil function", typ))
 		return b
 	}
 	if b.cuckooStorages == nil {
@@ -115,7 +116,7 @@ func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
 // for every filter; see [FilterBuilder.UseBloomStorage].
 func (b *ManagerBuilder) UseBloomStorage(typ probfilterconfig.StorageType, build BloomStorageFunc) *ManagerBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseBloomStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseBloomStorage %q: nil function", typ))
 		return b
 	}
 	if b.bloomStorages == nil {
@@ -129,7 +130,7 @@ func (b *ManagerBuilder) UseBloomStorage(typ probfilterconfig.StorageType, build
 // for every filter; see [FilterBuilder.UseCuckooStorage].
 func (b *ManagerBuilder) UseCuckooStorage(typ probfilterconfig.StorageType, build CuckooStorageFunc) *ManagerBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseCuckooStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseCuckooStorage %q: nil function", typ))
 		return b
 	}
 	if b.cuckooStorages == nil {
