@@ -7,6 +7,7 @@ package tokenbucket_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -308,4 +309,92 @@ func TestLimit_InvalidClientSettingsSkipStorage(t *testing.T) {
 	_, err = l.Limit(t.Context())
 	require.Zero(t, store.calls)
 	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+}
+
+var (
+	errCustomPeriod = errors.New("period exceeds custom backend retention")
+	errCustomLimit  = errors.New("limit exceeds custom backend cap")
+)
+
+type validatingRuleStorage struct {
+	storages.Storage
+	maxPeriod time.Duration
+	maxLimit  int64
+}
+
+func (s *validatingRuleStorage) ValidatePeriod(period time.Duration) error {
+	if s.maxPeriod > 0 && period > s.maxPeriod {
+		return fmt.Errorf("custom storage: %w", errCustomPeriod)
+	}
+	return nil
+}
+
+func (s *validatingRuleStorage) ValidateLimit(limit int64) error {
+	if s.maxLimit > 0 && limit > s.maxLimit {
+		return fmt.Errorf("custom storage: %w", errCustomLimit)
+	}
+	return nil
+}
+
+func TestNew_CustomStorageValidators(t *testing.T) {
+	t.Parallel()
+
+	store := &validatingRuleStorage{Storage: memory.New(), maxPeriod: time.Hour, maxLimit: 500}
+
+	tests := []struct {
+		name     string
+		defaults tokenbucket.RateLimitSettings
+		rules    []*tokenbucket.RateLimitRule
+		wantErr  error
+	}{
+		{
+			name:     "valid defaults and rules",
+			defaults: tokenbucket.RateLimitSettings{Limit: 100, Period: time.Minute},
+			rules: []*tokenbucket.RateLimitRule{
+				{Target: "10.0.0.0/8", RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: 500, Period: time.Hour}},
+				{Target: "192.0.2.1", RateLimitSettings: tokenbucket.RateLimitUnlimited},
+			},
+		},
+		{
+			name:     "default period rejected",
+			defaults: tokenbucket.RateLimitSettings{Limit: 100, Period: 2 * time.Hour},
+			wantErr:  errCustomPeriod,
+		},
+		{
+			name:     "default limit rejected",
+			defaults: tokenbucket.RateLimitSettings{Limit: 501, Period: time.Minute},
+			wantErr:  errCustomLimit,
+		},
+		{
+			name:     "target rule period rejected",
+			defaults: validDefaults(),
+			rules: []*tokenbucket.RateLimitRule{
+				{Target: "10.0.0.0/8", RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: 100, Period: 2 * time.Hour}},
+			},
+			wantErr: errCustomPeriod,
+		},
+		{
+			name:     "target rule limit rejected",
+			defaults: validDefaults(),
+			rules: []*tokenbucket.RateLimitRule{
+				{Target: "10.0.0.0/8", RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: 501, Period: time.Minute}},
+			},
+			wantErr: errCustomLimit,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			l, err := tokenbucket.New(tc.defaults, store, tokenbucket.WithRules(tc.rules...))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, l)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, l)
+		})
+	}
 }

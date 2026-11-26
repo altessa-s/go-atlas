@@ -138,6 +138,5 @@ func TestValidateLimits_Panics(t *testing.T) {
 }
 
 func TestErrLimitExceededIdentity(t *testing.T) {
-	t.Parallel()
 	require.Same(t, limiters.ErrLimitExceeded, storages.ErrLimitExceeded)
 }
