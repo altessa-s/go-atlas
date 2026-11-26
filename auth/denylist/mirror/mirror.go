@@ -95,7 +95,9 @@ func (c *Cache) IsRevoked(id string) (bool, error) {
 		c.unavailable(stateStale, reasonStale)
 		return false, fmt.Errorf("%w: denylist mirror snapshot older than %s", jwt.ErrRevocationUnavailable, c.opts.maxStaleness)
 	}
-	if c.state.Swap(stateServing) != stateServing {
+	// Load first: the swap writes a shared cache line, and the state rarely
+	// changes while lookups run on every verification.
+	if c.state.Load() != stateServing && c.state.Swap(stateServing) != stateServing {
 		c.logger.Info("denylist mirror: serving revocation checks again")
 	}
 	_, ok := s.set[id]
@@ -152,18 +154,38 @@ func (c *Cache) Refresh(ctx context.Context) error {
 		c.metrics.recordRefresh(resultError, 0)
 		return ctx.Err()
 	}
+	// The snapshot is as old as the start of the scan: a key revoked while it
+	// ran may be missing from it.
+	startedAt := c.now()
 	next := make(map[string]struct{})
 	for key, err := range c.src.StreamValues(ctx) {
 		if err != nil {
 			c.metrics.recordRefresh(resultError, 0)
-			return fmt.Errorf("denylist mirror: refresh: %w", err)
+			return &refreshError{cause: err}
 		}
 		next[key] = struct{}{}
 	}
-	c.snap.Store(&snapshot{set: next, ready: true, refreshedAt: c.now()})
+	// A source whose iterator stops silently on cancellation would otherwise
+	// publish a partial set as a ready snapshot.
+	if err := ctx.Err(); err != nil {
+		c.metrics.recordRefresh(resultError, 0)
+		return err
+	}
+	c.snap.Store(&snapshot{set: next, ready: true, refreshedAt: startedAt})
 	c.metrics.recordRefresh(resultOK, len(next))
 	return nil
 }
+
+// refreshError reports a failed source scan by the type of the source error
+// only: the text of a dependency error may carry upstream detail, such as a
+// DSN or a response body. errors.Is and errors.As still reach the cause.
+type refreshError struct{ cause error }
+
+func (e *refreshError) Error() string {
+	return fmt.Sprintf("denylist mirror: refresh: source error (%T)", e.cause)
+}
+
+func (e *refreshError) Unwrap() error { return e.cause }
 
 // Len reports the number of keys in the current snapshot, for observability and
 // tests.

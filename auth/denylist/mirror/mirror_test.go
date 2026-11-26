@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"iter"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -115,50 +114,149 @@ func TestMaxStalenessRefusesOldSnapshot(t *testing.T) {
 	require.True(t, isRevoked(t, c, "a"))
 }
 
-// A primed cache keeps answering while refreshes swap snapshots: every lookup
-// sees one complete snapshot (never the empty seed, never an unready state).
-func TestPrimedCacheAnswersDuringRefresh(t *testing.T) {
+// A reader sees one published snapshot: while the cache holds a stale snapshot
+// it refuses, and once a refresh publishes a snapshot with different membership
+// every answer comes from that snapshot. An old set paired with the new
+// timestamp would answer "old is revoked" without an error.
+func TestSnapshotMembershipAndFreshnessComeTogether(t *testing.T) {
 	t.Parallel()
 
-	var tick atomic.Int64
-	clock := func() time.Time { return time.Unix(tick.Load(), 0) }
-	c := mirror.New(&countingSource{}, mirror.WithClock(clock), mirror.WithMaxStaleness(time.Hour))
-	tick.Store(1)
+	var now atomic.Int64
+	now.Store(1_750_000_000)
+	clock := func() time.Time { return time.Unix(now.Load(), 0) }
+	src := &gatedSource{release: make(chan struct{}, 1), keys: [][]string{{"old"}, {"new"}}}
+	c := mirror.New(src, mirror.WithClock(clock), mirror.WithMaxStaleness(time.Minute))
+	src.release <- struct{}{} // the priming scan
 	require.NoError(t, c.Prime(t.Context()))
+	got, err := c.IsRevoked("old")
+	require.NoError(t, err)
+	require.True(t, got)
 
-	done := make(chan struct{})
+	now.Add(3600) // the "old" snapshot is now stale
+	_, err = c.IsRevoked("old")
+	require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+
+	type answer struct {
+		revoked bool
+		err     error
+	}
+	stop := make(chan struct{})
+	results := make(chan []answer, 4)
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		defer close(done)
-		for n := int64(2); n < 300; n++ {
-			tick.Store(n)
-			require.NoError(t, c.Refresh(t.Context()))
-		}
-	})
 	for range 4 {
 		wg.Go(func() {
+			var seen []answer
 			for {
 				select {
-				case <-done:
+				case <-stop:
+					results <- seen
 					return
 				default:
 				}
-				_, err := c.IsRevoked("k1")
-				require.NoError(t, err)
-				require.Equal(t, 1, c.Len())
-				require.True(t, c.Ready())
+				revoked, err := c.IsRevoked("old")
+				seen = append(seen, answer{revoked, err})
 			}
 		})
 	}
+	refreshed := make(chan error, 1)
+	go func() { refreshed <- c.Refresh(t.Context()) }()
+	src.release <- struct{}{} // publish the "new" snapshot
+	require.NoError(t, <-refreshed)
+	require.Eventually(t, func() bool { return c.Ready() }, time.Second, time.Millisecond)
+	close(stop)
 	wg.Wait()
+	close(results)
+
+	var fresh int
+	for seen := range results {
+		for _, a := range seen {
+			if a.err == nil {
+				fresh++
+				require.False(t, a.revoked, "an answer paired the old membership with the new snapshot's freshness")
+			} else {
+				require.ErrorIs(t, a.err, jwt.ErrRevocationUnavailable)
+			}
+		}
+	}
+	got, err = c.IsRevoked("new")
+	require.NoError(t, err)
+	require.True(t, got)
+	require.Positive(t, fresh+1)
 }
 
-type countingSource struct{ n atomic.Int64 }
+// gatedSource yields the keys of its n-th scan after a token arrives on release.
+type gatedSource struct {
+	release chan struct{}
+	keys    [][]string
+	scans   atomic.Int64
+}
 
-func (s *countingSource) StreamValues(context.Context) iter.Seq2[string, error] {
+func (s *gatedSource) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		n := s.n.Add(1)
-		yield("k"+strconv.FormatInt(n, 10), nil)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			yield("", ctx.Err())
+			return
+		}
+		for _, k := range s.keys[s.scans.Add(1)-1] {
+			if !yield(k, nil) {
+				return
+			}
+		}
+	}
+}
+
+// A source error is reported with its type only: its text may carry upstream
+// detail, but errors.Is still reaches the cause.
+func TestRefreshErrorDoesNotExposeSourceText(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("MARKER-secret-dsn")
+	err := mirror.New(&swapSource{err: sentinel}).Refresh(t.Context())
+	require.ErrorIs(t, err, sentinel)
+	require.NotContains(t, err.Error(), "MARKER")
+}
+
+// A source whose iterator stops silently on cancellation must not publish a
+// partial snapshot as a ready one.
+func TestRefreshCanceledDoesNotPublish(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	src := cancelingSource{cancel: cancel}
+	c := mirror.New(src)
+	require.ErrorIs(t, c.Refresh(ctx), context.Canceled)
+	require.False(t, c.Ready())
+}
+
+type cancelingSource struct{ cancel context.CancelFunc }
+
+func (s cancelingSource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		yield("partial", nil)
+		s.cancel()
+	}
+}
+
+// The snapshot is stamped when the scan starts, not when it ends.
+func TestRefreshStampsTimeBeforeScan(t *testing.T) {
+	t.Parallel()
+
+	var now atomic.Int64
+	now.Store(1_750_000_000)
+	clock := func() time.Time { return time.Unix(now.Load(), 0) }
+	c := mirror.New(advancingSource{now: &now}, mirror.WithClock(clock))
+	require.NoError(t, c.Prime(t.Context()))
+	require.Equal(t, 100*time.Second, c.Age(), "the scan took 100s; the data is as old as the scan's start")
+}
+
+type advancingSource struct{ now *atomic.Int64 }
+
+func (s advancingSource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		s.now.Add(100)
+		yield("k", nil)
 	}
 }
 
