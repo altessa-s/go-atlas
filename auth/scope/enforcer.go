@@ -88,7 +88,7 @@ func NewEnforcer[P any](reg ActionRegistry, authorize Authorizer[P]) *Enforcer[P
 //
 //   - an unregistered key is denied — an action must be registered to be
 //     reachable;
-//   - a key registered with the empty scope is public and always allowed;
+//   - a key registered with [Registry.RegisterPublic] is always allowed;
 //   - otherwise the [Authorizer] decides whether p satisfies the required scope.
 func (e *Enforcer[P]) Enforce(p P, key string) error {
 	required, ok := e.reg.Required(key)

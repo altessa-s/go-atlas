@@ -441,7 +441,7 @@ import (
 reg := scope.NewRegistry()
 reg.Register("/files.v1.Files/Read", "files:read")
 reg.Register("/files.v1.Files/Write", "files:write")
-reg.Register("/health.v1.Health/Check", "") // empty scope = public
+reg.RegisterPublic("/health.v1.Health/Check")
 reg.Freeze()
 
 enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(authoidc.ScopesOf, scope.Exact()))

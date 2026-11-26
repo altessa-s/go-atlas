@@ -92,7 +92,7 @@
 //
 //	registry := scope.NewRegistry()
 //	registry.Register("/orders.v1.OrderService/GetOrder", "orders:read")
-//	registry.Register("/orders.v1.OrderService/Ping", "")
+//	registry.RegisterPublic("/orders.v1.OrderService/Ping")
 //	registry.Freeze()
 //
 //	enf := scope.NewEnforcer(registry, scope.ScopeAuthorizer(authoidc.ScopesOf, scope.Exact()))

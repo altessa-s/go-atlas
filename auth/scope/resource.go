@@ -84,7 +84,7 @@ func NewResourceEnforcer[P, R any](reg *Registry, authorize ResourceAuthorizer[P
 //
 //   - an unregistered key is denied — an action must be registered to be
 //     reachable;
-//   - a key registered with the empty scope is public and always allowed; the
+//   - a key registered with [Registry.RegisterPublic] is always allowed; the
 //     resource is not consulted;
 //   - otherwise the [ResourceAuthorizer] decides whether p may act on r.
 func (e *ResourceEnforcer[P, R]) Enforce(p P, r R, key string) error {

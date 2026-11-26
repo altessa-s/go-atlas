@@ -13,7 +13,7 @@
 // A [Registry] maps an action key (a gRPC full method, an HTTP route, any stable
 // identifier) to the [Scope] required to perform it. It is built once, frozen,
 // then read concurrently. Lookups are deny-by-default: an unregistered key is
-// denied; a key registered with the empty scope is intentionally public.
+// denied; [Registry.RegisterPublic] explicitly allows a key.
 //
 // An [Enforcer] pairs that registry with an [Authorizer] — the single extension
 // point. The Authorizer decides whether a principal of the caller's own type P
@@ -27,7 +27,7 @@
 // [Enforcer.Enforce] is fail-closed:
 //
 //   - unregistered key                  → [ErrAccessDenied]
-//   - key registered with empty scope   → allowed (public)
+//   - key registered with RegisterPublic → allowed (public)
 //   - otherwise                         → the Authorizer decides
 //
 // [ErrAccessDenied] is transport-neutral; adapters map it (gRPC

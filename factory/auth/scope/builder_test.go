@@ -12,7 +12,9 @@ import (
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/factory/auth/scope"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuildRegistersRules(t *testing.T) {
@@ -48,7 +50,7 @@ func TestBuildFreezesRegistry(t *testing.T) {
 func TestBuildNilConfig(t *testing.T) {
 	t.Parallel()
 	_, err := factory.New(nil).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 func TestBuildEmptyKeys(t *testing.T) {
@@ -56,7 +58,7 @@ func TestBuildEmptyKeys(t *testing.T) {
 	_, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read"},
 	}}).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 func TestBuildDuplicateKey(t *testing.T) {
@@ -65,7 +67,7 @@ func TestBuildDuplicateKey(t *testing.T) {
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Read"}}, // duplicate
 	}}).Build()
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 // The built registry drives an Enforcer exactly like a hand-built one.
@@ -88,7 +90,7 @@ func TestBuildRejectsImplicitPublicAction(t *testing.T) {
 	t.Parallel()
 	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{{Keys: []string{"admin.delete"}}}}
 	_, err := factory.New(cfg).Build()
-	require.Error(t, err, "a missing scope must fail startup")
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 	require.Error(t, cfg.Validate())
 }
 
@@ -111,6 +113,6 @@ func TestBuildValidatesPublicAction(t *testing.T) {
 		cfg.Rules[0] = invalid
 		require.Error(t, cfg.Validate())
 		_, err := factory.New(cfg).Build()
-		require.Error(t, err)
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 	}
 }
