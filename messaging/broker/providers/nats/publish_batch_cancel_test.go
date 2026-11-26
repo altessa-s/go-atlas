@@ -7,6 +7,7 @@ package natsprovider_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
@@ -37,6 +38,13 @@ func TestPublishBatch_CanceledContextStoresNothing(t *testing.T) {
 		msg.Message{Topic: "orders.b", Data: []byte("b")},
 	)
 	require.ErrorIs(t, err, context.Canceled)
+
+	// Submitted messages may still await their acknowledgment.
+	select {
+	case <-provider.JetStream().PublishAsyncComplete():
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "pending async publishes did not settle")
+	}
 
 	stream, err := js.Stream(t.Context(), "ORDERS")
 	require.NoError(t, err)
