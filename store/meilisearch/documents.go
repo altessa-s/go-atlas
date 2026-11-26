@@ -5,9 +5,12 @@
 package meilisearch
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -31,7 +34,7 @@ const defaultPrimaryKeyField = "id"
 func (c *Client) IndexDocuments(ctx context.Context, indexName string, documents any) (int64, error) {
 	task, err := c.sdk.Index(indexName).AddDocuments(ctx, documents, nil)
 	if err != nil {
-		return 0, coreerrs.Wrapf(err, "index documents in %s", indexName)
+		return 0, safeSDKError("index documents", err)
 	}
 
 	c.logger.DebugContext(ctx, "documents indexed",
@@ -45,7 +48,7 @@ func (c *Client) IndexDocuments(ctx context.Context, indexName string, documents
 func (c *Client) DeleteDocument(ctx context.Context, indexName, documentID string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocument(ctx, documentID, nil)
 	if err != nil {
-		return 0, coreerrs.Wrapf(err, "delete document %s from %s", documentID, indexName)
+		return 0, safeSDKError("delete document", err)
 	}
 
 	c.logger.DebugContext(ctx, "document deleted",
@@ -60,7 +63,7 @@ func (c *Client) DeleteDocument(ctx context.Context, indexName, documentID strin
 func (c *Client) DeleteDocuments(ctx context.Context, indexName string, documentIDs []string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocuments(ctx, documentIDs, nil)
 	if err != nil {
-		return 0, coreerrs.Wrapf(err, "delete documents from %s", indexName)
+		return 0, safeSDKError("delete documents", err)
 	}
 
 	c.logger.DebugContext(ctx, "documents deleted",
@@ -85,7 +88,7 @@ func (c *Client) DeleteDocuments(ctx context.Context, indexName string, document
 func (c *Client) DeleteDocumentsByFilter(ctx context.Context, indexName, filter string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocumentsByFilter(ctx, filter, nil)
 	if err != nil {
-		return 0, coreerrs.Wrapf(err, "delete documents by filter from %s", indexName)
+		return 0, safeSDKError("delete documents by filter", err)
 	}
 
 	// Filter expressions can encode caller-supplied values; log only at
@@ -121,7 +124,7 @@ func (c *Client) FetchDocuments(ctx context.Context, indexName, filter string, o
 
 	var result msdk.DocumentsResult
 	if err := c.sdk.Index(indexName).GetDocuments(ctx, query, &result); err != nil {
-		return nil, coreerrs.Wrapf(err, "fetch documents from %s", indexName)
+		return nil, safeSDKError("fetch documents", err)
 	}
 
 	hits := make([]json.RawMessage, 0, len(result.Results))
@@ -142,23 +145,29 @@ func (c *Client) FetchDocuments(ctx context.Context, indexName, filter string, o
 }
 
 // GetAllDocumentIDs paginates through indexName and returns every document's
-// primary key. Assumes the index's primary key is the default "id" field —
-// callers using a different primary key must use
-// [Client.GetAllDocumentIDsWithPrimaryKey] instead.
+// primary key as a string (decoding string and numeric keys). Assumes the
+// index's primary key is the default "id" field — callers using a different
+// primary key must use [Client.GetAllDocumentIDsWithPrimaryKey] instead.
+//
+// Offset paging over a changing index is best-effort: a concurrent delete and
+// insert between pages can shift offsets and skip a row even when total is
+// unchanged. Run against a quiescent index or reconcile twice.
 func (c *Client) GetAllDocumentIDs(ctx context.Context, indexName string) ([]string, error) {
 	return c.GetAllDocumentIDsWithPrimaryKey(ctx, indexName, defaultPrimaryKeyField)
 }
 
 // GetAllDocumentIDsWithPrimaryKey paginates through indexName and returns
-// every document's primary-key value. primaryKey names the field to
-// project — pass "" to fall back to [defaultPrimaryKeyField]. Pulls
-// [documentIDListBatchSize] IDs per round-trip and reads only the named
+// every document's primary-key value as a string. Both string and numeric
+// (JSON number) primary keys are supported; a missing, null, empty, or
+// non-scalar primary key fails with [ErrInvalidDocumentID]. primaryKey names
+// the field to project — pass "" to fall back to [defaultPrimaryKeyField].
+// Pulls [documentIDListBatchSize] IDs per round-trip and reads only the named
 // field, so the body of each document is never transferred.
 //
-// Unmarshal failures on individual hits are logged at Warn (with the
-// offending field name) and the hit is skipped; a misconfigured
-// primary-key type (e.g. an int-typed key extracted as string) would
-// otherwise return an empty slice with no diagnostic.
+// Consistency: offset paging over a live, mutating index is best-effort — a
+// delete and insert between pages can shift offsets and skip a row even when
+// the reported total is unchanged. Run against a quiescent index or reconcile
+// twice.
 func (c *Client) GetAllDocumentIDsWithPrimaryKey(ctx context.Context, indexName, primaryKey string) ([]string, error) {
 	primaryKey = cmp.Or(primaryKey, defaultPrimaryKeyField)
 	index := c.sdk.Index(indexName)
@@ -176,32 +185,25 @@ func (c *Client) GetAllDocumentIDsWithPrimaryKey(ctx context.Context, indexName,
 			Fields: []string{primaryKey},
 		}, &result)
 		if err != nil {
-			return nil, coreerrs.Wrapf(err, "get document IDs from %s (offset %d)", indexName, offset)
+			return nil, safeSDKError("get document IDs", err)
 		}
 
 		for _, hit := range result.Results {
 			raw, ok := hit[primaryKey]
 			if !ok {
-				c.logger.WarnContext(ctx, "primary key field missing from document",
-					slog.String("index", indexName),
-					slog.String("primary_key", primaryKey))
-				continue
+				return nil, fmt.Errorf("%w: field %q missing in index %q", ErrInvalidDocumentID, primaryKey, indexName)
 			}
 
-			var id string
-			if err := json.Unmarshal(raw, &id); err != nil {
-				c.logger.WarnContext(ctx, "failed to decode primary key as string — check primary-key type",
-					slog.String("index", indexName),
-					slog.String("primary_key", primaryKey),
-					slog.Any("error", err))
-				continue
+			id, err := decodeDocumentID(raw)
+			if err != nil {
+				return nil, fmt.Errorf("%w: field %q in index %q", err, primaryKey, indexName)
 			}
 
 			allIDs = append(allIDs, id)
 		}
 
 		offset += documentIDListBatchSize
-		if offset >= result.Total {
+		if len(result.Results) == 0 || offset >= result.Total {
 			break
 		}
 	}
@@ -212,6 +214,31 @@ func (c *Client) GetAllDocumentIDsWithPrimaryKey(ctx context.Context, indexName,
 		slog.Int("count", len(allIDs)))
 
 	return allIDs, nil
+}
+
+func decodeDocumentID(raw json.RawMessage) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	tok, err := dec.Token()
+	if err != nil {
+		return "", ErrInvalidDocumentID
+	}
+	var id string
+	switch v := tok.(type) {
+	case string:
+		if v == "" {
+			return "", ErrInvalidDocumentID
+		}
+		id = v
+	case json.Number:
+		id = v.String()
+	default:
+		return "", ErrInvalidDocumentID
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", ErrInvalidDocumentID
+	}
+	return id, nil
 }
 
 // Search runs a full-text query against the specified index and returns raw
@@ -233,7 +260,7 @@ func (c *Client) Search(ctx context.Context, req *SearchRequest) (*SearchResult,
 
 	resp, err := c.sdk.Index(req.IndexName).Search(ctx, req.Query, sdkReq)
 	if err != nil {
-		return nil, coreerrs.Wrapf(err, "search index %s", req.IndexName)
+		return nil, safeSDKError("search", err)
 	}
 
 	hits := make([]json.RawMessage, 0, len(resp.Hits))
