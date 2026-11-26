@@ -24,15 +24,28 @@ import (
 func (o *Orchestrator[T]) RegisterRetention(ctx context.Context) error {
 	o.registrationMu.Lock()
 	defer o.registrationMu.Unlock()
+	return o.registerRetention(ctx)
+}
+
+// registerRetention is RegisterRetention with registrationMu held.
+func (o *Orchestrator[T]) registerRetention(ctx context.Context) error {
 	if o.retention <= 0 || o.retentionTask.IsManaged() || nilcheck.IsNil(o.scheduler) {
 		return nil
+	}
+	if err := o.validateRetention(); err != nil {
+		return err
 	}
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, o.storageTimeout)
 	defer cancel()
 	if err := o.scheduler.Register(ctx, schedtask.Config{
-		ID:             RetentionTaskIDPrefix + o.def.name,
-		Description:    "Delete terminal saga instances past the retention window",
-		Func:           func(ctx context.Context) error { return o.retentionTask.TryRun(ctx) },
+		ID:          o.retentionTaskID(),
+		Description: "Delete terminal saga instances past the retention window",
+		Func: func(ctx context.Context) error {
+			if o.deactivated.Load() {
+				return nil
+			}
+			return o.retentionTask.TryRun(ctx)
+		},
 		Schedule:       o.retentionSchedule,
 		Priority:       schedtask.PriorityLow,
 		DisableHistory: true,
@@ -40,6 +53,46 @@ func (o *Orchestrator[T]) RegisterRetention(ctx context.Context) error {
 		return err
 	}
 	o.retentionTask.MarkManaged()
+	return nil
+}
+
+// retentionTaskID is the scheduler task ID of the retention cycle.
+func (o *Orchestrator[T]) retentionTaskID() string { return RetentionTaskIDPrefix + o.def.name }
+
+// validateRetention rejects a retention setup that could not run safely: an
+// unnamed definition (stores read it as "every definition") or a task ID shared
+// with the recovery task.
+func (o *Orchestrator[T]) validateRetention() error {
+	if o.retention <= 0 {
+		return nil
+	}
+	if o.def.name == "" {
+		return ErrEmptyDefinitionName
+	}
+	if o.recoveryTaskID == o.retentionTaskID() {
+		return coreerrs.Wrapf(ErrTaskIDCollision, "%q", o.recoveryTaskID)
+	}
+	return nil
+}
+
+// RegisterTasks installs the recovery task and, when retention is on, the
+// retention task, all or nothing: when the second registration fails the first
+// task, which a scheduler cannot unregister, is deactivated so it no longer
+// runs. Use it instead of calling the two Register methods separately when the
+// orchestrator is discarded on failure.
+func (o *Orchestrator[T]) RegisterTasks(ctx context.Context) error {
+	o.registrationMu.Lock()
+	defer o.registrationMu.Unlock()
+	if err := o.validateRetention(); err != nil {
+		return err
+	}
+	if err := o.registerRecovery(ctx); err != nil {
+		return err
+	}
+	if err := o.registerRetention(ctx); err != nil {
+		o.deactivated.Store(true)
+		return err
+	}
 	return nil
 }
 
@@ -58,6 +111,9 @@ func (o *Orchestrator[T]) runRetentionCycleInternal(ctx context.Context) error {
 	if o.retention <= 0 {
 		return nil
 	}
+	if err := o.validateRetention(); err != nil {
+		return err
+	}
 	if !nilcheck.IsNil(o.leaderElector) && !o.leaderElector.IsLeader() {
 		return nil // Not the leader; another node runs the retention cycle.
 	}
@@ -74,7 +130,7 @@ func (o *Orchestrator[T]) runRetentionCycleInternal(ctx context.Context) error {
 		if err != nil {
 			return coreerrs.WrapOperation(err, "delete terminal saga instances")
 		}
-		if n < o.retentionBatchSize {
+		if n == 0 || n < o.retentionBatchSize {
 			break
 		}
 		if err := cycleCtx.Err(); err != nil {

@@ -95,7 +95,7 @@ type options struct {
 	// before the retention cycle deletes it; 0 disables retention.
 	retention          time.Duration
 	retentionSchedule  string `optgen:"default=DefaultRetentionSchedule"`
-	retentionBatchSize int    `optgen:"default=DefaultRetentionBatchSize"`
+	retentionBatchSize int    `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
 
 	scheduler     schedtask.Registrar `optgen:"notnil"`
 	leaderElector LeaderElector       `optgen:"notnil"`

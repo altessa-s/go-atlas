@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 	"github.com/altessa-s/go-atlas/reliability/saga/storages/memory"
 
@@ -24,8 +25,19 @@ import (
 // hookStore wraps the memory store with failure and ordering hooks.
 type hookStore struct {
 	*memory.Store
-	onUpdate func(*saga.Instance) error
-	onGet    func(id string) error
+	onUpdate  func(*saga.Instance) error
+	onGet     func(id string) error
+	onCreated func(id string) // Runs after the underlying Create committed, before it returns.
+}
+
+func (s *hookStore) Create(ctx context.Context, inst *saga.Instance) error {
+	if err := s.Store.Create(ctx, inst); err != nil {
+		return err
+	}
+	if s.onCreated != nil {
+		s.onCreated(inst.ID)
+	}
+	return nil
 }
 
 func (s *hookStore) Update(ctx context.Context, inst *saga.Instance) error {
@@ -91,31 +103,19 @@ func TestStartFirstUpdateFailureLeavesRecoverableInstance(t *testing.T) {
 func TestStartHoldsLeaseFromCreate(t *testing.T) {
 	t.Parallel()
 	r := &recorder{}
-	started, release := make(chan struct{}), make(chan struct{})
-	def := saga.NewDefinition[order]("busy").
-		Step("a", func(context.Context, *order) error {
-			r.add("do:a")
-			close(started)
-			<-release
-			return nil
-		}).Compensate(undoStep(r, "a")).
-		MustBuild()
-	orch := saga.New(memory.New(), def, fastOpts()...)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := orch.Start(t.Context(), "x", order{})
-		done <- err
-	}()
-	<-started
+	var probeErr error
+	var orch *saga.Orchestrator[order]
+	store := &hookStore{Store: memory.New()}
+	store.onCreated = func(id string) {
+		// The instant after Create committed, before Start continues: another
+		// executor must already find the lease.
+		_, probeErr = orch.Resume(t.Context(), id)
+	}
+	orch = saga.New(store, oneStepDef("busy", r), fastOpts()...)
 
 	_, err := orch.Start(t.Context(), "x", order{})
-	require.ErrorIs(t, err, saga.ErrInstanceBusy)
-	_, err = orch.Resume(t.Context(), "x")
-	require.ErrorIs(t, err, saga.ErrInstanceBusy)
-
-	close(release)
-	require.NoError(t, <-done)
+	require.NoError(t, err)
+	require.ErrorIs(t, probeErr, saga.ErrInstanceBusy)
 	require.Equal(t, 1, r.count("do:a"))
 }
 
@@ -142,11 +142,11 @@ func TestStartCrashAfterCreateIsRecoveredAfterLeaseExpiry(t *testing.T) {
 	require.Zero(t, r.count("do:a"))
 
 	restarted.Store(true) // The "process" restarts.
-	time.Sleep(60 * time.Millisecond)
-	require.NoError(t, orch.RunRecoveryCycle(t.Context()))
-	inst, err := store.Get(t.Context(), "x")
-	require.NoError(t, err)
-	require.Equal(t, saga.StatusCompleted, inst.Status)
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		_ = orch.RunRecoveryCycle(t.Context())
+		inst, err := store.Get(t.Context(), "x")
+		return err == nil && inst.Status == saga.StatusCompleted
+	}, "the abandoned instance must be recovered once its lease expires")
 	require.Equal(t, 1, r.count("do:a"))
 }
 
@@ -181,6 +181,61 @@ func TestParallelCanceledSiblingIsCompensated(t *testing.T) {
 	require.Equal(t, saga.StatusCompensated, inst.Status)
 	require.True(t, undone.Load(), "the canceled sibling's effect must be compensated")
 	require.False(t, applied.Load())
+}
+
+// A first attempt that times out may have applied; a later attempt failing
+// definitively must not erase that.
+func TestTimedOutAttemptThenDefinitiveFailureIsCompensated(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var undone atomic.Bool
+	def := saga.NewDefinition[order]("retry-unknown").
+		Step("a", func(ctx context.Context, _ *order) error {
+			if calls.Add(1) == 1 {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return errPermanent
+		}).Compensate(func(context.Context, *order) error { undone.Store(true); return nil }).
+		MustBuild()
+
+	orch := saga.New(memory.New(), def, fastOpts(saga.WithMaxStepAttempts(2), saga.WithStepTimeout(20*time.Millisecond))...)
+	inst, err := orch.Start(t.Context(), "x", order{})
+	require.ErrorIs(t, err, errPermanent)
+	require.Equal(t, saga.StatusCompensated, inst.Status)
+	require.True(t, undone.Load())
+}
+
+// A step whose every action invocation failed definitively is not compensated
+// because a sibling's failure canceled it during retry backoff.
+func TestCancellationDuringBackoffAfterDefinitiveFailureIsNotUnknown(t *testing.T) {
+	t.Parallel()
+	var undone atomic.Bool
+	failed := make(chan struct{})
+	def := saga.NewDefinition[order]("backoff").
+		Parallel("p",
+			saga.NewStep("a", func(context.Context, *order) error {
+				select {
+				case <-failed:
+				default:
+					close(failed)
+				}
+				return errPermanent
+			}).Compensate(func(context.Context, *order) error { undone.Store(true); return nil }).
+				Retry(3, time.Hour, time.Hour),
+			saga.NewStep("b", func(context.Context, *order) error {
+				<-failed
+				time.Sleep(20 * time.Millisecond) // a is now in its backoff
+				return errBoom
+			}),
+		).
+		MustBuild()
+
+	orch := saga.New(memory.New(), def, fastOpts(saga.WithMaxStepAttempts(1))...)
+	inst, err := orch.Start(t.Context(), "x", order{})
+	require.Error(t, err)
+	require.Equal(t, saga.StatusCompensated, inst.Status)
+	require.False(t, undone.Load(), "a definitive failure is not an unknown outcome")
 }
 
 func TestParallelSiblingGatedBeforeActionIsNotCompensated(t *testing.T) {
@@ -384,9 +439,10 @@ func TestRecoveryQuarantineLosesToConcurrentWriter(t *testing.T) {
 	}))
 
 	var once sync.Once
-	var dead atomic.Int32
+	var dead, repaired atomic.Int32
 	store.onUpdate = func(inst *saga.Instance) error {
 		once.Do(func() { // A healthy writer repairs the instance before the quarantine lands.
+			repaired.Add(1)
 			cur, err := store.Store.Get(t.Context(), inst.ID)
 			require.NoError(t, err)
 			cur.Data = []byte("{}")
@@ -399,7 +455,9 @@ func TestRecoveryQuarantineLosesToConcurrentWriter(t *testing.T) {
 
 	got, err := store.Store.Get(t.Context(), "a-poison")
 	require.NoError(t, err)
+	require.EqualValues(t, 1, repaired.Load(), "the quarantine write must have been attempted and lost")
 	require.NotEqual(t, saga.StatusFailed, got.Status)
+	require.Equal(t, []byte("{}"), got.Data, "the repaired payload must survive")
 	require.Zero(t, dead.Load())
 }
 
@@ -489,4 +547,161 @@ func TestRetentionTaskIsPerDefinitionAndManaged(t *testing.T) {
 	off := saga.New(memory.New(), oneStepDef("off", rec), fastOpts(saga.WithScheduler(none))...)
 	require.NoError(t, off.RegisterRetention(t.Context()))
 	require.Empty(t, none.tasks, "retention off registers nothing")
+}
+
+func TestRecoveryLeavesLeasedPoisonInstanceAlone(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := &hookStore{Store: memory.New()}
+	require.NoError(t, store.Create(t.Context(), &saga.Instance{
+		ID: "a-poison", Definition: "recover", Status: saga.StatusCompensating, Stage: 1, Data: []byte("{not json"),
+	}))
+	// The scan saw an expired lease; another node takes it before Get.
+	store.onGet = func(id string) error {
+		cur, err := store.Store.Get(t.Context(), id)
+		require.NoError(t, err)
+		cur.LeaseOwner, cur.LeaseUntil = "other-node", time.Now().Add(time.Minute)
+		require.NoError(t, store.Store.Update(t.Context(), cur))
+		store.onGet = nil
+		return nil
+	}
+	var dead atomic.Int32
+	orch := saga.New(store, twoStepDef(r), fastOpts(saga.WithOnDeadLetter(func(*saga.Instance) { dead.Add(1) }))...)
+	require.NoError(t, orch.RunRecoveryCycle(t.Context()))
+
+	got, err := store.Store.Get(t.Context(), "a-poison")
+	require.NoError(t, err)
+	require.Equal(t, saga.StatusCompensating, got.Status)
+	require.Equal(t, "other-node", got.LeaseOwner)
+	require.Zero(t, dead.Load())
+}
+
+func TestRecoveryBackoffDoesNotOverwriteAnotherExecutorsLease(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := &hookStore{Store: memory.New()}
+	craftInstance(t, store.Store, saga.StatusCompensating, time.Time{})
+	var once sync.Once
+	store.onUpdate = func(inst *saga.Instance) error {
+		var err error
+		once.Do(func() { // The lease write fails, and another executor wins the instance meanwhile.
+			cur, gerr := store.Store.Get(t.Context(), inst.ID)
+			require.NoError(t, gerr)
+			cur.LeaseOwner, cur.LeaseUntil = "other-node", time.Now().Add(time.Hour)
+			require.NoError(t, store.Store.Update(t.Context(), cur))
+			err = errBoom
+		})
+		return err
+	}
+	orch := saga.New(store, twoStepDef(r), fastOpts()...)
+	require.Error(t, orch.RunRecoveryCycle(t.Context()))
+
+	got, err := store.Store.Get(t.Context(), "r1")
+	require.NoError(t, err)
+	require.Equal(t, "other-node", got.LeaseOwner)
+	require.WithinDuration(t, time.Now().Add(time.Hour), got.LeaseUntil, time.Minute, "the other executor's lease must stay")
+}
+
+// corruptStore reports one stub for a record it cannot decode.
+type corruptStore struct {
+	*hookStore
+}
+
+func (s corruptStore) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
+	rec, err := s.hookStore.FetchRecoverable(ctx, definition, now, limit)
+	if cur, gerr := s.Store.Get(ctx, "broken"); gerr == nil && cur.Status == saga.StatusRunning {
+		rec = append([]*saga.Instance{{ID: "broken", Version: cur.Version, Corrupt: true}}, rec...)
+	}
+	return rec, err
+}
+
+func TestRecoveryQuarantinesCorruptStorageRecord(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	hs := &hookStore{Store: memory.New()}
+	require.NoError(t, hs.Create(t.Context(), &saga.Instance{ID: "broken", Definition: "x", Status: saga.StatusRunning}))
+	var dead []*saga.Instance
+	orch := saga.New(corruptStore{hs}, twoStepDef(r), fastOpts(saga.WithOnDeadLetter(func(i *saga.Instance) { dead = append(dead, i) }))...)
+
+	require.NoError(t, orch.RunRecoveryCycle(t.Context()))
+	got, err := hs.Store.Get(t.Context(), "broken")
+	require.NoError(t, err)
+	require.Equal(t, saga.StatusFailed, got.Status)
+	require.Len(t, dead, 1)
+
+	require.NoError(t, orch.RunRecoveryCycle(t.Context()))
+	require.Len(t, dead, 1, "a quarantined record is not reported again")
+}
+
+func TestRetentionRejectsEmptyDefinitionName(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	store := memory.New()
+	require.NoError(t, store.Create(t.Context(), &saga.Instance{ID: "other", Definition: "other-saga", Status: saga.StatusCompleted}))
+	orch := saga.New(store, oneStepDefNamed("", rec), fastOpts(saga.WithRetention(time.Nanosecond))...)
+
+	require.ErrorIs(t, orch.RunRetentionCycle(t.Context()), saga.ErrEmptyDefinitionName)
+	require.Equal(t, 1, store.Len(), "another definition's history must survive")
+	require.ErrorIs(t, orch.RegisterTasks(t.Context()), saga.ErrEmptyDefinitionName)
+}
+
+func TestRetentionBatchSizeNonPositiveFallsBackToDefault(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	store := memory.New()
+	orch := saga.New(store, oneStepDef("retain", rec), fastOpts(saga.WithRetention(time.Nanosecond), saga.WithRetentionBatchSize(0))...)
+	_, err := orch.Start(t.Context(), "a", order{})
+	require.NoError(t, err)
+	time.Sleep(2 * time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() { done <- orch.RunRetentionCycle(t.Context()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("retention cycle spun on a non-positive batch size")
+	}
+	require.Zero(t, store.Len())
+}
+
+func TestTaskIDCollisionIsRejected(t *testing.T) {
+	t.Parallel()
+	reg := &recordingRegistrar{}
+	rec := &recorder{}
+	orch := saga.New(memory.New(), oneStepDef("same", rec), fastOpts(
+		saga.WithScheduler(reg), saga.WithRetention(time.Hour), saga.WithRecoveryTaskID(saga.RetentionTaskIDPrefix+"same"))...)
+
+	require.ErrorIs(t, orch.RegisterRecovery(t.Context()), saga.ErrTaskIDCollision)
+	require.ErrorIs(t, orch.RegisterRetention(t.Context()), saga.ErrTaskIDCollision)
+	require.ErrorIs(t, orch.RegisterTasks(t.Context()), saga.ErrTaskIDCollision)
+	require.Empty(t, reg.tasks)
+}
+
+// failingRegistrar fails the registration of one task ID.
+type failingRegistrar struct {
+	recordingRegistrar
+	failID string
+}
+
+func (r *failingRegistrar) Register(ctx context.Context, cfg schedtask.Config) error {
+	if cfg.ID == r.failID {
+		return errBoom
+	}
+	return r.recordingRegistrar.Register(ctx, cfg)
+}
+
+func TestRegisterTasksIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	reg := &failingRegistrar{failID: saga.RetentionTaskIDPrefix + "aon"}
+	store := memory.New()
+	craftNamed(t, store, "aon")
+	orch := saga.New(store, oneStepDefNamed("aon", rec), fastOpts(saga.WithScheduler(reg), saga.WithRetention(time.Hour))...)
+
+	require.ErrorIs(t, orch.RegisterTasks(t.Context()), errBoom)
+	task, ok := reg.tasks[saga.RecoveryTaskIDPrefix+"aon"]
+	require.True(t, ok, "the first registration happened")
+	require.NoError(t, task.Func(t.Context()))
+	require.Zero(t, rec.count("undo:aon"), "a failed RegisterTasks must leave no active callback")
 }

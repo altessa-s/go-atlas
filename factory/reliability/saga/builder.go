@@ -109,11 +109,8 @@ func (b *Builder[T]) Build(ctx context.Context) (*saga.Orchestrator[T], error) {
 	}
 
 	o := saga.New(store, b.def, b.orchestratorOptions()...)
-	if err := o.RegisterRecovery(ctx); err != nil {
-		return nil, fmt.Errorf("register saga recovery: %w", err)
-	}
-	if err := o.RegisterRetention(ctx); err != nil {
-		return nil, fmt.Errorf("register saga retention: %w", err)
+	if err := o.RegisterTasks(ctx); err != nil {
+		return nil, fmt.Errorf("register saga tasks: %w", err)
 	}
 	return o, nil
 }

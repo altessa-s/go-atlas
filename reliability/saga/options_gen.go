@@ -196,6 +196,9 @@ func WithRetention(v time.Duration) Option {
 // WithRetentionBatchSize sets the retentionBatchSize option.
 func WithRetentionBatchSize(v int) Option {
 	return func(o *options) {
+		if v < (1) {
+			return
+		}
 		o.retentionBatchSize = v
 	}
 }

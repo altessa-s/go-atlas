@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
@@ -85,6 +86,9 @@ type Orchestrator[T any] struct {
 	recoveryTask   *cycle.Guard
 	retentionTask  *cycle.Guard
 	registrationMu sync.Mutex
+	// deactivated turns the scheduler callbacks into no-ops after a failed
+	// RegisterTasks.
+	deactivated atomic.Bool
 }
 
 // New creates an orchestrator for def backed by store. Default settings are
@@ -436,14 +440,17 @@ func (o *Orchestrator[T]) compensationFailed(ctx context.Context, inst *Instance
 func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, compensating bool) ([]int, []int, error) {
 	run := o.runStep
 	if compensating {
-		run = o.compensateStep
+		run = func(ctx context.Context, s Step[T], data *T) (int, bool, error) {
+			n, err := o.compensateStep(ctx, s, data)
+			return n, false, err
+		}
 	}
 
 	attempts := make([]int, len(st.steps))
 	if len(st.steps) == 1 {
-		n, err := run(ctx, st.steps[0], data)
+		n, unknown, err := run(ctx, st.steps[0], data)
 		attempts[0] = n
-		if err == nil || outcomeUnknown(n, err) {
+		if err == nil || unknown {
 			return attempts, []int{0}, err
 		}
 		return attempts, nil, err
@@ -462,9 +469,9 @@ func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, co
 	}
 	maybeApplied := make([]bool, len(st.steps))
 	err := concurrency.Process(ctx, idx, func(ctx context.Context, i int) error {
-		n, e := run(ctx, st.steps[i], data)
+		n, unknown, e := run(ctx, st.steps[i], data)
 		attempts[i] = n
-		maybeApplied[i] = e == nil || outcomeUnknown(n, e)
+		maybeApplied[i] = e == nil || unknown
 		return e
 	}, copts...)
 	var pending []int
@@ -476,17 +483,15 @@ func (o *Orchestrator[T]) runStage(ctx context.Context, st stage[T], data *T, co
 	return attempts, pending, err
 }
 
-// outcomeUnknown reports whether a step that made attempts invocations ended
-// with a context error: its action started and may have taken effect remotely
-// before it was canceled or timed out.
-func outcomeUnknown(attempts int, err error) bool {
-	return attempts > 0 && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
-}
-
 // runStep executes a forward step action with a per-step timeout, panic
 // recovery, and bounded exponential-backoff retries. It returns the number of
-// attempts made (>= 1, including the first).
-func (o *Orchestrator[T]) runStep(ctx context.Context, s Step[T], data *T) (int, error) {
+// attempts made (0 when the step never started) and whether any attempt had an
+// unknown outcome: the action ended with a context error (canceled, timed out)
+// or while its context was already done, so it may have taken effect remotely.
+// The flag is tracked per attempt: a later definitive failure does not clear it,
+// and a cancellation during retry backoff after definitive failures does not
+// set it.
+func (o *Orchestrator[T]) runStep(ctx context.Context, s Step[T], data *T) (int, bool, error) {
 	timeout := o.resolveTimeout(s)
 
 	opts := o.defaultStepRetryOpts
@@ -495,6 +500,7 @@ func (o *Orchestrator[T]) runStep(ctx context.Context, s Step[T], data *T) (int,
 	}
 
 	attempts := 0
+	unknown := false
 	err := coreretry.Do(ctx, func(ctx context.Context) (err error) {
 		attempts++
 		sctx, cancel := corecontext.WithMaxTimeout(ctx, timeout)
@@ -502,9 +508,13 @@ func (o *Orchestrator[T]) runStep(ctx context.Context, s Step[T], data *T) (int,
 		defer panics.HandleWithOpts(sctx, noRepanic, func(_ context.Context, r any) {
 			err = coreerrs.Wrapf(errPanic, "step %q panicked: %v", s.name, r)
 		})
-		return s.action(withStep(sctx, s.name), data)
+		err = s.action(withStep(sctx, s.name), data)
+		if err != nil && (coreerrs.IsContextCanceledOrDeadlineExceeded(err) || sctx.Err() != nil) {
+			unknown = true
+		}
+		return err
 	}, opts...)
-	return attempts, err
+	return attempts, unknown, err
 }
 
 // compensateStep runs a step's compensation (a no-op when the step has none)

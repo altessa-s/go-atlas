@@ -125,6 +125,12 @@ type Instance struct {
 	Version int64 `json:"version"`
 	// LastError holds the most recent error string for diagnostics.
 	LastError string `json:"last_error,omitempty"`
+
+	// Corrupt is set only on a stub returned by [Storage.FetchRecoverable] for
+	// a stored record the backend could not decode. Only ID and Version are
+	// meaningful; the orchestrator quarantines the record with a version-checked
+	// [Storage.Update] so it leaves the recovery index. It is never persisted.
+	Corrupt bool `json:"-"`
 }
 
 // Clone returns a deep copy of the instance. Storage backends use it to avoid
@@ -168,6 +174,11 @@ type Storage interface {
 	// candidates for recovery: expired execution leases, expired deadlines, or
 	// interrupted compensation. Active leases exclude all candidates. See
 	// Instance.Recoverable. The recovery loop rechecks ownership with CAS.
+	//
+	// A record the backend cannot decode is returned as a stub with
+	// [Instance.Corrupt] set (ID and Version only), not as an error, so one bad
+	// record neither aborts the scan nor is read again after quarantine. A stub
+	// counts toward limit and is not filtered by definition.
 	//
 	// A non-empty definition restricts the result to instances of that saga
 	// definition; the restriction applies before the limit, so instances of
