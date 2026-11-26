@@ -47,7 +47,7 @@ type Builder[T any] struct {
 
 	storages  map[sagaconfig.StorageType]StorageFunc
 	sqlDB     *sql.DB
-	resolveTx func(context.Context) (*sql.Tx, bool)
+	resolveTx func(context.Context) (*sql.Tx, bool, error)
 
 	// Optional orchestrator dependencies.
 	collector     metrics.Meter

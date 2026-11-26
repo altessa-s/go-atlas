@@ -278,9 +278,9 @@ func TestCreateOutbox_SQLPool(t *testing.T) {
 	defer func() { _ = tx.Rollback() }()
 
 	type txKey struct{}
-	ob, err := factory.New(cfg).UseSQLPool(db, func(ctx context.Context) (*sql.Tx, bool) {
+	ob, err := factory.New(cfg).UseSQLPool(db, func(ctx context.Context) (*sql.Tx, bool, error) {
 		tx, ok := ctx.Value(txKey{}).(*sql.Tx)
-		return tx, ok
+		return tx, ok, nil
 	}).CreateOutbox(ctx, stubPublisher{})
 	require.NoError(t, err)
 	require.NoError(t, ob.Publish(context.WithValue(ctx, txKey{}, tx), msg.Message{Topic: "orders"}))

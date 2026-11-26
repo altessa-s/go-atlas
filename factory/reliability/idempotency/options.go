@@ -35,7 +35,7 @@ func (b *KeeperBuilder) UseSQLDB(db *sql.DB) *KeeperBuilder {
 }
 
 // UseSQLPool injects a database and its per-call transaction resolver.
-func (b *KeeperBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *KeeperBuilder {
+func (b *KeeperBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool, error)) *KeeperBuilder {
 	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }

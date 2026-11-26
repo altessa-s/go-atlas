@@ -67,7 +67,7 @@ func (b *OutboxBuilder) UseSQLDB(v *sql.DB) *OutboxBuilder {
 }
 
 // UseSQLPool injects a database and its per-call transaction resolver.
-func (b *OutboxBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *OutboxBuilder {
+func (b *OutboxBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool, error)) *OutboxBuilder {
 	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }

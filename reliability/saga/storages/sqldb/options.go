@@ -17,6 +17,6 @@ const DefaultTableName = "saga_instances"
 
 type options struct {
 	// WithTxResolver finds the application transaction for a call.
-	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
-	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
+	txResolver func(context.Context) (*sql.Tx, bool, error) `optgen:"notnil"`
+	tableName  string                                       `optval:"nonempty" optgen:"default=DefaultTableName"`
 }

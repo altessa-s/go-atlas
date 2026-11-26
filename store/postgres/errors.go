@@ -24,7 +24,7 @@ import (
 var ErrPooledTimeoutDefaults = errors.New("database role needs nonzero timeout defaults for pooled connections")
 
 // ErrDatabaseMismatch indicates that pools or a transaction and pool belong to different databases.
-var ErrDatabaseMismatch = ErrDifferentDatabase
+var ErrDatabaseMismatch = errors.New("transaction belongs to a different database")
 
 var errInvalidDSN = errors.New("invalid PostgreSQL DSN")
 

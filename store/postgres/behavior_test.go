@@ -13,6 +13,8 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,7 +118,12 @@ func TestPoolRoutingAndHooks(t *testing.T) {
 		NotifyAfterCommit(txCtx, wake)
 		NotifyAfterCommit(txCtx, wake)
 		require.Empty(t, wake)
-		AfterCommitContext(txCtx, func(fresh context.Context) { tx, ok := Tx(fresh); require.False(t, ok); require.Nil(t, tx); called++ })
+		AfterCommitContext(txCtx, func(fresh context.Context) {
+			tx, ok, _ := Tx(fresh)
+			require.False(t, ok)
+			require.Nil(t, tx)
+			called++
+		})
 		return nil
 	}))
 	require.Equal(t, 2, called)
@@ -232,18 +239,22 @@ func TestPoolBinding(t *testing.T) {
 	other, _ := testhelpers.NewFakeSQL(t, nil)
 	pools := Pools{DefaultPool: primary, "worker": worker}
 	require.NoError(t, pools.Verify(t.Context()))
-	db, resolve := pools.Binding("worker")
+	db, resolve, err := pools.Binding(t.Context(), "worker")
+	require.NoError(t, err)
 	require.Same(t, worker, db)
-	db, _ = pools.Binding("missing")
+	db, _, err = pools.Binding(t.Context(), "missing")
+	require.Error(t, err)
 	require.Nil(t, db)
-	_, ok := resolve(t.Context())
+	_, ok, err := resolve(t.Context())
+	require.NoError(t, err)
 	require.False(t, ok)
 	for _, source := range []*sql.DB{primary, worker, other} {
 		require.NoError(t, WithTransaction(t.Context(), source, func(ctx context.Context) error {
-			tx, bound := resolve(ctx)
+			tx, bound, err := resolve(ctx)
+			require.NoError(t, err)
 			require.Equal(t, source != other, bound)
 			if bound {
-				current, _ := Tx(ctx)
+				current, _, _ := Tx(ctx)
 				require.Same(t, current, tx)
 			}
 			return nil
@@ -299,7 +310,7 @@ func TestBeginAsyncCommitIsIndependent(t *testing.T) {
 	require.NoError(t, WithTransaction(t.Context(), db, func(ctx context.Context) error {
 		async, err := BeginAsyncCommit(ctx, db)
 		require.NoError(t, err)
-		outer, _ := Tx(ctx)
+		outer, _, _ := Tx(ctx)
 		require.NotSame(t, outer, async)
 		require.NoError(t, async.Rollback())
 		return nil
@@ -338,8 +349,6 @@ func TestLocalizedFatalConnectionError(t *testing.T) {
 }
 
 func TestPoolBinding_RejectsMismatchedDatabase(t *testing.T) {
-	t.Parallel()
-
 	identityResponder := func(sysID, dbName string) func(string, []any) testhelpers.FakeSQLReply {
 		return func(query string, _ []any) testhelpers.FakeSQLReply {
 			if query == "SELECT system_identifier::text, current_database() FROM pg_control_system()" {
@@ -356,15 +365,29 @@ func TestPoolBinding_RejectsMismatchedDatabase(t *testing.T) {
 	reportingDB, reportingFake := testhelpers.NewFakeSQL(t, identityResponder("100", "reporting"))
 	pools := Pools{DefaultPool: ordersDB, "reporting": reportingDB}
 
-	boundDB, resolve := pools.Binding("reporting")
+	boundDB, resolve, err := pools.Binding(t.Context(), "reporting")
+	require.NoError(t, err)
 	boundPool := sqldialect.Postgres.WrapPool(boundDB).WithResolver(resolve)
 
-	err := WithTransaction(t.Context(), ordersDB, func(ctx context.Context) error {
-		_, execErr := boundPool.ExecContext(ctx, "INSERT INTO events_outbox (id) VALUES ($1)", "e1")
-		return execErr
+	err = WithTransaction(t.Context(), ordersDB, func(ctx context.Context) error {
+		tx, open, err := boundPool.Tx(ctx)
+		require.Nil(t, tx)
+		require.False(t, open)
+		require.Equal(t, ErrDatabaseMismatch, err)
+		_, err = boundPool.BeginScope(ctx, nil)
+		require.Equal(t, ErrDatabaseMismatch, err)
+		_, err = boundPool.QueryContext(ctx, "SELECT 1")
+		require.Equal(t, ErrDatabaseMismatch, err)
+		require.Equal(t, ErrDatabaseMismatch, boundPool.QueryRowContext(ctx, "SELECT 1").Scan())
+		before := sqlTransactionGoroutines()
+		for range 128 {
+			_, execErr := boundPool.ExecContext(ctx, "INSERT INTO events_outbox (id) VALUES ($1)", "e1")
+			require.Equal(t, ErrDatabaseMismatch, execErr)
+		}
+		require.Equal(t, before, sqlTransactionGoroutines(), "rejected calls must not leave database/sql transaction goroutines")
+		return ErrDatabaseMismatch
 	})
 	require.ErrorIs(t, err, ErrDatabaseMismatch)
-	require.ErrorIs(t, err, ErrDifferentDatabase)
 	require.ErrorIs(t, pools.Verify(t.Context()), ErrDatabaseMismatch)
 	for _, call := range ordersFake.Calls() {
 		require.NotContains(t, call.Query, "INSERT INTO events_outbox")
@@ -372,6 +395,86 @@ func TestPoolBinding_RejectsMismatchedDatabase(t *testing.T) {
 	for _, call := range reportingFake.Calls() {
 		require.NotContains(t, call.Query, "INSERT INTO events_outbox")
 	}
+}
+
+func sqlTransactionGoroutines() int {
+	for size := 64 << 10; ; size *= 2 {
+		buf := make([]byte, size)
+		if n := runtime.Stack(buf, true); n < size {
+			return strings.Count(string(buf[:n]), "created by database/sql.(*DB).beginDC in goroutine")
+		}
+	}
+}
+
+func TestPoolBinding_SingleConnectionWithoutVerify(t *testing.T) {
+	t.Parallel()
+	identity := func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{
+			Columns: []string{"system_identifier", "current_database"},
+			Rows:    [][]driver.Value{{"100", "orders"}},
+		}
+	}
+	source, _ := testhelpers.NewFakeSQL(t, identity)
+	source.SetMaxOpenConns(1)
+	target, _ := testhelpers.NewFakeSQL(t, identity)
+	db, resolve, err := (Pools{"source": source, "target": target}).Binding(t.Context(), "target")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	require.NoError(t, WithTransaction(ctx, source, func(txCtx context.Context) error {
+		_, err := sqldialect.Postgres.WrapPool(db).WithResolver(resolve).ExecContext(txCtx, "UPDATE orders SET status = 'ready'")
+		return err
+	}))
+}
+
+func TestPoolIdentity_WaitRespectsContext(t *testing.T) {
+	t.Parallel()
+	started, release := make(chan struct{}), make(chan struct{})
+	db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
+		close(started)
+		<-release
+		return testhelpers.FakeSQLReply{
+			Columns: []string{"system_identifier", "current_database"},
+			Rows:    [][]driver.Value{{"100", "orders"}},
+		}
+	})
+	first := make(chan error, 1)
+	go func() {
+		_, err := resolvePoolIdentity(t.Context(), db)
+		first <- err
+	}()
+	<-started
+	defer func() {
+		close(release)
+		require.NoError(t, <-first)
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	waiter := make(chan error, 1)
+	go func() {
+		_, err := resolvePoolIdentity(ctx, db)
+		waiter <- err
+	}()
+	select {
+	case err := <-waiter:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("identity lookup waited for stalled I/O after its context expired")
+	}
+}
+
+func TestPoolIdentity_CachesFailures(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("identity unavailable")
+	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{Err: failure}
+	})
+	for range 2 {
+		_, err := resolvePoolIdentity(t.Context(), db)
+		require.ErrorIs(t, err, failure)
+	}
+	require.Len(t, fake.Calls(), 1)
 }
 
 func TestPoolIdentity_FallbackWhenControlSystemUnreadable(t *testing.T) {

@@ -179,15 +179,16 @@ func TestRetainedTransaction(t *testing.T) {
 				_, ok := c.Detect(retained)
 				require.False(t, ok)
 				require.False(t, postgres.InWriteTransaction(retained))
-				tx, open := postgres.Tx(retained)
+				tx, open, _ := postgres.Tx(retained)
 				require.False(t, open)
 				require.NotNil(t, tx)
 				for _, q := range []postgres.DBTX{postgres.Queryer(retained, db), postgres.Querier(db)} {
 					_, execErr := q.ExecContext(retained, "late")
 					require.ErrorIs(t, execErr, sql.ErrTxDone)
 				}
-				_, groupResolver := (postgres.Pools{postgres.DefaultPool: db}).Binding(postgres.DefaultPool)
-				for _, resolve := range []func(context.Context) (*sql.Tx, bool){postgres.Tx, groupResolver} {
+				_, groupResolver, err := (postgres.Pools{postgres.DefaultPool: db}).Binding(t.Context(), postgres.DefaultPool)
+				require.NoError(t, err)
+				for _, resolve := range []func(context.Context) (*sql.Tx, bool, error){postgres.Tx, groupResolver} {
 					pool := sqldialect.Postgres.WrapPool(db).WithResolver(resolve)
 					_, execErr := pool.ExecContext(retained, "late")
 					require.ErrorIs(t, execErr, sql.ErrTxDone)
@@ -241,7 +242,7 @@ func TestReplayRestrictions(t *testing.T) {
 	calls := 0
 	require.NoError(t, c.WithTransaction(t.Context(), func(ctx context.Context) error {
 		calls++
-		require.ErrorIs(t, postgres.WithTransaction(ctx, other, func(context.Context) error { t.Fatal("independent body ran"); return nil }), postgres.ErrDifferentDatabase)
+		require.ErrorIs(t, postgres.WithTransaction(ctx, other, func(context.Context) error { t.Fatal("independent body ran"); return nil }), postgres.ErrDatabaseMismatch)
 		_, err := postgres.BeginAsyncCommit(ctx, other)
 		require.ErrorIs(t, err, postgres.ErrUnsafeReplay)
 		require.ErrorIs(t, c.WithTransaction(ctx, func(context.Context) error { t.Fatal("replayed a join"); return nil }), postgres.ErrUnsafeReplay)
@@ -406,7 +407,7 @@ func TestDetectSnapshotAndPoolRoute(t *testing.T) {
 		})
 	}))
 	require.NoError(t, postgres.WithSnapshot(routed, base, func(ctx context.Context) error {
-		_, open := postgres.Tx(ctx)
+		_, open, _ := postgres.Tx(ctx)
 		require.True(t, open)
 		_, write := postgres.Transaction(ctx)
 		require.False(t, write)
@@ -560,9 +561,9 @@ func TestFinishedSavepointCannotExecuteOrRegisterHooks(t *testing.T) {
 					require.NoError(t, err)
 					return tc.err
 				}), tc.err)
-				owner, open := postgres.Tx(root)
+				owner, open, _ := postgres.Tx(root)
 				require.True(t, open)
-				closed, open := postgres.Tx(retained)
+				closed, open, _ := postgres.Tx(retained)
 				require.Same(t, owner, closed)
 				require.False(t, open)
 				require.False(t, postgres.InWriteTransaction(retained))

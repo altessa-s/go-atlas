@@ -211,14 +211,14 @@ func WithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
-func (o *options) resolveTx(ctx context.Context) (*sql.Tx, bool) {
+func (o *options) resolveTx(ctx context.Context) (*sql.Tx, bool, error) {
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
-		return tx, true
+		return tx, true, nil
 	}
 	if o.txResolver != nil {
 		return o.txResolver(ctx)
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 // Mark implements [retryqueue.Storage] with an insert-if-absent — ON CONFLICT
@@ -459,7 +459,11 @@ func (s *Store[P]) ListByState(ctx context.Context, state retryqueue.State, limi
 // [keyChunk] per statement; a longer list runs atomically in one transaction,
 // using the caller's transaction when present and starting one otherwise.
 func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (int, error) {
-	if bound, _ := s.db.Tx(ctx); bound == nil && len(keys) > keyChunk {
+	bound, _, err := s.db.Tx(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if bound == nil && len(keys) > keyChunk {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return 0, coreerrs.WrapOperation(err, "begin requeue retry items")

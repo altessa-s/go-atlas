@@ -120,5 +120,5 @@ go test -C tests/integration -race -count=1 -p 1 -v ./idempotencyit/...
 
 Inspect verbose output for `--- SKIP`: unreachable backends skip and must not be reported as passed.
 
-The optional `WithTxResolver` joins a transaction supplied by the application. Use `UseSQLPool(pools.Binding(name))` on the factory.
+The optional `WithTxResolver` joins a transaction supplied by the application. Prepare the binding with `pools.Binding(ctx, name)`, then pass its pool and resolver to the factory with `UseSQLPool(db, resolve)`.
 The existing `WithTx` context remains supported. Deadlocks and serialization failures in either kind of transaction carry `ErrRestartTransaction`.

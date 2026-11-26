@@ -40,7 +40,8 @@ func TestPoolsBinding_DirectTwoDatabasesMismatch(t *testing.T) {
 		"reporting":          db2,
 	}
 
-	boundDB, resolve := pools.Binding("reporting")
+	boundDB, resolve, err := pools.Binding(t.Context(), "reporting")
+	require.NoError(t, err)
 	events, err := outboxsql.New(boundDB, outboxsql.DialectPostgres,
 		outboxsql.WithTxResolver(resolve),
 		outboxsql.WithTableName("events_outbox"),
@@ -102,7 +103,8 @@ func TestPoolsBinding_PgBouncerAndDirectPoolSameDatabase(t *testing.T) {
 	})
 
 	table := schema + ".events_outbox"
-	boundDB, resolve := pools.Binding("pooled")
+	boundDB, resolve, err := pools.Binding(ctx, "pooled")
+	require.NoError(t, err)
 	events, err := outboxsql.New(boundDB, outboxsql.DialectPostgres,
 		outboxsql.WithTxResolver(resolve),
 		outboxsql.WithTableName(table),

@@ -26,6 +26,6 @@ replaces it with its own. `UseTlsConfig(*tls.Config)` supplies a verified config
 An injected config with `InsecureSkipVerify` or a TLS block the builder cannot load returns an error matching `coreerrs.ErrInvalidArgument`.
 Without either source, pgx follows the DSN and environment. Its default `sslmode=prefer` allows unverified TLS and a plaintext retry.
 
-On a SQL subsystem factory, call `UseSQLPool(pools.Binding("worker"))` to use the reserved pool for standalone calls and join a transaction
-started on any pool in this group. Alternatively, use `UseSQLDB` with the outbox SQL store’s per-save `WithTx` helper. Configure one group per logical
+Prepare a reserved pool with `db, resolve, err := pools.Binding(ctx, "worker")`. After checking the error, pass `UseSQLPool(db, resolve)` to
+the SQL subsystem factory to use the reserved pool for standalone calls and join a transaction started on any pool in this group. Alternatively, use `UseSQLDB` with the outbox SQL store’s per-save `WithTx` helper. Configure one group per logical
 database. [Runtime](../../../store/postgres) · [Configuration](../../../config/postgres)

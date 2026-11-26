@@ -18,8 +18,6 @@ import (
 )
 
 var (
-	// ErrDifferentDatabase indicates a nested transaction selected another pool.
-	ErrDifferentDatabase = errors.New("transaction belongs to a different database")
 	// ErrUnsafeReplay indicates an attempt to replay a joined transaction or independently commit inside a replayable body.
 	ErrUnsafeReplay = errors.New("independent transaction and whole-body replay cannot be combined")
 	// ErrTransactionPanicked indicates a joined transaction panicked and its caller recovered.
@@ -91,7 +89,7 @@ func (c *Committer) Detect(ctx context.Context) (any, bool) {
 // DetectTransaction identifies an open transaction, including a read-only snapshot,
 // on any pool. A unit of work uses it by default to detect foreign transactions.
 func (c *Committer) DetectTransaction(ctx context.Context) (any, bool) {
-	tx, open := Tx(ctx)
+	tx, open, _ := Tx(ctx)
 	if !open {
 		return nil, false
 	}

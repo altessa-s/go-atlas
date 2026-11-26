@@ -341,7 +341,7 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 ## SQL backends
 
 Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: select `type: sqldb` (dlock: `provider: sqldb`) and fill the `sqldb`
-block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB` (or `UseSQLPool(pools.Binding(name))` for stores that
+block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB` (or `UseSQLPool(db, resolve)` after checking `db, resolve, err := pools.Binding(ctx, name)` for stores that
 enlist in `store/postgres` transactions). The optional [PostgreSQL configuration](../config/postgres) describes pgx pools and reservations built by
 [`factory/store/postgres`](../factory/store/postgres); for MySQL or MariaDB the application opens the `*sql.DB` and registers the driver. Applications
 register startup migrations in Go (`store/postgres/migrations`) and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct
@@ -373,7 +373,7 @@ The SQL stores share one set of rules:
   the orchestrator passes) and the retry queue, whose instants all come from the caller (`ListDue`, `WakeDue` and `Requeue` take a `now`); only
   its `PurgeExpired` reads the database clock.
 - **Transactions.** Audit, saga, outbox, idempotency and retry queue accept `WithTxResolver` for per-call enlistment (wired with
-  `UseSQLPool(pools.Binding(name))`). The outbox, idempotency and retry queue also support their existing `WithTx(ctx, tx)` helpers. Only outbox saves
+  `UseSQLPool(db, resolve)` after checking `db, resolve, err := pools.Binding(ctx, name)`). The outbox, idempotency and retry queue also support their existing `WithTx(ctx, tx)` helpers. Only outbox saves
   enlist; outbox dispatch (claims, outcome updates and sweeps) always runs in store-owned transactions. Lock operations and schema initialization use
   the pool.
 - **Purging.** Audit, lock, idempotency, request-ID and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of

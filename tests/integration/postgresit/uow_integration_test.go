@@ -164,7 +164,7 @@ func anotherPool(t testing.TB, pg *uowFixture) {
 	t.Cleanup(func() { require.NoError(t, other.Close()) })
 	require.NoError(t, pg.r.Run(t.Context(), func(ctx context.Context) error {
 		err := postgres.WithTransaction(ctx, other, func(context.Context) error { t.Fatal("foreign body ran"); return nil })
-		require.ErrorIs(t, err, postgres.ErrDifferentDatabase)
+		require.ErrorIs(t, err, postgres.ErrDatabaseMismatch)
 		return pg.insert(ctx, "outer")
 	}))
 	require.Equal(t, 1, count(t, t.Context(), pg.db, pg.table))

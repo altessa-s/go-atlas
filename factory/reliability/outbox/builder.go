@@ -49,7 +49,7 @@ type OutboxBuilder struct {
 	outboxOpts    []outbox.Option
 	storages      map[brokerconfig.OutboxStorageType]StorageFunc
 	sqlDB         *sql.DB
-	resolveTx     func(context.Context) (*sql.Tx, bool)
+	resolveTx     func(context.Context) (*sql.Tx, bool, error)
 	sqlListener   outboxsql.Listener
 	shutdownHooks *coreruntime.HookGroup
 }

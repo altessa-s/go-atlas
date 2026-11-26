@@ -118,9 +118,9 @@ func TestInjectedTransaction(t *testing.T) {
 	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
 		return testhelpers.FakeSQLReply{Err: &postgresError{"40001"}}
 	})
-	store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithTxResolver(func(ctx context.Context) (*sql.Tx, bool) {
+	store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithTxResolver(func(ctx context.Context) (*sql.Tx, bool, error) {
 		tx, ok := ctx.Value(txKey{}).(*sql.Tx)
-		return tx, ok
+		return tx, ok, nil
 	}))
 	require.NoError(t, err)
 	tx, err := db.BeginTx(t.Context(), nil)

@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 	"weak"
 
@@ -32,6 +32,7 @@ import (
 
 const (
 	identityResolveTimeout = 5 * time.Second
+	identityFailureTTL     = time.Second
 	controlIdentityQuery   = "SELECT system_identifier::text, current_database() FROM pg_control_system()"
 	databaseIdentityQuery  = "SELECT current_database()"
 )
@@ -167,48 +168,52 @@ func (p Pools) Verify(ctx context.Context) error {
 	return nil
 }
 
-// Binding returns the named pool and a resolver for transactions owned by the group.
-// Pools in the group must serve the same logical database; if ctx carries a transaction
-// from another pool in the group whose resolved database identity differs from the bound
-// pool, the returned transaction handle rejects operations with [ErrDatabaseMismatch]
-// instead of running outside the transaction. A missing name returns a nil database,
-// which the caller must check.
-func (p Pools) Binding(name string) (*sql.DB, func(context.Context) (*sql.Tx, bool)) {
+// Binding prepares the named pool and a resolver for transactions owned by the group.
+// For groups with multiple distinct pools, call Binding before opening transactions.
+// It resolves pool identities so that a resolver call never needs another connection.
+// A transaction from a different database in the group is rejected with [ErrDatabaseMismatch].
+// A missing name or failed identity lookup returns a construction error.
+func (p Pools) Binding(ctx context.Context, name string) (*sql.DB, func(context.Context) (*sql.Tx, bool, error), error) {
 	boundPool := p[name]
-	members := make(map[*sql.DB]struct{}, len(p))
+	if boundPool == nil {
+		return nil, nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "missing PostgreSQL pool")
+	}
+	identities := make(map[*sql.DB]dbIdentity, len(p))
 	for _, db := range p {
-		members[db] = struct{}{}
+		if db == nil {
+			return nil, nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "nil PostgreSQL pool")
+		}
+		identities[db] = dbIdentity{}
 	}
-	return boundPool, func(ctx context.Context) (*sql.Tx, bool) {
-		t, ok := ctx.Value(transactionKey{}).(*transaction)
-		if !ok {
-			return nil, false
+	if len(identities) > 1 {
+		for _, name := range slices.Sorted(maps.Keys(p)) {
+			db := p[name]
+			if identities[db].database != "" {
+				continue
+			}
+			id, err := resolvePoolIdentity(ctx, db)
+			if err != nil {
+				return nil, nil, err
+			}
+			identities[db] = id
 		}
-		if _, member := members[t.db]; !member {
-			return nil, false
-		}
-		if boundPool == nil {
-			return failingTx(ctx, ErrDatabaseMismatch), true
-		}
-		if t.db == boundPool {
-			return t.tx, t.open()
-		}
-		if !t.open() {
-			return t.tx, false
-		}
-		boundID, err := resolvePoolIdentity(ctx, boundPool)
-		if err != nil {
-			return failingTx(ctx, err), true
-		}
-		txID, err := resolvePoolIdentity(ctx, t.db)
-		if err != nil {
-			return failingTx(ctx, err), true
-		}
-		if !boundID.equal(txID) {
-			return failingTx(ctx, ErrDatabaseMismatch), true
-		}
-		return t.tx, t.open()
 	}
+	boundID := identities[boundPool]
+	return boundPool, func(ctx context.Context) (*sql.Tx, bool, error) {
+		t := attached(ctx)
+		if t == nil {
+			return nil, false, nil
+		}
+		txID, member := identities[t.db]
+		if !member {
+			return nil, false, nil
+		}
+		open := t.open()
+		if open && t.db != boundPool && !boundID.equal(txID) {
+			return nil, false, ErrDatabaseMismatch
+		}
+		return t.tx, open, nil
+	}, nil
 }
 
 type dbIdentity struct {
@@ -224,11 +229,18 @@ func (a dbIdentity) equal(b dbIdentity) bool {
 }
 
 type poolIdentityEntry struct {
-	mu       sync.Mutex
-	resolved bool
-	id       dbIdentity
-	logger   *slog.Logger
+	lookup   atomic.Pointer[poolIdentityLookup]
+	logger   atomic.Pointer[slog.Logger]
 	infoOnce sync.Once
+}
+
+// Read the result only after done is closed. A failed lookup can be replaced
+// once its retry time passes.
+type poolIdentityLookup struct {
+	done    chan struct{}
+	id      dbIdentity
+	err     error
+	retryAt time.Time
 }
 
 var poolIdentities sync.Map // map[weak.Pointer[sql.DB]]*poolIdentityEntry
@@ -258,23 +270,43 @@ func registerPoolLogger(db *sql.DB, logger *slog.Logger) {
 	if db == nil || logger == nil {
 		return
 	}
-	entry := identityEntryFor(db)
-	entry.mu.Lock()
-	entry.logger = logger
-	entry.mu.Unlock()
+	identityEntryFor(db).logger.Store(logger)
 }
 
 func resolvePoolIdentity(ctx context.Context, db *sql.DB) (dbIdentity, error) {
-	entry := identityEntryFor(db)
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-	if entry.resolved {
-		return entry.id, nil
-	}
-
 	queryCtx, cancel := corecontext.WithMaxTimeout(corecontext.OrBackground(ctx), identityResolveTimeout)
 	defer cancel()
 
+	entry := identityEntryFor(db)
+	for {
+		if err := queryCtx.Err(); err != nil {
+			return dbIdentity{}, err
+		}
+		current := entry.lookup.Load()
+		if current != nil {
+			select {
+			case <-queryCtx.Done():
+				return dbIdentity{}, queryCtx.Err()
+			case <-current.done:
+			}
+			if current.err == nil || time.Now().Before(current.retryAt) {
+				return current.id, current.err
+			}
+		}
+		next := &poolIdentityLookup{done: make(chan struct{})}
+		if !entry.lookup.CompareAndSwap(current, next) {
+			continue
+		}
+		next.id, next.err = readPoolIdentity(queryCtx, db, entry)
+		if next.err != nil {
+			next.retryAt = time.Now().Add(identityFailureTTL)
+		}
+		close(next.done)
+		return next.id, next.err
+	}
+}
+
+func readPoolIdentity(queryCtx context.Context, db *sql.DB, entry *poolIdentityEntry) (dbIdentity, error) {
 	var id dbIdentity
 	err := db.QueryRowContext(queryCtx, controlIdentityQuery).Scan(&id.systemID, &id.database)
 	if err != nil {
@@ -284,7 +316,7 @@ func resolvePoolIdentity(ctx context.Context, db *sql.DB) (dbIdentity, error) {
 		if fallbackErr := db.QueryRowContext(queryCtx, databaseIdentityQuery).Scan(&id.database); fallbackErr != nil {
 			return dbIdentity{}, diagnostic("verify PostgreSQL database identity", fallbackErr)
 		}
-		logger := cmp.Or(entry.logger, slog.Default())
+		logger := cmp.Or(entry.logger.Load(), slog.Default())
 		entry.infoOnce.Do(func() {
 			logger.InfoContext(queryCtx, "PostgreSQL cluster identity could not be verified; using database name only", slogx.Module("postgres"))
 		})
@@ -292,8 +324,6 @@ func resolvePoolIdentity(ctx context.Context, db *sql.DB) (dbIdentity, error) {
 	if id.database == "" {
 		return dbIdentity{}, errors.New("empty PostgreSQL database identity")
 	}
-	entry.id = id
-	entry.resolved = true
 	return id, nil
 }
 
@@ -305,41 +335,3 @@ func isUnreadableControlSystem(err error) bool {
 		return false
 	}
 }
-
-func failingTx(ctx context.Context, err error) *sql.Tx {
-	db := sql.OpenDB(failingTxConnector{err: err})
-	tx, _ := db.BeginTx(context.WithoutCancel(ctx), nil)
-	_ = db.Close()
-	return tx
-}
-
-type failingTxConnector struct{ err error }
-
-func (c failingTxConnector) Connect(context.Context) (driver.Conn, error) {
-	return failingTxConn(c), nil
-}
-func (c failingTxConnector) Driver() driver.Driver            { return c }
-func (c failingTxConnector) Open(string) (driver.Conn, error) { return failingTxConn(c), nil }
-
-type failingTxConn struct{ err error }
-
-func (c failingTxConn) Prepare(string) (driver.Stmt, error) { return nil, c.err }
-func (c failingTxConn) PrepareContext(context.Context, string) (driver.Stmt, error) {
-	return nil, c.err
-}
-func (failingTxConn) Close() error                { return nil }
-func (c failingTxConn) Begin() (driver.Tx, error) { return failingDriverTx(c), nil }
-func (c failingTxConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
-	return failingDriverTx(c), nil
-}
-func (c failingTxConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
-	return nil, c.err
-}
-func (c failingTxConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
-	return nil, c.err
-}
-
-type failingDriverTx struct{ err error }
-
-func (t failingDriverTx) Commit() error { return t.err }
-func (failingDriverTx) Rollback() error { return nil }

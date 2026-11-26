@@ -73,7 +73,7 @@ func TestNestedTransactionsShareOwnerTransaction(t *testing.T) {
 	}
 
 	err = WithTransaction(t.Context(), db, func(outer context.Context) error {
-		owner, ok := Tx(outer)
+		owner, ok, _ := Tx(outer)
 		if !ok {
 			return errors.New("transaction missing from context")
 		}
@@ -83,7 +83,7 @@ func TestNestedTransactionsShareOwnerTransaction(t *testing.T) {
 		}
 
 		return WithSnapshot(outer, db, func(inner context.Context) error {
-			if nested, _ := Tx(inner); nested != owner {
+			if nested, _, _ := Tx(inner); nested != owner {
 				return errors.New("nested call opened another transaction")
 			}
 
@@ -105,7 +105,7 @@ func TestNestedTransactionsShareOwnerTransaction(t *testing.T) {
 		t.Fatalf("commits=%d rollbacks=%d", fake.Commits(), fake.Rollbacks())
 	}
 
-	if _, ok := Tx(t.Context()); ok {
+	if _, ok, _ := Tx(t.Context()); ok {
 		t.Fatal("transaction leaked outside its handler")
 	}
 }

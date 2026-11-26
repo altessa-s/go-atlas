@@ -53,7 +53,7 @@ func (b *Builder[T]) UseSQLDB(v *sql.DB) *Builder[T] {
 }
 
 // UseSQLPool injects a database and its per-call transaction resolver.
-func (b *Builder[T]) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *Builder[T] {
+func (b *Builder[T]) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool, error)) *Builder[T] {
 	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }

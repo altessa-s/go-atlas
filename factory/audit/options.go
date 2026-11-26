@@ -49,7 +49,7 @@ func (b *AuditorBuilder) UseSQLDB(v *sql.DB) *AuditorBuilder {
 }
 
 // UseSQLPool injects a database and its per-call transaction resolver.
-func (b *AuditorBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *AuditorBuilder {
+func (b *AuditorBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool, error)) *AuditorBuilder {
 	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }

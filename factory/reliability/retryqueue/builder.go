@@ -46,7 +46,7 @@ type Builder[P any] struct {
 
 	storages     map[retryqueueconfig.StorageType]StorageFunc[P]
 	sqlDB        *sql.DB
-	resolveTx    func(context.Context) (*sql.Tx, bool)
+	resolveTx    func(context.Context) (*sql.Tx, bool, error)
 	codec        serializer.Serializer
 	clonePayload func(P) P
 

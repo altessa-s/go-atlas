@@ -97,7 +97,7 @@ func (b *BrokerBuilder) UseSQLDB(v *sql.DB) *BrokerBuilder {
 }
 
 // UseSQLPool supplies the outbox database and resolves the transaction for each publish.
-func (b *BrokerBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *BrokerBuilder {
+func (b *BrokerBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool, error)) *BrokerBuilder {
 	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }

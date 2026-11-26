@@ -32,8 +32,8 @@ const DefaultPurgeBatchSize = 1000
 
 type options struct {
 	// WithTxResolver finds the application transaction for a call.
-	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
-	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
+	txResolver func(context.Context) (*sql.Tx, bool, error) `optgen:"notnil"`
+	tableName  string                                       `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// maxBatchRows bounds the rows of one INSERT; a larger batch is split
 	// into several INSERTs of one transaction. It is capped so one INSERT
 	// stays within PostgreSQL's 65535 bind parameters.
