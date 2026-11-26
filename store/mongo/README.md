@@ -101,15 +101,20 @@ BSON-bound cursors. `ListCursorSeq` captures the prepared filter when iteration 
 ## Read deduplication and tenant isolation
 
 `GetEntity` and `GetEntities` share an in-flight query when the database, collection handle, model type, operation, prepared BSON filter and caller
-identity match. Each caller decodes and converts its own copy with the collection's BSON settings. Session-bound reads run independently to preserve
-the session's snapshot.
+identity match. Reuse the same collection handle across requests to enable deduplication. Each caller decodes and converts its own BSON copy. Provide
+database or collection codec overrides through `FilterEncoding`. On a borrowed handle, pass its registry and any nondefault BSON options to enable
+deduplication. With no explicit settings, borrowed handles use the driver's decoder and issue independent reads.
 
-Deduplicated callers wait independently. The shared query keeps the first caller's context values and is bounded by `DefaultQueryTimeout`. A
-deduplicated read may join a query that started before the caller's own acknowledged write. Use `GetEntity(mongo.WithFreshRead(ctx), ...)` or pass
-`mongo.FilterEncoding{FreshRead: true}` to either helper after a write. The collection's read preference and read concern still apply.
+When caller identity affects a result outside the filter, identical filters can return different data. Per-tenant CSFLE keys, session-scoped reads,
+and caller-bound read preferences can make it unsafe to share a query across tenants. Reads carrying a driver session always run independently to
+preserve its read scope and snapshot. Distinct collection handles also use distinct queries.
 
-**Contract:** in such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
-are then only collapsed when they share an identity:
+Canceling one waiter does not cancel shared work or other waiters. The shared query keeps the first caller's context values and is bounded by
+`DefaultQueryTimeout`. A deduplicated read may join a query that started before the caller's own acknowledged write. Call either helper with
+`mongo.WithFreshRead(ctx)` or pass `mongo.FilterEncoding{FreshRead: true}` after a write. The collection's read preference and read concern still apply.
+
+In such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
+share a query only when their identities match.
 
 ```go
 m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
@@ -337,6 +342,8 @@ func init() {
 Versions are stored in the same `migrations` collection and format (`{version, description, timestamp}`) as `mongo-migrate`, whose global registry
 (versions taken from file names) is still honored: a migration applied earlier under the same version never runs again. A version registered in both
 registries fails `Connect` with `migrations.ErrInvalidMigration`.
+
+`Close` waits for an in-flight `Connect` to finish, including ping retries and schema migration. The shutdown timeout starts after that wait.
 
 `Connect` applies all pending migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
 it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included. The underlying

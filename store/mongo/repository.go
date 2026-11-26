@@ -300,7 +300,10 @@ func sharedConverter[T any](r *repository) *converter.Converter[T, any] {
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
 // Concurrent reads may share a query started before the caller's own write.
 // Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
-// Each read decodes and converts its own result.
+// Each read decodes and converts its own result. Reuse col across requests to
+// deduplicate queries. For database or collection codec overrides, provide
+// FilterEncoding. Borrowed handles use driver decoding and independent queries
+// when their settings are unspecified.
 //
 // Type parameters:
 //   - T: MongoDB document model type
@@ -346,7 +349,10 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 // It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
 // Concurrent reads may share a query started before the caller's own write.
 // Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write to issue an independent query.
-// Each read decodes and converts its own result.
+// Each read decodes and converts its own result. Reuse col across requests to
+// deduplicate queries. For database or collection codec overrides, provide
+// FilterEncoding. Borrowed handles use driver decoding and independent queries
+// when their settings are unspecified.
 //
 // Type parameters:
 //   - T: MongoDB document model type

@@ -8,7 +8,9 @@
 //
 // # Repository reads
 //
-// [GetEntity] and [GetEntities] can share a read started before the caller's
+// [GetEntity] and [GetEntities] deduplicate eligible reads using the same
+// collection handle. Canceling one waiter does not cancel shared work or
+// other waiters. A caller can join a read started before its
 // own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write
 // to issue an independent query with the collection's read preference and concern.
 //

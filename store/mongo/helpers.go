@@ -95,9 +95,12 @@ const (
 	DefaultTxTimeout = 30 * time.Second
 )
 
-// FilterEncoding supplies database or collection overrides for a read.
-// Nil fields inherit the Atlas client's settings. External clients default to
-// the Atlas registry and driver BSON options.
+// FilterEncoding supplies database or collection overrides when preparing a
+// read filter. GetEntity and GetEntities also use it to decode results when
+// the codec settings are known. Nil fields inherit the Atlas client's settings
+// or use the Atlas registry and default BSON options on an external client.
+// With both fields nil, borrowed handles use the driver's decoder and query
+// independently.
 type FilterEncoding struct {
 	Registry    *bson.Registry
 	BSONOptions *options.BSONOptions

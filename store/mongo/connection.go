@@ -230,6 +230,8 @@ func (m *Mongo) parseVersionArray(buildInfo bson.M) error {
 //
 // This method is safe to call multiple times and should be called when the
 // MongoDB client is no longer needed, typically in a defer statement.
+// Close waits for an in-flight Connect, including ping retries and migration,
+// before starting its shutdown timeout.
 func (m *Mongo) Close() {
 	m.conn.closing.Add(1)
 	m.conn.connectMu.Lock()
