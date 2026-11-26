@@ -10,6 +10,8 @@ import (
 
 // GetOrCreate is a generic helper for retrieving or creating values in a sync.Map.
 // It implements a double-check pattern for thread-safe lazy initialization.
+// If an entry already exists under key with a different concrete type than T,
+// the zero value of T is returned without overwriting the existing entry.
 //
 // Example:
 //
@@ -23,6 +25,8 @@ func GetOrCreate[T any, K comparable](m *sync.Map, key K, create func() T) T {
 		if t, ok := existing.(T); ok {
 			return t
 		}
+		var zero T
+		return zero
 	}
 
 	// Create new value
@@ -30,7 +34,11 @@ func GetOrCreate[T any, K comparable](m *sync.Map, key K, create func() T) T {
 
 	// Store or get existing (handles race condition)
 	actual, _ := m.LoadOrStore(key, newVal)
-	return actual.(T) //nolint:errcheck // Type is guaranteed by generic constraint
+	if t, ok := actual.(T); ok {
+		return t
+	}
+	var zero T
+	return zero
 }
 
 // GetOrCreateWithCallback is like GetOrCreate but calls an optional callback
@@ -38,7 +46,9 @@ func GetOrCreate[T any, K comparable](m *sync.Map, key K, create func() T) T {
 //
 // Creation and onNew run under mu before the value is published, so no
 // caller can obtain the value until onNew has completed. Lookups of existing
-// values stay lock-free.
+// values stay lock-free. If an entry already exists under key with a different
+// concrete type than T, the zero value of T is returned without running create
+// or onNew and without overwriting the existing entry.
 //
 // Example:
 //
@@ -51,6 +61,8 @@ func GetOrCreateWithCallback[T any](m *sync.Map, mu *sync.Mutex, key string, cre
 		if t, ok := existing.(T); ok {
 			return t
 		}
+		var zero T
+		return zero
 	}
 
 	mu.Lock()
@@ -58,7 +70,11 @@ func GetOrCreateWithCallback[T any](m *sync.Map, mu *sync.Mutex, key string, cre
 
 	// Re-check: another caller may have published it while we waited.
 	if existing, ok := m.Load(key); ok {
-		return existing.(T) //nolint:errcheck // Type is guaranteed by generic constraint
+		if t, ok := existing.(T); ok {
+			return t
+		}
+		var zero T
+		return zero
 	}
 
 	newVal := create()
