@@ -12,6 +12,10 @@ github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXb
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/altessa-s/go-aip v0.1.12 h1:lcaV4sz+ShEtYXUeUko0SJcvP5NQ1GPuYh0XQ+uF47o=
 github.com/altessa-s/go-aip v0.1.12/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
+github.com/altessa-s/go-aip v0.1.14 h1:3/WCXL1G/4HFqspbH37KJ8MVgsP3hsFhcuZ4McFCioU=
+github.com/altessa-s/go-aip v0.1.14/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
+github.com/altessa-s/go-aip v0.1.15 h1:EkPubZfnqtcV+iKEt452avIB8nESfBR+n7503c8trNk=
+github.com/altessa-s/go-aip v0.1.15/go.mod h1:JpIylld45Q49nVDgiVRub3xlgFEbN8ghwLPh5XEeeU0=
 github.com/altessa-s/go-aip/backend/mongo v0.1.9 h1:N8xECd2yqk4pT3cVBCt/qHO7SXgAZfU8HdkPfmk0X2k=
 github.com/altessa-s/go-aip/backend/mongo v0.1.9/go.mod h1:Y0VsrFYTxFIPqg9UBvM+I866mcSDe8ieUTNH23ZzLRA=
 github.com/altessa-s/go-atlas-core v0.4.0 h1:cbg4kGyXKOvrjfO5vjaO10AKS1Y+aVoLEJ7TOGVFRis=

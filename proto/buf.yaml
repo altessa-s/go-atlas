@@ -4,6 +4,7 @@ modules:
     name: buf.build/altessa-s/go-atlas
 deps:
   - buf.build/googleapis/googleapis
+  - buf.build/bufbuild/protovalidate
 lint:
   use:
     - STANDARD

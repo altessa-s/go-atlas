@@ -21,6 +21,9 @@ var _ = defaults.IgnorePatterns
 
 // options holds configuration for the fieldmask interceptor.
 type options struct {
+	// updateSpecs binds unary Update methods to handler-owned specifications.
+	updateSpecs map[string]*update.Spec `optgen:"manual"`
+
 	// updateOptions configures the update check: the mask policy (field
 	// behavior resolver, identity, immutable and implied-skip fields, atomic
 	// messages), path validation and limits. One policy serves strict
@@ -162,5 +165,23 @@ func WithMetadataReadMaskHeader(name string) Option {
 		}
 
 		o.metadataReadMaskHeader = name
+	}
+}
+
+// WithUpdateSpec registers a handler-owned update spec for fullMethod, such as
+// "/example.v1.SettingsService/UpdateSettings". Construct it with
+// [update.NewSpec] and [update.WithAllowedPaths]. The factory's unary chain
+// resolves and shares this spec with the handler through updatemask.SelectionFromContext.
+// The handler owns write planning and reports resolution errors after body
+// validation. Nil specs and empty method names are ignored.
+func WithUpdateSpec(fullMethod string, spec *update.Spec) Option {
+	return func(o *options) {
+		if fullMethod == "" || spec == nil {
+			return
+		}
+		if o.updateSpecs == nil {
+			o.updateSpecs = make(map[string]*update.Spec)
+		}
+		o.updateSpecs[fullMethod] = spec
 	}
 }

@@ -109,6 +109,11 @@ safe when the client IP source is trustworthy (`realIP` with `trustedPeers` or `
 | `WithBufValidatorInterceptor()` | Adds a buf protovalidate interceptor. `WithInterceptors` adds it unless `protovalidator.ID` is excluded. The optional `protovalidator` config controls diagnostics |
 | `WithInterceptor(i ...)` | Adds pre-built interceptor instances |
 
+To opt a unary Update RPC into mask-aware Buf validation and handle mask errors in the RPC, create an
+`update.Spec` with `update.WithAllowedPaths` and pass `fieldmask.WithUpdateSpec(method, spec)` to
+`UseFieldMaskOptions` before adding the interceptors. The handler reads the shared selection with
+`updatemask.SelectionFromContext`. See [update-mask normalization](../../../../transport/grpc/interceptors/updatemask/README.md).
+
 ### Terminal
 
 | Method | Description |

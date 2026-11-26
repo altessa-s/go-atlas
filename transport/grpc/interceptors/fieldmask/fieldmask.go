@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -80,7 +81,8 @@ type requestInterceptor struct {
 	// published once. A stored snapshot with a nil mask records a request
 	// without one. Sends on a stream may run concurrently with receives, so
 	// readers load one stable snapshot per response.
-	readMask atomic.Pointer[readMaskSnapshot]
+	readMask       atomic.Pointer[readMaskSnapshot]
+	requestContext context.Context
 }
 
 // readMaskSnapshot is the captured read_mask, owned by the interceptor.
@@ -109,7 +111,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		meta:        meta,
 		kind:        i.classify(meta.Method()),
 	}
-	if ri.kind == KindUpdate {
+	if ri.kind == KindUpdate && meta != nil && meta.IsStream {
 		ctx = updatemask.Track(ctx)
 	}
 	if ri.kind == KindRead {
@@ -160,11 +162,15 @@ func MetadataReadMaskHeader(si interceptors.ServerInterceptor) string {
 // classify returns the configured Kind for fullMethod, falling back to the
 // AIP-naming heuristic in [ClassifyMethod].
 func (i *interceptor) classify(fullMethod string) Kind {
+	return methodKind(i.opts, fullMethod)
+}
+
+func methodKind(opts *options, fullMethod string) Kind {
 	if fullMethod == "" {
 		return KindNone
 	}
 
-	if k, ok := i.opts.methodKinds[fullMethod]; ok {
+	if k, ok := opts.methodKinds[fullMethod]; ok {
 		return k
 	}
 
@@ -328,8 +334,12 @@ func (ri *requestInterceptor) handleResponse(ctx context.Context, resp any) erro
 func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Message) error {
 	method := ri.meta.Method()
 
-	res, err := ri.updates.Normalize(ctx, req)
-	ri.plan.Store(res.Plan)
+	ctx, res, err := updatevalidation.Normalize(ctx, ri.updates, req, ri.meta.IsStream)
+	if ri.meta.IsStream {
+		ri.plan.Store(res.Plan)
+	} else {
+		ri.requestContext = ctx
+	}
 	if err != nil {
 		if status.Code(err) == codes.Internal {
 			ri.LogError(ctx, "fieldmask update_mask apply failed", method, nil,
@@ -457,6 +467,9 @@ func updateMaskName(opts *options) string {
 func (ri *requestInterceptor) RequestContext(ctx context.Context) context.Context {
 	if plan := ri.plan.Load(); plan != nil {
 		return update.ContextWithPlan(ctx, plan)
+	}
+	if ri.requestContext != nil {
+		return ri.requestContext
 	}
 	return ctx
 }

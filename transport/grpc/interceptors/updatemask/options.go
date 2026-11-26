@@ -9,6 +9,8 @@ package updatemask
 import (
 	"github.com/altessa-s/go-aip/fieldmask/extract"
 	"github.com/altessa-s/go-aip/fieldmask/update"
+
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 )
 
 // DefaultMaskFieldName is the update_mask field named in the errors of a
@@ -17,6 +19,9 @@ const DefaultMaskFieldName = "update_mask"
 
 // options holds the configuration of a [Normalizer].
 type options struct {
+	// specLookup is installed by the internal registration adapter.
+	specLookup updatevalidation.SpecLookup `opt:"-"`
+
 	// WithExtractor sets how the update_mask and the resource of an Update
 	// request are located. By default (DefaultExtractor), the singular
 	// google.protobuf.FieldMask is declared as update_mask, falling back to

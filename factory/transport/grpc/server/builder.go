@@ -42,14 +42,8 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	// Resolve the interceptor chain now, so a missing required interceptor
-	// (the limiter without realIP, for example), a duplicate or a cycle is
-	// reported by Build instead of by Server.Start.
-	if _, err := b.dependencyOrder(); err != nil {
-		return nil, b.WrapError(err, "invalid interceptor chain")
-	}
-
-	chain, err := b.resolveCacheInterceptors()
+	// Check dependencies at build time, before registering the resolved chain.
+	chain, err := b.resolveInterceptors()
 	if err != nil {
 		return nil, err
 	}

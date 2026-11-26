@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -156,6 +157,9 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	method := ri.meta.Method()
 	if method != "" && ri.ShouldIgnore(method) {
 		ri.LogDebug(ctx, "skipping validation for ignored method", method)
+		if sel := updatevalidation.FromContext(ctx, msg); sel != nil {
+			return sel.MaskError
+		}
 		return nil
 	}
 

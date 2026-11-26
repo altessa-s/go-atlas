@@ -52,7 +52,7 @@ func TestFactoryCacheRejectsMalformedPublicMethods(t *testing.T) {
 func callCacheChain(t *testing.T, b *ServerBuilder) func(context.Context, grpc.UnaryHandler) (any, error) {
 	t.Helper()
 	require.Empty(t, b.errs)
-	resolved, err := b.resolveCacheInterceptors()
+	resolved, err := b.resolveInterceptors()
 	require.NoError(t, err)
 	ordered, err := interceptors.OrderServerInterceptors(resolved...)
 	require.NoError(t, err)

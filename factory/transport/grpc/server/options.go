@@ -184,7 +184,8 @@ func (b *ServerBuilder) UseIdempotencyOptions(opts ...idempotency.Option) *Serve
 
 // UseFieldMaskOptions adds code-supplied field mask interceptor options —
 // per-method kinds ([fieldmask.WithMethodKind]), update and read extractors for
-// non-canonical request shapes — to the interceptor the configuration enables.
+// non-canonical request shapes and handler-owned [fieldmask.WithUpdateSpec] registrations.
+// The field behavior interceptor also uses these options when normalizing updates.
 // They are applied after the options built from configuration.
 func (b *ServerBuilder) UseFieldMaskOptions(opts ...fieldmask.Option) *ServerBuilder {
 	b.fieldMaskOptions = append(b.fieldMaskOptions, opts...)

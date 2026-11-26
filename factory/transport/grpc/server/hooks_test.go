@@ -88,8 +88,10 @@ func serveService(t *testing.T, b *ServerBuilder, desc *stdGrpc.ServiceDesc) *st
 	t.Helper()
 	require.Empty(t, b.errs)
 
-	list := make([]any, 0, len(b.interceptors))
-	for _, i := range b.interceptors {
+	resolved, err := b.resolveInterceptors()
+	require.NoError(t, err)
+	list := make([]any, 0, len(resolved))
+	for _, i := range resolved {
 		list = append(list, i)
 	}
 	opts, err := interceptors.NewChain(list...).ServerOptions()

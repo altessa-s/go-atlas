@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 ```
 
-Updates use `update.Prepare` to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
+By default, updates use `update.Prepare` to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
 `IMMUTABLE` and `IDENTIFIER` values are captured in the deferred plan for comparison with stored state; their paths do not authorize writes in the initial mask.
 Protected paths, including explicit clears, are deferred. An unchanged protected value is ignored; a change is `INVALID_ARGUMENT` from stateful
 planning in the handler. `OUTPUT_ONLY` input is sanitized during normalization, including explicit empty and dropped-only masks.
@@ -29,6 +29,53 @@ a per-message tracker: the first successful normalization and its original mask 
 
 The default extractor locates `update_mask`, falling back to `updateMask` only when the snake_case field is not declared.
 `WithExtractor` overrides lookup; `WithMaskFieldName` names errors only. A lookup miss passes through unless strict mode is enabled.
+
+## Unary validation scope
+
+Only unary Update methods registered with `fieldmask.WithUpdateSpec` use mask-aware validation.
+The mask interceptors resolve the original mask once and share the selection with the
+factory's downstream Buf validator and the handler. An extractor miss or missing resource
+uses the ordinary request validation path.
+
+Register a handler-owned spec for a method when the service provides an allow-list or owns mask
+error reporting:
+
+```go
+spec, err := update.NewSpec(new(pb.Settings),
+    update.WithAllowedPaths("general", "general.time_zone"))
+if err != nil {
+    return err
+}
+builder.UseFieldMaskOptions(fieldmask.WithUpdateSpec("/example.v1.SettingsService/UpdateSettings", spec))
+```
+
+Register before adding the interceptors. A custom extractor should return the original mask,
+including a nil mask when the client omitted it. For registered methods the framework strips output-only input
+and leaves the sent mask and other values for handler-owned write planning.
+
+Handler checklist
+
+- Always check `selection.Err` before planning or writing. An unresolved mask with a valid body reaches the handler.
+- Use `selection.OriginalMask()` to preserve whole-message write intent.
+`selection.Spec.ValidateResolved(selection.Resource, selection.Mask, update.WithCurrent(stored))`
+checks the selected values against stored state and returns indexed violations. The handler can
+use the same spec directly when invoked without an interceptor context.
+
+For a resolved mask, Buf validates selected resource fields, routing identity, supplied
+write-only values and selected map entries. AIP-202 format checks use the same scope.
+Fields outside the resource retain their normal applicable rules. Empty required fields
+of the resource report `required` with the full proto field path and collection subscripts.
+For whole list elements and map entries, required checks follow populated nested messages.
+An absent optional nested message is skipped unless the mask explicitly names a descendant.
+An absent required nested message and its required descendants are reported for both collection types.
+
+If a registered mask does not resolve, the factory checks the whole body first. An empty
+required field in a present resource message reports `required` before its other field
+rules. If the body passes, the handler receives the indexed resolution error in
+`selection.Err`. If the downstream validator is absent or ignores the RPC, the chain
+rejects the unresolved mask before invoking the handler.
+
+Unregistered RPCs and streaming RPCs use the deferred write plan and effective-mask writeback.
 
 ## Options
 

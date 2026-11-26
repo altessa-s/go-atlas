@@ -227,6 +227,7 @@ func defaultOptions() *options {
 		skipReadMask:     false,
 		strictMode:       false,
 		updateExtractors: nil,
+		updateSpecs:      make(map[string]*update.Spec),
 	}
 }
 
