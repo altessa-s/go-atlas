@@ -230,7 +230,6 @@ func NewMultiAdapter(children ...Adapter) *MultiAdapter {
 	return &MultiAdapter{
 		adapters:        cloned,
 		hasShadowGauges: hasShadow,
-		descs:           make(map[string]*Desc),
 	}
 }
 
@@ -271,6 +270,9 @@ func (m *MultiAdapter) Register(desc *Desc) error {
 		return errors.Join(errs...)
 	}
 
+	if m.descs == nil {
+		m.descs = make(map[string]*Desc)
+	}
 	m.descs[norm.Name] = norm
 	return nil
 }

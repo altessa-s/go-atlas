@@ -148,3 +148,11 @@ func TestMultiAdapter_DescriptorConflict(t *testing.T) {
 	err = m.Register(&Desc{Name: "x", Type: TypeCounter, LabelNames: []string{"b"}})
 	require.ErrorIs(t, err, ErrDescriptorConflict)
 }
+
+func TestMultiAdapter_ZeroValueRegisters(t *testing.T) {
+	t.Parallel()
+
+	var multi MultiAdapter
+	require.NoError(t, multi.Register(&Desc{Name: "gauge", Type: TypeGauge}))
+	require.ErrorIs(t, multi.Register(&Desc{Name: "gauge", Type: TypeCounter}), ErrDescriptorConflict)
+}
