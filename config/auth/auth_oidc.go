@@ -22,11 +22,13 @@ import (
 
 // Default values for OIDC configuration.
 const (
-	defaultOIDCClockSkew              = 30 * time.Second
-	defaultOIDCCacheTokensKeyPrefix   = "tokens:"
-	defaultOIDCCacheRevokedKeyPrefix  = "revoked-tokens:"
-	defaultOIDCJwksRefreshSchedule    = "0 0 * * * *"
-	defaultOIDCJwksHTTPTimeout        = 30 * time.Second
+	defaultOIDCClockSkew             = 30 * time.Second
+	defaultOIDCCacheTokensKeyPrefix  = "tokens:"
+	defaultOIDCCacheRevokedKeyPrefix = "revoked-tokens:"
+	defaultOIDCJwksRefreshSchedule   = "0 0 * * * *"
+	defaultOIDCJwksHTTPTimeout       = 30 * time.Second
+	// defaultOIDCJwksMaxStaleness mirrors oidc.DefaultJWKSMaxStaleness.
+	defaultOIDCJwksMaxStaleness       = 24 * time.Hour
 	defaultOIDCRevocationEnabled      = false
 	defaultOIDCRevocationSyncEnabled  = true
 	defaultOIDCRevocationSyncSchedule = "0 0 * * * *"
@@ -340,6 +342,11 @@ type OIDCJwks struct {
 
 	// HTTPTimeout is the timeout for JWKS HTTP requests
 	HTTPTimeout time.Duration `yaml:"httpTimeout" default:"30s"`
+
+	// MaxStaleness bounds the age of the cached JWKS: past it validation is
+	// rejected (fail closed) until a refresh succeeds. Keep it at several
+	// refresh intervals. Zero disables the bound.
+	MaxStaleness time.Duration `yaml:"maxStaleness" default:"24h"`
 }
 
 // DefaultOIDCJwks returns an OIDCJwks configuration with default values.
@@ -347,16 +354,18 @@ func DefaultOIDCJwks() OIDCJwks {
 	return OIDCJwks{
 		RefreshSchedule: defaultOIDCJwksRefreshSchedule,
 		HTTPTimeout:     defaultOIDCJwksHTTPTimeout,
+		MaxStaleness:    defaultOIDCJwksMaxStaleness,
 	}
 }
 
 // Validate performs validation on the OIDCJwks configuration.
-// It validates that the HTTP timeout is non-negative.
+// It validates that the HTTP timeout and the maximum staleness are non-negative.
 //
 // Returns an error if any validation rules fail.
 func (j *OIDCJwks) Validate() error {
 	return validationconfig.ValidateStruct(j,
 		validation.Field(&j.HTTPTimeout, validation.Min(time.Duration(0))),
+		validation.Field(&j.MaxStaleness, validation.Min(time.Duration(0))),
 	)
 }
 

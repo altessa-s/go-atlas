@@ -40,6 +40,8 @@
 // Redirects stay on the original HTTPS origin regardless of discovery validation
 // mode. WithDiscoveryAllowLoopbackHTTP permits same-origin HTTP loopback redirects.
 // JWKS fetches are bounded to 1 MiB and 100 keys; failed refreshes retain old keys.
+// A cache not refreshed within WithJWKSMaxStaleness (DefaultJWKSMaxStaleness, 24h;
+// zero disables the bound) fails validation closed with ErrJWKSStale.
 //
 // A verification key must permit signing use and, when key_ops is present,
 // include verify. Signed UserInfo responses enforce the JWKS freshness policy.

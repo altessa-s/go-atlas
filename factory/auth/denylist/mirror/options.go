@@ -52,8 +52,9 @@ func (b *Builder) UseRefreshSchedule(v string) *Builder {
 }
 
 // UseMaxStaleness bounds the age of the snapshot the cache still trusts; older
-// snapshots make verification fail with an unavailable-revocation error. Zero
-// leaves the bound off. Set it to a few refresh intervals.
+// snapshots make verification fail with an unavailable-revocation error. It
+// defaults to [mirror.DefaultMaxStaleness]; zero disables the bound explicitly.
+// Set it to a few refresh intervals.
 func (b *Builder) UseMaxStaleness(v time.Duration) *Builder {
 	b.maxStaleness = v
 	return b

@@ -32,7 +32,7 @@ bridges the two: `Refresh` pulls the authoritative revoked set into a local snap
 | `Cache.IsRevoked(id)`                                 | Lock-free check against the current snapshot; `jwt.ErrRevocationUnavailable` when unprimed or stale.          |
 | `Cache.Refresh(ctx)`                                  | Rebuild the snapshot from `src` and swap it in atomically; on error the previous snapshot is kept.            |
 | `Cache.Ready()` / `Cache.Age()`                       | Primed and fresh enough to answer; time since the last successful refresh (for health checks).                |
-| `WithMaxStaleness(d)` / `WithClock(fn)`               | Oldest snapshot still trusted (zero: no bound); time source.                                                  |
+| `WithMaxStaleness(d)` / `WithClock(fn)`               | Oldest snapshot still trusted (default 5m; zero: no bound); time source.                                               |
 | `WithInsecureServeUnprimed()`                         | Answer "not revoked" while unprimed instead of refusing.                                                      |
 | `WithLogger(l)`                                       | Logs a change between serving and refusing, once per change.                                                  |
 | `Cache.Len()`                                         | Keys in the current snapshot, for observability/tests.                                                        |
@@ -43,8 +43,8 @@ bridges the two: `Refresh` pulls the authoritative revoked set into a local snap
 A snapshot lags the authoritative store by up to one refresh interval: a key revoked on another node is not seen until the next `Refresh` — the same
 propagation window any cached revocation set has. Size the refresh cadence to your revocation-propagation SLA. Because the store expires TTL-bounded
 revocations natively, a refreshed snapshot only shrinks as entries expire; it never resurrects a dropped key. A failed `Refresh` keeps the previous
-snapshot rather than emptying the denylist — a transient store outage degrades to staler data, never to "nothing is revoked". With
-`WithMaxStaleness` the snapshot stops being trusted once it is older than the bound, and verifiers reject tokens with
+snapshot rather than emptying the denylist — a transient store outage degrades to staler data, never to "nothing is revoked". By
+default (`DefaultMaxStaleness`, 5m; `WithMaxStaleness(0)` disables it) the snapshot stops being trusted once it is older than the bound, and verifiers reject tokens with
 `jwt.ErrRevocationUnavailable` until a refresh succeeds. Before the first successful refresh the cache refuses to answer at all.
 
 ## Metrics

@@ -186,9 +186,8 @@ func (p *jwksKeySource) markJWKSRefreshed() {
 //     proceed;
 //   - [JWKSFailureModeDisabled] is a no-op.
 //
-// A zero [WithJWKSMaxStaleness] disables the check regardless of mode,
-// preserving the historical opt-in behavior so callers without an
-// active refresh path are not surprised by sudden rejections.
+// The bound defaults to [DefaultJWKSMaxStaleness]; a zero
+// [WithJWKSMaxStaleness] disables the check regardless of mode.
 func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
 	maxStaleness := p.jwksMaxStaleness
 	if maxStaleness <= 0 {

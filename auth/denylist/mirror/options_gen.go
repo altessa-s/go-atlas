@@ -41,7 +41,8 @@ func WithLogger(v *slog.Logger) Option {
 //
 // maxStaleness is the oldest snapshot [Cache.IsRevoked] still trusts; an
 // older one answers [github.com/altessa-s/go-atlas/auth/jwt.ErrRevocationUnavailable].
-// Zero disables the bound. Set via the generated WithMaxStaleness.
+// Defaults to [DefaultMaxStaleness]; zero disables the bound explicitly. Set
+// via the generated WithMaxStaleness.
 func WithMaxStaleness(v time.Duration) Option {
 	return func(o *options) {
 		if v < (0) {
@@ -67,8 +68,9 @@ func WithMetrics(v *Metrics) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		clock:  time.Now,
-		logger: slog.New(slog.DiscardHandler),
+		clock:        time.Now,
+		logger:       slog.New(slog.DiscardHandler),
+		maxStaleness: DefaultMaxStaleness,
 	}
 }
 

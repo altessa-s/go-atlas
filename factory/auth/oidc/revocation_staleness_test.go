@@ -66,3 +66,42 @@ func TestProviderBuilder_RevocationMaxStalenessIsMapped(t *testing.T) {
 		})
 	}
 }
+
+// jwks.maxStaleness must reach oidc.WithJWKSMaxStaleness: a bound of one
+// nanosecond is already exceeded by the first validation, while the default
+// and zero trust a freshly loaded JWKS.
+func TestProviderBuilder_JWKSMaxStalenessIsMapped(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, oidc.DefaultJWKSMaxStaleness, authconfig.DefaultOIDCJwks().MaxStaleness)
+
+	tests := []struct {
+		name         string
+		maxStaleness time.Duration
+		wantErr      error
+	}{
+		{name: "bound is enforced", maxStaleness: time.Nanosecond, wantErr: oidc.ErrJWKSStale},
+		{name: "default bound trusts a fresh JWKS", maxStaleness: authconfig.DefaultOIDCJwks().MaxStaleness},
+		{name: "zero opts out"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := newCoverageIdP(t)
+			cfg := &authconfig.OIDC{
+				DiscoveryUrl: idp.discoveryURL(),
+				Validation:   &authconfig.OIDCValidation{Claims: &authconfig.OIDCClaims{Audience: []string{"svc"}}},
+				JWKS:         &authconfig.OIDCJwks{HTTPTimeout: 5 * time.Second, MaxStaleness: tc.maxStaleness},
+			}
+			p := idp.provider(t, New(cfg))
+
+			_, err := p.ValidateToken(t.Context(), idp.sign(t, nil))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

@@ -43,7 +43,7 @@ verifier := jwt.NewVerifier(resolver, jwt.WithRevocation(cache))
 | `UseHealthCoordinator(r)`    | Registrar for the health checker.                               |
 | `UseHealthServiceName(name)` | Overrides the service name `denylist.mirror`.                   |
 | `UseRefreshSchedule(spec)`   | Cron expression of the refresh task.                            |
-| `UseMaxStaleness(d)`         | Oldest snapshot still trusted; zero leaves the bound off (the default). `Build` rejects a value below an `@every` refresh interval. |
+| `UseMaxStaleness(d)`         | Oldest snapshot still trusted; defaults to 5m, zero disables the bound. `Build` rejects a value below an `@every` refresh interval. |
 | `UseName(name)`              | Suffix of the task ID and health service name; distinguishes several mirrors on one scheduler. |
 | `UsePrimeTimeout(d)`         | Bound of the priming refresh (default 20 s).                    |
 | `UseInsecureServeUnprimed()` | Serve "not revoked" while unprimed.                             |

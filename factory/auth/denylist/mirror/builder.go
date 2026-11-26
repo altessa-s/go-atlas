@@ -70,7 +70,8 @@ type Builder struct {
 // NewBuilder creates a [Builder] for a mirror reading src. src may be nil here;
 // the error surfaces at [Builder.Build] time.
 func NewBuilder(src mirror.Source) *Builder {
-	return &Builder{Base: corefactory.NewBase(slog.New(slog.DiscardHandler)), src: src}
+	return &Builder{Base: corefactory.NewBase(slog.New(slog.DiscardHandler)), src: src,
+		maxStaleness: mirror.DefaultMaxStaleness}
 }
 
 // Managed is a [mirror.Cache] together with the scheduler task and health
@@ -114,7 +115,7 @@ func (b *Builder) Build(ctx context.Context) (*Managed, error) {
 
 	var opts []mirror.Option
 	opts = append(opts, mirror.WithLogger(b.Logger()))
-	opts = slices.AppendIf(opts, b.maxStaleness > 0, mirror.WithMaxStaleness(b.maxStaleness))
+	opts = append(opts, mirror.WithMaxStaleness(b.maxStaleness))
 	opts = slices.AppendIf(opts, b.serveUnprimed, mirror.WithInsecureServeUnprimed())
 	opts = slices.AppendIf(opts, b.metricsCollector != nil, mirror.WithMetrics(mirror.NewMetrics(b.metricsCollector, b.metricsSubsystem)))
 	cache := mirror.New(b.src, opts...)

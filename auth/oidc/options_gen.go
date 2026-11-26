@@ -163,7 +163,7 @@ func WithIntrospectionFailOpen() Option {
 //
 // Pair this with [WithJWKSMaxStaleness] (and an active refresh path such
 // as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
-// without a non-zero staleness budget the mode has no effect.
+// with a zero staleness budget the mode has no effect.
 func WithJWKSFailureMode(v JWKSFailureMode) Option {
 	return func(o *options) {
 		switch v {
@@ -175,10 +175,12 @@ func WithJWKSFailureMode(v JWKSFailureMode) Option {
 	}
 }
 
-// WithJWKSMaxStaleness sets the jwksMaxStaleness option.
+// WithJWKSMaxStaleness bounds the age of the cached JWKS — see
+// [DefaultJWKSMaxStaleness]. Zero disables the bound; negative values are
+// ignored.
 func WithJWKSMaxStaleness(v time.Duration) Option {
 	return func(o *options) {
-		if v <= 0 {
+		if v < (0) {
 			return
 		}
 		o.jwksMaxStaleness = v

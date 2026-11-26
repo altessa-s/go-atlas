@@ -237,6 +237,21 @@ func TestBuildRejectsStalenessShorterThanRefresh(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBuildDefaultMaxStalenessIsValidated(t *testing.T) {
+	t.Parallel()
+
+	_, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+		UseRefreshSchedule("@every 10m").Build(t.Context())
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, "the default 5m bound is shorter than a 10m refresh")
+
+	_, err = factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+		UseRefreshSchedule("@every 10m").UseMaxStaleness(0).Build(t.Context())
+	require.NoError(t, err, "an explicit zero disables the bound")
+
+	_, err = factory.NewBuilder(&source{}).UseScheduler(&registrar{}).Build(t.Context())
+	require.NoError(t, err, "the default schedule fits the default bound")
+}
+
 func TestManagedCloseReleasesHealthAndNeutralizesTask(t *testing.T) {
 	t.Parallel()
 

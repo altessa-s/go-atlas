@@ -86,7 +86,10 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) (_ []oidc.Op
 	}
 
 	opts = slices.AppendIfFunc(opts, cfg.IsJWKSConfigured(), func() []oidc.Option {
-		return []oidc.Option{oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout)}
+		return []oidc.Option{
+			oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout),
+			oidc.WithJWKSMaxStaleness(cfg.JWKS.MaxStaleness),
+		}
 	})
 
 	if cfg.IsValidationConfigured() {

@@ -637,11 +637,11 @@ provider, _ := oidc.NewProvider(ctx, discoveryURL,
 
 | Option                      | Default                  | Description                                                                                                                                                         |
 |-----------------------------|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `WithJWKSMaxStaleness(d)`   | `0` (disabled)           | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
+| `WithJWKSMaxStaleness(d)`   | `24h` (zero disables)    | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
 | `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check)                              |
 
-The staleness check is not exposed through YAML — leave the threshold at zero to validate on whatever the cache holds, or opt in via Go options when a
-freshness guarantee is required.
+The check is on by default (24h) and fails closed once the cache is older than the bound. YAML sets the bound through `jwks.maxStaleness`; zero (or
+`WithJWKSMaxStaleness(0)` / `JWKSFailureModeDisabled` in Go) disables it explicitly.
 
 #### Discovery validation (Go-only)
 

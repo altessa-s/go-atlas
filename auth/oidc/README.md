@@ -58,7 +58,7 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 | `WithRevocationSyncTimeout`       | 5m                | Time limit of one scheduled revocation sync; 0 disables                                                           |
 | `WithRevocationAllowEmpty`        | off               | Treat an empty sync result as authoritative and empty the filter instead of failing the sync                      |
 | `WithJWKSRefreshSchedule`         | --                | Local cron schedule for JWKS refresh                                                                              |
-| `WithJWKSMaxStaleness`            | 0 (off)           | Max age of the cached JWKS before `WithJWKSFailureMode` applies                                                   |
+| `WithJWKSMaxStaleness`            | 24h               | Max age of the cached JWKS before `WithJWKSFailureMode` applies; zero disables                                    |
 | `WithJWKSFailureMode`             | enforce           | Stale-JWKS handling: `enforce` (`ErrJWKSStale`), `warn`, `disabled`                                               |
 | `WithAudienceFailureMode`         | enforce           | Validation without an expected audience: `enforce` (`ErrAudienceNotConfigured`), `warn`, `disabled`               |
 | `WithRevocationSyncSchedule`      | --                | Local cron schedule for revocation sync                                                                           |
