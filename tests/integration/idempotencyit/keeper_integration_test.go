@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/storagetest"
 
 	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	idemhttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
@@ -328,4 +329,17 @@ func TestMiddleware_FailedRequestCanBeRetried(t *testing.T) {
 		require.Equal(t, http.StatusUnprocessableEntity, post(t, srv, key, `{}`).StatusCode)
 		require.EqualValues(t, 2, calls.Load())
 	})
+}
+
+func TestKeeperUsesBackendClockForTakeover(t *testing.T) {
+	t.Parallel()
+	for _, b := range backends() {
+		if b.name == "nats" {
+			continue // NATS delegates the age check to synchronized Keeper clocks.
+		}
+		t.Run(b.name, func(t *testing.T) {
+			t.Parallel()
+			storagetest.KeeperUsesStorageClock(t, b.open(t, 24*time.Hour))
+		})
+	}
 }

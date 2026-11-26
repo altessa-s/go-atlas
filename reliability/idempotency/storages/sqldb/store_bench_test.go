@@ -40,7 +40,7 @@ func BenchmarkComplete(b *testing.B) {
 
 func BenchmarkSteal(b *testing.B) {
 	benchmarkWrite(b, func(b *testing.B, s *sqldb.Storage) error {
-		_, err := s.Steal(b.Context(), "key", []byte("old"), []byte("new"))
+		_, _, _, err := s.Steal(b.Context(), "key", []byte("old"), []byte("new"), 0, 0)
 		return err
 	})
 }

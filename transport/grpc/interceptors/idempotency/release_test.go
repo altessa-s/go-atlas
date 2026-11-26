@@ -28,8 +28,9 @@ func TestPostCallCannotReleaseNewOwner(t *testing.T) {
 	storageKey := idempotency.ComposeKey("namespace", "", "key")
 	_, current, _, err := store.AttemptLock(t.Context(), storageKey, nil)
 	require.NoError(t, err)
-	_, err = store.Steal(t.Context(), storageKey, current, append(current, ' '))
+	stolen, _, _, err := store.Steal(t.Context(), storageKey, current, append(current, ' '), 0, 0)
 	require.NoError(t, err)
+	require.True(t, stolen)
 	ri := &requestInterceptor{
 		interceptor: &interceptor{BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, nil), i: keeper},
 		meta:        &sharedmetadata.CallMetadata{},

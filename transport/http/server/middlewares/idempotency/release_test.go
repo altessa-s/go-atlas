@@ -107,8 +107,9 @@ func TestFailedRequestCannotReleaseNewOwner(t *testing.T) {
 	handler := middleware.Middleware(keeper)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, current, _, err := store.AttemptLock(r.Context(), storageKey, nil)
 		require.NoError(t, err)
-		_, err = store.Steal(r.Context(), storageKey, current, append(current, ' '))
+		stolen, _, _, err := store.Steal(r.Context(), storageKey, current, append(current, ' '), 0, 0)
 		require.NoError(t, err)
+		require.True(t, stolen)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", nil)

@@ -5,6 +5,8 @@
 // Package nats provides NATS JetStream KeyValue storage for idempotency keys.
 // Offers distributed storage with automatic TTL cleanup for cloud-native deployments.
 //
+// Orphan takeover requires synchronized Keeper clocks.
+//
 // Example:
 //
 //	js, _ := jetstream.New(nc)

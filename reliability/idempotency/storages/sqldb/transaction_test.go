@@ -39,7 +39,7 @@ func TestRestartTransaction(t *testing.T) {
 		{"complete", func(ctx context.Context, s *sqldb.Storage) error { return s.Complete(ctx, "key", nil, nil) }},
 		{"complete CAS", func(ctx context.Context, s *sqldb.Storage) error { return s.Complete(ctx, "key", nil, []byte("lock")) }},
 		{"steal", func(ctx context.Context, s *sqldb.Storage) error {
-			_, err := s.Steal(ctx, "key", []byte("lock"), nil)
+			_, _, _, err := s.Steal(ctx, "key", []byte("lock"), nil, 0, 0)
 			return err
 		}},
 		{"release", func(ctx context.Context, s *sqldb.Storage) error { return s.Release(ctx, "key", []byte("lock")) }},

@@ -15,3 +15,7 @@ storage a distinct task ID when multiple stores share a scheduler.
 
 Without a scheduler or schedule, expiration is checked on key access.
 Call `RunCleanup` to remove expired entries for keys that are never accessed again.
+
+## Orphan takeover
+
+`WithClock` supplies the clock used for acquisition, expiry, and orphan takeover. It defaults to `time.Now`.

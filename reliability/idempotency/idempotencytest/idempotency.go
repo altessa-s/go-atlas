@@ -69,23 +69,20 @@ func (m *MockIdempotencyStorage) AttemptLockWithTTL(ctx context.Context, key str
 	return m.AttemptLock(ctx, key, val)
 }
 
-// Steal atomically replaces the value stored under key when its
-// current bytes equal expectedVal. Returns a copy of newVal as the
-// fresh lock token, matching the real memory backend's CAS contract.
-// Returns [storages.ErrLockStolen] when the key is missing or the
-// current value differs from expectedVal.
-func (m *MockIdempotencyStorage) Steal(_ context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+// UsesKeeperClock lets tests forge the holder's wire timestamp.
+func (m *MockIdempotencyStorage) UsesKeeperClock() bool { return true }
+
+// Steal replaces the matching value after the Keeper checks its age.
+// The mock omits TTL handling.
+func (m *MockIdempotencyStorage) Steal(_ context.Context, key string, expected, replacement []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current, exists := m.entries[key]
-	if !exists {
-		return nil, storages.ErrLockStolen
+	if !exists || !bytes.Equal(current, expected) {
+		return false, slices.Clone(current), nil, nil
 	}
-	if !bytes.Equal(current, expectedVal) {
-		return nil, storages.ErrLockStolen
-	}
-	m.entries[key] = newVal
-	return slices.Clone(newVal), nil
+	m.entries[key] = replacement
+	return true, nil, slices.Clone(replacement), nil
 }
 
 // SetEntry overwrites the raw bytes stored under key without any CAS

@@ -159,8 +159,9 @@ func TestSQLExpiredRows(t *testing.T) {
 			require.NoError(t, err)
 			require.ErrorIs(t, s.Complete(t.Context(), "expired", payload("late"), token), storages.ErrLockStolen)
 			require.ErrorIs(t, s.Release(t.Context(), "expired", token), storages.ErrLockStolen)
-			_, err = s.Steal(t.Context(), "expired", payload("old"), payload("late"))
-			require.ErrorIs(t, err, storages.ErrLockStolen)
+			didSteal, _, _, err := s.Steal(t.Context(), "expired", payload("old"), payload("late"), 0, 0)
+			require.NoError(t, err)
+			require.False(t, didSteal)
 			n, err := s.PurgeExpired(t.Context())
 			require.NoError(t, err)
 			require.Equal(t, int64(2), n)
@@ -186,9 +187,10 @@ func TestSQLKeysAndIdenticalWrites(t *testing.T) {
 			}
 			for _, key := range keys {
 				require.Equal(t, payload(key), observe(t, s, key), "keys must remain distinct")
-				fresh, err := s.Steal(t.Context(), key, payload(key), payload(key))
+				didSteal, current, _, err := s.Steal(t.Context(), key, payload(key), payload(key), 0, 0)
 				require.NoError(t, err)
-				require.NoError(t, s.Release(t.Context(), key, fresh))
+				require.False(t, didSteal, "completed values cannot be reclaimed")
+				require.Equal(t, payload(key), current)
 			}
 			_, _, _, err := s.AttemptLock(t.Context(), strings.Repeat("ü", 256), nil)
 			require.ErrorIs(t, err, sqldb.ErrValueTooLong)

@@ -116,11 +116,14 @@ func TestStorageLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	newToken, err := s.Steal(ctx, "k", []byte("lock-4"), []byte("lock-5"))
+	didSteal, _, newToken, err := s.Steal(ctx, "k", []byte("lock-4"), []byte("lock-5"), 0, 0)
 	require.NoError(t, err)
+	require.True(t, didSteal)
 	require.Equal(t, []byte("lock-5"), newToken)
-	_, err = s.Steal(ctx, "k", []byte("lock-4"), []byte("lock-6"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, current, _, err := s.Steal(ctx, "k", []byte("lock-4"), []byte("lock-6"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
+	require.Equal(t, []byte("lock-5"), current)
 	require.NoError(t, s.Release(ctx, "k", []byte("lock-5")))
 
 	for _, err := range []error{

@@ -11,7 +11,7 @@
 //
 //	func TestStorageContract(t *testing.T) {
 //		t.Parallel()
-//		storagetest.Run(t, func(testing.TB) storages.Storage {
+//		storagetest.Run(t, func(tb testing.TB) storages.Storage {
 //			store, err := memory.New()
 //			require.NoError(tb, err)
 //			return store

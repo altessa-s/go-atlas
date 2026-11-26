@@ -6,6 +6,7 @@ package memory
 
 import (
 	"testing"
+	"time"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/storagetest"
@@ -14,4 +15,11 @@ import (
 func TestStorageContract(t *testing.T) {
 	t.Parallel()
 	storagetest.Run(t, func(tb testing.TB) storages.Storage { return newStore(tb) })
+}
+
+func TestKeeperUsesMemoryClock(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := newStore(t, WithClock(func() time.Time { return now }))
+	storagetest.KeeperUsesStorageClock(t, store)
 }

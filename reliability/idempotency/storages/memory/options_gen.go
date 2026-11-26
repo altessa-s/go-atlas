@@ -58,6 +58,16 @@ func WithCleanupTaskID[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithClock sets the clock option.
+func WithClock(v func() time.Time) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.clock = v
+	}
+}
+
 // WithScheduler sets the scheduler option.
 func WithScheduler(v schedtask.Registrar) Option {
 	return func(o *options) {
@@ -87,6 +97,7 @@ func WithTTL(v time.Duration) Option {
 func defaultOptions() *options {
 	return &options{
 		cleanupTaskID: DefaultCleanupTaskID,
+		clock:         time.Now,
 		ttl:           DefaultTTL,
 	}
 }

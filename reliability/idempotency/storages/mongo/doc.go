@@ -14,6 +14,8 @@
 // no lock behind, and a duplicate racing in another transaction hits a write
 // conflict, retries, and then sees the committed key.
 //
+// MongoDB stamps locks with $$NOW and uses it for the takeover age check.
+//
 // Example:
 //
 //	storage, err := mongo.New(db, mongo.WithTTL(24*time.Hour))

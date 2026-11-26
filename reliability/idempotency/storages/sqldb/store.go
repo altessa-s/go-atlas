@@ -35,7 +35,7 @@ type Storage struct {
 var _ storages.Storage = (*Storage)(nil)
 
 type statements struct {
-	insert, takeover, observe, complete, upsert, release, remove, cleanup, expiredKeys string
+	insert, takeover, observe, complete, steal, upsert, release, remove, cleanup, expiredKeys string
 }
 
 // New validates the configuration without I/O. Call EnsureSchema separately.
@@ -66,15 +66,19 @@ func (s *Storage) buildStatements() statements {
 	d, t := s.dialect, s.table
 	k := d.Ident("key")
 	live := " AND expires_at > " + d.now
-	insert := "INSERT INTO " + t + " (" + k + ", val, expires_at) VALUES (?, ?, " + d.expiresIn() + ")"
+	write := "INTO " + t + " (" + k + ", val, expires_at, locked_at) VALUES (?, ?, " + d.expiresIn() + ", "
+	insert := "INSERT " + write + d.now + ")"
+	upsert := "INSERT " + write + "NULL)"
 	st := statements{
 		insert: insert + " ON CONFLICT (" + k + ") DO NOTHING",
-		takeover: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", revision = revision + 1" +
+		takeover: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", locked_at = " + d.now + ", revision = revision + 1" +
 			" WHERE " + k + " = ? AND expires_at <= " + d.now,
 		observe: "SELECT val FROM " + t + " WHERE " + k + " = ?" + live + " FOR UPDATE",
-		complete: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", revision = revision + 1" +
+		complete: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", locked_at = NULL, revision = revision + 1" +
 			" WHERE " + k + " = ? AND val = ?" + live,
-		upsert: insert + " ON CONFLICT (" + k + ") DO UPDATE SET val = EXCLUDED.val, expires_at = EXCLUDED.expires_at, revision = " +
+		steal: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", locked_at = " + d.now + ", revision = revision + 1" +
+			" WHERE " + k + " = ? AND val = ?" + live + " AND locked_at <= " + d.expiresIn(),
+		upsert: upsert + " ON CONFLICT (" + k + ") DO UPDATE SET val = EXCLUDED.val, expires_at = EXCLUDED.expires_at, locked_at = NULL, revision = " +
 			d.Ident(s.name) + ".revision + 1",
 		release: "DELETE FROM " + t + " WHERE " + k + " = ? AND val = ?" + live,
 		remove:  "DELETE FROM " + t + " WHERE " + k + " = ?",
@@ -82,13 +86,13 @@ func (s *Storage) buildStatements() statements {
 			" WHERE expires_at <= " + d.now + " ORDER BY expires_at, " + k + " LIMIT ? FOR UPDATE SKIP LOCKED)",
 	}
 	if d.name == DialectMySQL {
-		st.insert = "INSERT IGNORE INTO " + t + " (" + k + ", val, expires_at) VALUES (?, ?, " + d.expiresIn() + ")"
-		st.upsert = insert + " ON DUPLICATE KEY UPDATE val = VALUES(val), expires_at = VALUES(expires_at), revision = revision + 1"
+		st.insert = "INSERT IGNORE " + write + d.now + ")"
+		st.upsert = upsert + " ON DUPLICATE KEY UPDATE val = VALUES(val), expires_at = VALUES(expires_at), locked_at = NULL, revision = revision + 1"
 		st.expiredKeys = "SELECT " + k + " FROM " + t + " WHERE expires_at <= " + d.now + " ORDER BY expires_at, " + k + " LIMIT ?"
 		st.cleanup = "DELETE FROM " + t + " WHERE " + k + " IN (%s) AND expires_at <= " + d.now
 	}
 	st.insert, st.takeover, st.observe = d.bind(st.insert), d.bind(st.takeover), d.bind(st.observe)
-	st.complete, st.upsert = d.bind(st.complete), d.bind(st.upsert)
+	st.complete, st.steal, st.upsert = d.bind(st.complete), d.bind(st.steal), d.bind(st.upsert)
 	st.release, st.remove, st.cleanup = d.bind(st.release), d.bind(st.remove), d.bind(st.cleanup)
 	return st
 }
@@ -175,17 +179,32 @@ func (s *Storage) Complete(ctx context.Context, key string, val, lockToken []byt
 	return s.compareAndSet(ctx, key, lockToken, val)
 }
 
-// Steal replaces live expectedVal bytes and returns newVal as the new token.
-// A missing, expired or changed key returns storages.ErrLockStolen.
-func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+// Steal uses the database clock and replaces only an unexpired matching lock
+// old enough for takeover. It refreshes locked_at and applies the lock TTL.
+func (s *Storage) Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
 	if err := validateKey(key); err != nil {
-		return nil, err
+		return false, nil, nil, err
 	}
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
-	if err := s.compareAndSet(ctx, key, expectedVal, newVal); err != nil {
-		return nil, err
+	if ttl <= 0 {
+		ttl = s.ttl
 	}
-	return slices.Clone(nonNilBytes(newVal)), nil
+	arg := s.dialect.keyArg(key)
+	n, err := execCount(ctx, s.db, s.stmts.steal, nonNilBytes(replacement), s.dialect.duration(ttl),
+		arg, nonNilBytes(expected), s.dialect.duration(-max(0, maxLockAge)))
+	if err != nil {
+		return false, nil, nil, s.operationError(ctx, err, "steal idempotency lock in SQL")
+	}
+	if n > 0 {
+		return true, nil, slices.Clone(nonNilBytes(replacement)), nil
+	}
+
+	var current []byte
+	err = s.db.QueryRowContext(ctx, s.stmts.observe, arg).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil, nil, nil
+	}
+	return false, current, nil, s.operationError(ctx, err, "read idempotency lock after refused takeover in SQL")
 }
 
 func (s *Storage) compareAndSet(ctx context.Context, key string, expected, val []byte) error {

@@ -23,5 +23,6 @@ type options struct {
 	ttl             time.Duration `optgen:"default=DefaultTTL"`
 	cleanupSchedule string
 	cleanupTaskID   string              `optgen:"default=DefaultCleanupTaskID,notblank"`
+	clock           func() time.Time    `optgen:"default=time.Now,notnil"`
 	scheduler       schedtask.Registrar `optgen:"notnil"`
 }

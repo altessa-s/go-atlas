@@ -5,11 +5,13 @@
 package idempotencyit_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
@@ -46,11 +48,13 @@ func (f redisFixture) pttl(tb testing.TB) time.Duration {
 }
 
 // raw returns the bytes stored under the raw key.
-func (f redisFixture) raw(tb testing.TB) []byte {
+func (f redisFixture) storedPayload(tb testing.TB) []byte {
 	tb.Helper()
 	v, err := f.client.Get(tb.Context(), f.rawKey).Bytes()
 	require.NoError(tb, err)
-	return v
+	_, payload, ok := bytes.Cut(v, []byte{'\n'})
+	require.True(tb, ok)
+	return payload
 }
 
 // TestRedis_LuaWritesCarryTheStorageTTL pins the PX argument of the
@@ -69,8 +73,9 @@ func TestRedis_LuaWritesCarryTheStorageTTL(t *testing.T) {
 	require.LessOrEqual(t, f.pttl(t), 5*time.Second, "SET NX must apply the per-call TTL")
 	require.Positive(t, f.pttl(t))
 
-	fresh, err := f.storage.Steal(ctx, "k", payload("lock"), payload("reclaimed"))
+	stolen, _, fresh, err := f.storage.Steal(ctx, "k", payload("lock"), payload("reclaimed"), 0, 0)
 	require.NoError(t, err)
+	require.True(t, stolen)
 	require.Greater(t, f.pttl(t), storageTTL-time.Minute, "Steal must renew the key with the storage TTL")
 	require.LessOrEqual(t, f.pttl(t), storageTTL)
 
@@ -78,7 +83,7 @@ func TestRedis_LuaWritesCarryTheStorageTTL(t *testing.T) {
 	require.NoError(t, f.client.PExpire(ctx, f.rawKey, 5*time.Second).Err())
 	require.NoError(t, f.storage.Complete(ctx, "k", payload("done"), fresh))
 	require.Greater(t, f.pttl(t), storageTTL-time.Minute, "Complete must renew the key with the storage TTL")
-	require.Equal(t, payload("done"), f.raw(t), "Lua must store the bytes unchanged")
+	require.Equal(t, payload("done"), f.storedPayload(t), "Lua must store the bytes unchanged")
 }
 
 // TestRedis_RefusedLuaWritesLeaveTheKeyUntouched pins the mismatch branches
@@ -104,12 +109,14 @@ func TestRedis_RefusedLuaWritesLeaveTheKeyUntouched(t *testing.T) {
 	}
 	for _, v := range near {
 		require.ErrorIs(t, f.storage.Complete(ctx, "k", payload("done"), v), storages.ErrLockStolen)
-		_, err := f.storage.Steal(ctx, "k", v, payload("reclaimed"))
-		require.ErrorIs(t, err, storages.ErrLockStolen)
+		stolen, current, _, err := f.storage.Steal(ctx, "k", v, payload("reclaimed"), 0, 0)
+		require.NoError(t, err)
+		require.False(t, stolen)
+		require.Equal(t, payload("lock"), current)
 		require.ErrorIs(t, f.storage.Release(ctx, "k", v), storages.ErrLockStolen)
 	}
 
-	require.Equal(t, payload("lock"), f.raw(t))
+	require.Equal(t, payload("lock"), f.storedPayload(t))
 	after := f.pttl(t)
 	require.LessOrEqual(t, after, before, "a refused write must not renew the key")
 	require.Greater(t, after, 20*time.Second)
@@ -124,8 +131,10 @@ func TestRedis_LuaOnMissingKeyWritesNothing(t *testing.T) {
 	ctx := t.Context()
 
 	require.ErrorIs(t, f.storage.Complete(ctx, "k", payload("done"), payload("lock")), storages.ErrLockStolen)
-	_, err := f.storage.Steal(ctx, "k", payload("lock"), payload("reclaimed"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	stolen, current, _, err := f.storage.Steal(ctx, "k", payload("lock"), payload("reclaimed"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, stolen)
+	require.Nil(t, current)
 	require.ErrorIs(t, f.storage.Release(ctx, "k", payload("lock")), storages.ErrLockStolen)
 
 	n, err := f.client.Exists(ctx, f.rawKey).Result()
@@ -156,6 +165,35 @@ func TestRedis_CompleteWithoutTokenUsesTheStorageTTL(t *testing.T) {
 	f := newRedisFixture(t, storageTTL)
 
 	require.NoError(t, f.storage.Complete(t.Context(), "k", payload("forced"), nil))
-	require.Equal(t, payload("forced"), f.raw(t))
+	require.Equal(t, payload("forced"), f.storedPayload(t))
 	require.Greater(t, f.pttl(t), storageTTL-time.Minute)
+}
+
+func TestRedis_KeeperTakeoverKeepsLockTTL(t *testing.T) {
+	t.Parallel()
+	const lockTTL = time.Second
+	const maxAge = time.Millisecond
+	f := newRedisFixture(t, 24*time.Hour)
+	ctx := t.Context()
+	key := idempotency.ComposeKey("namespace", "", "k")
+	k := idempotency.New(f.storage, idempotency.WithMaxLockDuration(maxAge))
+	opts := idempotency.AttemptLockOpts{LockTTL: lockTTL}
+	acquired, old, err := k.AttemptLockWithOpts(ctx, "k", opts)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	stampedAfter, err := f.client.Time(ctx).Result()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		now, err := f.client.Time(ctx).Result()
+		return err == nil && now.Sub(stampedAfter) > maxAge
+	}, lockTTL/2, maxAge)
+	acquired, _, err = k.AttemptLockWithOpts(ctx, "k", opts)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	remaining, err := f.client.PTTL(ctx, f.storage.Key(key)).Result()
+	require.NoError(t, err)
+	require.Positive(t, remaining, "the replacement lock must exist and expire")
+	require.LessOrEqual(t, remaining, lockTTL)
+	require.ErrorIs(t, k.Complete(ctx, "k", "stale owner", old), storages.ErrLockStolen)
 }

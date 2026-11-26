@@ -6,6 +6,8 @@
 // Set a scheduler and a cleanup schedule for automatic cleanup. Without them,
 // call [Storage.RunCleanup] to remove expired entries.
 //
+// The storage clock controls lock age and expiration.
+//
 // Example:
 //
 //	storage, err := memory.New(

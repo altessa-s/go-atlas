@@ -8,7 +8,11 @@
 // SQL storage purges expired keys lazily in the background; PurgeExpired(ctx)
 // also drains expired rows manually and returns an int64 count.
 //
-// # Ownership
+// Redis, MongoDB, SQL, and memory use their own clocks for orphan takeover.
+// NATS KV delegates the age check to the Keeper and requires synchronized
+// Keeper clocks.
+//
+// // # Ownership
 //
 // [Keeper.AttemptLock] returns a [State] with an opaque ownership token. Pass that State to
 // Complete on success or Release on failure. Both reject a stale owner's token.

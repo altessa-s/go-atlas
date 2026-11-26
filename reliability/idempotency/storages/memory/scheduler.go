@@ -6,7 +6,6 @@ package memory
 
 import (
 	"context"
-	"time"
 
 	"github.com/altessa-s/go-atlas/internal/memcleanup"
 
@@ -40,7 +39,7 @@ func (s *Storage) RunCleanup() {
 func (s *Storage) runCleanupCycle(context.Context) error {
 	// Sweep even without a default TTL: AttemptLockWithTTL arms per-call
 	// expiries, and entries without one are kept by entry.expired.
-	now := time.Now()
+	now := s.options.clock()
 	memcleanup.Sweep(&s.mu, s.entries, func(e *entry) bool {
 		return e.expired(now)
 	})

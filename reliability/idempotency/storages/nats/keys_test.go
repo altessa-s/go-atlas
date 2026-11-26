@@ -37,8 +37,11 @@ func TestStorage_KeysNATSRejectsVerbatim(t *testing.T) {
 		require.False(t, acquired, key)
 		require.Equal(t, []byte("lock "+key), existing, key)
 
-		stolen, err := storage.Steal(ctx, key, []byte("lock "+key), []byte("stolen "+key))
+		didSteal, _, stolen, err := storage.Steal(ctx, key, []byte("lock "+key), []byte("stolen "+key), 0, 0)
+
 		require.NoError(t, err, key)
+
+		require.True(t, didSteal)
 		require.NoError(t, storage.Complete(ctx, key, []byte("done "+key), stolen), key)
 
 		_, existing, _, err = storage.AttemptLock(ctx, key, []byte("other"))

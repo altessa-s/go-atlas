@@ -12,13 +12,12 @@ import (
 // StorageFunc is an adapter to allow the use of ordinary functions as
 // a [storages.Storage]. The AttemptLockWithTTLFunc field is optional:
 // when nil, AttemptLockFunc is invoked and lockTtl is ignored.
-// StealFunc is required when the caller exercises the orphan-reclaim
-// path; otherwise it can stay nil.
+// When StealFunc is nil, takeover is refused.
 type StorageFunc struct {
 	AttemptLockFunc        func(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error)
 	AttemptLockWithTTLFunc func(ctx context.Context, key string, val []byte, lockTtl time.Duration) (bool, []byte, []byte, error)
 	CompleteFunc           func(ctx context.Context, key string, val []byte, lockToken []byte) error
-	StealFunc              func(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error)
+	StealFunc              func(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error)
 	ReleaseFunc            func(ctx context.Context, key string, lockToken []byte) error
 	DeleteFunc             func(ctx context.Context, key string) error
 }
@@ -43,8 +42,11 @@ func (f StorageFunc) Complete(ctx context.Context, key string, val []byte, lockT
 }
 
 // Steal implements the Storage interface.
-func (f StorageFunc) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
-	return f.StealFunc(ctx, key, expectedVal, newVal)
+func (f StorageFunc) Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
+	if f.StealFunc == nil {
+		return false, expected, nil, nil
+	}
+	return f.StealFunc(ctx, key, expected, replacement, maxLockAge, ttl)
 }
 
 // Delete implements the Storage interface.

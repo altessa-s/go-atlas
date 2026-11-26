@@ -173,9 +173,9 @@ Either form silences the warning. Factory users set `idempotency.maxLockDuration
 
 ## Orphan-lock reclaim
 
-When a holder crashes between `AttemptLock` and `Complete`/`Release`, the InProgress entry sits in storage until the bucket TTL fires (default 24h). To
-unblock retries sooner, every InProgress wire embeds a `LockedAt` timestamp. On collision, if the existing entry is older than the resolved
-`MaxLockDuration`, `AttemptLock` issues a CAS-steal via the storage layer and the new holder gets a fresh lock token.
+Redis, MongoDB, SQL, and memory stamp locks at acquisition using their own clocks. When a collision reaches `MaxLockDuration`, the backend
+checks the age and expected value before replacing the lock and returning a fresh token. Takeover uses the per-call `LockTTL` when supplied.
+NATS KV delegates the age check to the Keeper and requires synchronized clocks on the processes sharing the bucket.
 
 | Behavior                          | Setting                                       |
 |-----------------------------------|-----------------------------------------------|

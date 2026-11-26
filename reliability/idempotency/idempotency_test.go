@@ -393,3 +393,42 @@ func TestAttemptLockRetriesMissingCollision(t *testing.T) {
 		})
 	}
 }
+
+func TestAttemptLockChecksLatestValueAfterRefusedTakeover(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		latest serializedState
+		err    error
+	}{
+		{"completed", serializedState{Status: StatusSuccess, Owner: "caller", Data: "result"}, nil},
+		{"owner changed", serializedState{Status: StatusSuccess, Owner: "other"}, ErrOwnerMismatch},
+		{"fingerprint changed", serializedState{Status: StatusInProgress, Owner: "caller", Fingerprint: []byte("other")}, ErrFingerprintMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var codec serializer.JSON
+			old, err := codec.Serialize(serializedState{Status: StatusInProgress, Owner: "caller"})
+			require.NoError(t, err)
+			current, err := codec.Serialize(tc.latest)
+			require.NoError(t, err)
+			s := StorageFunc{
+				AttemptLockWithTTLFunc: func(context.Context, string, []byte, time.Duration) (bool, []byte, []byte, error) {
+					return false, old, nil, nil
+				},
+				StealFunc: func(_ context.Context, _ string, expected, _ []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
+					require.Equal(t, old, expected)
+					return false, current, nil, nil
+				},
+			}
+			k := New(s, WithMaxLockDuration(time.Minute), WithOwner(func(context.Context) string { return "caller" }))
+			acquired, state, err := k.AttemptLockWithOpts(t.Context(), "k", AttemptLockOpts{Fingerprint: []byte("request")})
+			require.ErrorIs(t, err, tc.err)
+			require.False(t, acquired)
+			if tc.err == nil {
+				require.Equal(t, StatusSuccess, state.Status)
+				require.Equal(t, "result", state.Data)
+			}
+		})
+	}
+}

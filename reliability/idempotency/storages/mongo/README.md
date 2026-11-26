@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/reliability/idempotency/storages/mongo"
 ```
 
 Package `mongo` is a MongoDB [`storages.Storage`](../README.md) for [`idempotency`](../../README.md) keys. A key is one document
-`{_id: key, val: <state>, expires_at: <date>}`: `AttemptLock` takes it with one atomic upsert when it is missing or expired, and `Complete`, `Steal` and
+`{_id: key, val: <state>, expires_at: <date>, locked_at: <date on active locks>}`: `AttemptLock` takes it with one atomic upsert when it is missing or expired, and `Complete`, `Steal` and
 `Release` compare and set on the stored bytes, as the memory and Redis backends do. A TTL index on `expires_at` removes old keys; since the TTL monitor
 runs about once a minute, every operation also treats an expired document as absent. Expiry uses the server clock.
 
@@ -41,3 +41,7 @@ _, err := sess.WithTransaction(ctx, func(ctx context.Context) (any, error) {
     return nil, keeper.Complete(ctx, key, result, held)
 })
 ```
+
+## Orphan takeover
+
+MongoDB writes `locked_at` using `$$NOW` on acquisition and takeover. The takeover update checks the stored lock age and applies the requested lock TTL.

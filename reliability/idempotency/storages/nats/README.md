@@ -29,3 +29,7 @@ factory the switch is `storage.nats.migrateBucketTTL: true`. Migration applies t
 
 New buckets are file-backed. The server cannot change a bucket's storage type, so `New` returns `ErrBucketStorageMismatch` and leaves the bucket
 untouched when it already exists with another one; align the configuration, recreate the bucket, or use another bucket.
+
+## Orphan takeover
+
+Orphan takeover uses the Keeper clock and requires synchronized clocks across instances sharing the bucket. A positive per-call lock TTL applies to both initial acquisition and takeover.
