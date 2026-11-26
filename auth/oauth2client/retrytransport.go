@@ -228,28 +228,61 @@ func singleUseGrant(req *http.Request) bool {
 }
 
 type grantAttemptTrace struct {
-	gotConn   atomic.Bool
-	tlsFailed atomic.Bool
+	gotConn    atomic.Bool
+	wrote      atomic.Bool
+	readBody   atomic.Bool
+	dialFailed atomic.Bool
+	tlsFailed  atomic.Bool
 }
 
 func (t *grantAttemptTrace) attach(req *http.Request) *http.Request {
 	trace := &httptrace.ClientTrace{
-		GotConn: func(httptrace.GotConnInfo) { t.gotConn.Store(true) },
+		GotConn:      func(httptrace.GotConnInfo) { t.gotConn.Store(true) },
+		WroteHeaders: func() { t.wrote.Store(true) },
+		WroteRequest: func(httptrace.WroteRequestInfo) { t.wrote.Store(true) },
+		ConnectDone: func(_, _ string, err error) {
+			if err != nil {
+				t.dialFailed.Store(true)
+			}
+		},
 		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
 			if err != nil {
 				t.tlsFailed.Store(true)
 			}
 		},
 	}
-	return req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	attempt := req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	attempt.Body = t.trackBody(req.Body)
+	attempt.GetBody = func() (io.ReadCloser, error) {
+		body, err := req.GetBody()
+		return t.trackBody(body), err
+	}
+	return attempt
+}
+
+func (t *grantAttemptTrace) trackBody(body io.ReadCloser) io.ReadCloser {
+	if body == nil || body == http.NoBody {
+		return body
+	}
+	return &grantAttemptBody{ReadCloser: body, read: &t.readBody}
+}
+
+type grantAttemptBody struct {
+	io.ReadCloser
+	read *atomic.Bool
+}
+
+func (b *grantAttemptBody) Read(p []byte) (int, error) {
+	b.read.Store(true)
+	return b.ReadCloser.Read(p)
 }
 
 func (t *grantAttemptTrace) failedBeforeWrite(err error) bool {
-	if t.gotConn.Load() {
+	if t.gotConn.Load() || t.wrote.Load() || t.readBody.Load() {
 		return false
 	}
 	op, ok := errors.AsType[*net.OpError](err)
-	return t.tlsFailed.Load() || (ok && op.Op == "dial")
+	return t.tlsFailed.Load() || (t.dialFailed.Load() && ok && op.Op == "dial")
 }
 
 func (t *retryTransport) roundTrip(req *http.Request) (*http.Response, error) {

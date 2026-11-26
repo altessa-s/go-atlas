@@ -53,26 +53,41 @@ func TestSingleUseGrantRetryPolicy(t *testing.T) {
 		name         string
 		grant        string
 		result       func(*http.Request) (*http.Response, error)
+		readBody     bool
 		insecure     bool
 		wantAttempts int
 	}{
-		{"dial failure", "refresh_token", func(*http.Request) (*http.Response, error) {
+		{"observed dial failure", "refresh_token", func(req *http.Request) (*http.Response, error) {
+			err := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+			if trace := httptrace.ContextClientTrace(req.Context()); trace.ConnectDone != nil {
+				trace.ConnectDone("tcp", "idp.example:443", err)
+			}
+			return nil, err
+		}, false, false, 2},
+		{"unobserved dial error", "refresh_token", func(*http.Request) (*http.Response, error) {
 			return nil, &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
-		}, false, 2},
+		}, false, false, 1},
+		{"dial error after reading body", "refresh_token", func(req *http.Request) (*http.Response, error) {
+			err := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+			if trace := httptrace.ContextClientTrace(req.Context()); trace.ConnectDone != nil {
+				trace.ConnectDone("tcp", "idp.example:443", err)
+			}
+			return nil, err
+		}, true, false, 1},
 		{"TLS handshake failure", "authorization_code", func(req *http.Request) (*http.Response, error) {
 			err := errors.New("TLS handshake failed")
 			httptrace.ContextClientTrace(req.Context()).TLSHandshakeDone(tls.ConnectionState{}, err)
 			return nil, err
-		}, false, 2},
+		}, false, false, 2},
 		{"ambiguous connection reset", "authorization_code", func(*http.Request) (*http.Response, error) {
 			return nil, syscall.ECONNRESET
-		}, false, 1},
+		}, true, false, 1},
 		{"device rate limit", "urn:ietf:params:oauth:grant-type:device_code", func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusTooManyRequests, Body: http.NoBody}, nil
-		}, false, 1},
+		}, true, false, 1},
 		{"explicit replay", "refresh_token", func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusBadGateway, Body: http.NoBody}, nil
-		}, true, 2},
+		}, true, true, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -81,8 +96,10 @@ func TestSingleUseGrantRetryPolicy(t *testing.T) {
 				base := testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					attempts++
 					defer req.Body.Close()
-					_, err := io.Copy(io.Discard, req.Body)
-					require.NoError(t, err)
+					if tc.readBody {
+						_, err := io.Copy(io.Discard, req.Body)
+						require.NoError(t, err)
+					}
 					return tc.result(req)
 				})
 				opts := []oauth2client.RetryTransportOption{

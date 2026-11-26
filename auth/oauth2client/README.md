@@ -199,8 +199,9 @@ you.
 
 **Retrying the native grants** — only `Exchanger` and `JWTBearer` retry on their own. To add retries to the x/oauth2-backed grants (
 `ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject the resulting HTTP client; it retries
-replayable requests on transport errors, 429, and 5xx. Refresh tokens, authorization codes, and device codes are retried only after a proven dial or
-TLS handshake failure. `WithInsecureRetrySingleUseGrants()` enables replay after ambiguous failures. Single-use flows also skip automatic client
+replayable requests on transport errors, 429, and 5xx. For refresh tokens, authorization codes, and device codes, retries require a traced dial or TLS
+handshake failure before any body read or request write. `WithInsecureRetrySingleUseGrants()` enables replay after ambiguous failures.
+Single-use flows also skip automatic client
 authentication-style probing. The automatic setting resolves to form parameters for public clients and HTTP Basic for clients with a secret. Set
 the authentication style explicitly if the IdP requires a different one.
 
