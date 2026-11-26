@@ -13,7 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
@@ -30,16 +30,15 @@ func (b *TokenBucketLimiterBuilder) UseDefaultLogger() *TokenBucketLimiterBuilde
 }
 
 // UseStorage registers the storage function of one storage type
-// (storageconfig.BackendTypeRedis, storageconfig.BackendTypeNATS). A later
-// registration of the same type replaces the earlier one; the memory storage
-// is built in.
-func (b *TokenBucketLimiterBuilder) UseStorage(typ storageconfig.BackendType, build storagesfactory.StorageFunc) *TokenBucketLimiterBuilder {
+// (limiterconfig.StorageTypeRedis). A later registration of the same type
+// replaces the earlier one; the memory storage is built in.
+func (b *TokenBucketLimiterBuilder) UseStorage(typ limiterconfig.StorageType, build storagesfactory.StorageFunc) *TokenBucketLimiterBuilder {
 	if build == nil {
 		b.errs = append(b.errs, fmt.Errorf("UseStorage %q: nil function", typ))
 		return b
 	}
 	if b.storages == nil {
-		b.storages = map[storageconfig.BackendType]storagesfactory.StorageFunc{}
+		b.storages = map[limiterconfig.StorageType]storagesfactory.StorageFunc{}
 	}
 	b.storages[typ] = build
 	return b
@@ -66,6 +65,6 @@ func (b *TokenBucketLimiterBuilder) UseClientService(v tokenbucket.ClientService
 }
 
 // RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
-func (b *TokenBucketLimiterBuilder) RegisteredStorageTypes() []storageconfig.BackendType {
+func (b *TokenBucketLimiterBuilder) RegisteredStorageTypes() []limiterconfig.StorageType {
 	return slices.Sorted(maps.Keys(b.storages))
 }

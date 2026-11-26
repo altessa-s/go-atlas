@@ -11,12 +11,12 @@ Maps the `redis` block of the limiter storage configuration to a [Redis limiter 
 
 ```go
 limiter, err := tokenbucketfactory.New(cfg.TokenBucketLimiter).
-    UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+    UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
     Build(ctx)
 ```
 
-| Symbol              | Description                                                          |
-|---------------------|----------------------------------------------------------------------|
-| `Builder(client)`   | Storage function for the `redis` type; keys carry `redis.keysPrefix` |
-| `ErrClientRequired` | Returned when the function has no client                             |
-| `ErrConfigRequired` | Returned when the storage configuration has no `redis` block         |
+| Symbol              | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| `Builder(client)`   | Storage function for the `redis` type; keys carry `redis.keysPrefix` (default `"ratelimit:"`) |
+| `ErrClientRequired` | Returned when the function has no client                                                      |
+| `ErrConfigRequired` | Returned when the storage configuration has no `redis` block                                  |

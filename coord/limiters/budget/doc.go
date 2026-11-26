@@ -13,7 +13,7 @@
 // than deriving identity from the request context.
 //
 // The limiter reuses storage backends from [github.com/altessa-s/go-atlas/coord/limiters/storages]
-// (memory, Redis, NATS) for distributed counter state, so budget
+// (memory, Redis) for distributed counter state, so budget
 // enforcement stays consistent across service replicas.
 //
 // # Usage
@@ -26,6 +26,4 @@
 //	if err := limiter.Allow(ctx, "service:recognizer"); err != nil {
 //	    // budget exhausted or storage error
 //	}
-//
-// With NATS storage, the budget period must fit within the bucket retention.
 package budget

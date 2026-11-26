@@ -9,4 +9,4 @@ contract; backends live in `providers/<backend>` and `storages/<backend>`. See t
 |--------------------------|---------------------------------------------------------------------------------------------------|
 | [dlock](./dlock)         | Distributed locks with pluggable providers (NATS, MongoDB, SQL) ([guide](../docs/coord/dlock.md)) |
 | [leadelect](./leadelect) | Leader election for service coordination (NATS KV)                                                |
-| [limiters](./limiters)   | Rate limiting: token bucket and budget, memory/Redis/NATS storages                                |
+| [limiters](./limiters)   | Rate limiting: token bucket and budget, memory/Redis storages                                     |

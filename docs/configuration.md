@@ -454,7 +454,7 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`)       |
 | Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`, `idempotency_storage.yaml` |
 | Reliability    | `saga.yaml`, `retryqueue.yaml`, `audit.yaml`                                                  |
-| Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                               |
+| Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `limiter_storage.yaml`, `dlock.yaml`       |
 | Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                          |
 
 `http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the

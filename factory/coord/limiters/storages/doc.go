@@ -10,6 +10,6 @@
 // serves both limiters:
 //
 //	limiter, err := budgetfactory.New(cfg.BudgetLimiter).
-//		UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+//		UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
 //		Build(ctx)
 package factory

@@ -61,9 +61,9 @@ The root package declares no types.
 
 ## Shared patterns
 
-Features that keep state in memory, Redis or NATS KeyValue (rate limiters, MongoDB cursor storage) share `storageconfig.BackendConfig`: a `Type`
-selector with optional `Memory`, `Nats` and `Redis` sub-configs. The cache uses `storageconfig.CacheStorageConfig`, which accepts only `memory` and
-`redis`. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed `httpconfig.BaseMiddleware`; both build on
+Features that keep state in memory, Redis or NATS KeyValue (MongoDB cursor storage) share `storageconfig.BackendConfig`: a `Type` selector with
+optional `Memory`, `Nats` and `Redis` sub-configs. Rate limiters use `limiterconfig.StorageConfig` and the cache uses
+`storageconfig.CacheStorageConfig`, which accept `memory` and `redis`. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed `httpconfig.BaseMiddleware`; both build on
 `middlewareconfig.EnableMixin`, `middlewareconfig.FallbackBehavior` and the shared ACL rule types. `validationconfig`
 ([go-nomos/validation](https://github.com/altessa-s/go-nomos/tree/develop/validation)) provides `ValidateStruct`, `PrettyError` and `ErrorsToFlatMap`.
 

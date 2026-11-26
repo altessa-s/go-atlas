@@ -13,14 +13,15 @@ of live windows. Key churn can then reset another key's quota before that window
 
 ## Key types
 
-| Type                            | Description                                                    |
-|---------------------------------|----------------------------------------------------------------|
-| `Budget`                 | Configures a distributed budget limiter for outbound requests. |
-| `TokenBucketDefaultRule` | Defines the default rate limiting settings.                    |
-| `TokenBucketTargetRule`  | Defines rate limiting settings for specific targets.           |
-| `TokenBucketRules`       | Defines the complete set of rate limiting rules.               |
-| `TokenBucket`            | Defines the configuration for token-bucket rate limiting.      |
-| `NATSContention`         | Tunes NATS storage CAS retries (`natsContention` in both limiters). |
-| `RequestRate`               | Represents the configuration for rate limiting HTTP requests.  |
+| Type                     | Description                                                        |
+|--------------------------|--------------------------------------------------------------------|
+| `StorageType`            | Selects the storage backend of a rate limiter (`memory`, `redis`). |
+| `StorageConfig`          | Configures a rate limiter's storage backend.                       |
+| `Budget`                 | Configures a distributed budget limiter for outbound requests.     |
+| `TokenBucketDefaultRule` | Defines the default rate limiting settings.                        |
+| `TokenBucketTargetRule`  | Defines rate limiting settings for specific targets.               |
+| `TokenBucketRules`       | Defines the complete set of rate limiting rules.                   |
+| `TokenBucket`            | Defines the configuration for token-bucket rate limiting.          |
+| `RequestRate`            | Represents the configuration for rate limiting HTTP requests.      |
 
 See the [config index](../README.md) for the other schema packages.

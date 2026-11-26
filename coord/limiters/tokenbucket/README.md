@@ -23,8 +23,7 @@ authentication token extraction with configurable storage backends and sophistic
 | `WithLogger`                 | discard | Structured logger                  |
 
 A client service can return `RateLimitSkip` to fall back to IP rules. `RateLimitUnlimited` bypasses storage for either a token or an IP rule.
-Ordinary settings with a non-positive limit or period return `ErrInvalidArgument`. With NATS storage, the period must also fit within the bucket
-retention.
+Ordinary settings with a non-positive limit or period return `ErrInvalidArgument`.
 
 ## Storage keys
 
@@ -39,4 +38,3 @@ SHA-256 digest of its token, so a storage backend never holds a bearer token.
 | [factory](../../../factory/coord/limiters/tokenbucket) | Configuration-based creation |
 | [storages/memory](../storages/memory)                  | In-memory storage backend    |
 | [storages/redis](../storages/redis)                    | Distributed Redis storage    |
-| [storages/nats](../storages/nats)                      | NATS KV storage backend      |

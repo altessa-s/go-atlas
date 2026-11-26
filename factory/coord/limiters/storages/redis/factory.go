@@ -8,13 +8,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	redisstorage "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -31,15 +32,19 @@ var (
 
 // Builder returns the storage function of the redis type, ready for
 // UseStorage of the budget and token-bucket limiter factories. The storage
-// keeps counters through client under the configured keysPrefix.
+// keeps counters through client under the configured keysPrefix, or
+// [redisstorage.DefaultKeyPrefix] ("ratelimit:") when keysPrefix is empty.
 func Builder(client redis.UniversalClient) storagesfactory.StorageFunc {
-	return func(_ context.Context, cfg *storageconfig.BackendConfig, _ *limiterconfig.NATSContention) (storages.Storage, error) {
+	return func(_ context.Context, cfg *limiterconfig.StorageConfig) (storages.Storage, error) {
 		if client == nil {
 			return nil, ErrClientRequired
 		}
 		if cfg.Redis == nil {
 			return nil, ErrConfigRequired
 		}
-		return redisstorage.New(client, redisstorage.WithKeyPrefix(cfg.Redis.KeysPrefix)), nil
+		opts := coreslices.AppendIfFunc(nil, strings.TrimSpace(cfg.Redis.KeysPrefix) != "", func() []redisstorage.Option {
+			return []redisstorage.Option{redisstorage.WithKeyPrefix(cfg.Redis.KeysPrefix)}
+		})
+		return redisstorage.New(client, opts...), nil
 	}
 }

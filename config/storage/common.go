@@ -5,6 +5,9 @@
 package storageconfig
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -82,7 +85,15 @@ type RedisConfig struct {
 func (c *RedisConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.KeysPrefix,
-			validation.When(c.KeysPrefix != "", validation.Length(0, MaxKeyPrefixLength))),
+			validation.When(c.KeysPrefix != "",
+				validation.By(func(any) error {
+					if strings.TrimSpace(c.KeysPrefix) == "" {
+						return errors.New("must not be whitespace only")
+					}
+					return nil
+				}),
+				validation.Length(1, MaxKeyPrefixLength),
+			)),
 	)
 }
 
@@ -101,8 +112,8 @@ func (c *MemoryConfig) Validate() error {
 }
 
 // BackendType selects the storage backend of a feature that can keep its
-// state in memory, Redis or a NATS KeyValue bucket, such as the rate
-// limiters and the MongoDB cursor storage.
+// state in memory, Redis or a NATS KeyValue bucket, such as the MongoDB
+// cursor storage.
 type BackendType string
 
 const (
@@ -127,9 +138,9 @@ var backendAllowedTypes = []BackendType{
 }
 
 // BackendConfig defines storage backend configuration with type selector
-// for features that support memory, Redis and NATS KeyValue storage (rate
-// limiters, MongoDB cursor storage). The cache uses [CacheStorageConfig]
-// instead, which has no NATS backend.
+// for features that support memory, Redis and NATS KeyValue storage
+// (MongoDB cursor storage). Rate limiters use limiterconfig.StorageConfig and
+// the cache uses [CacheStorageConfig], which have no NATS backend.
 type BackendConfig struct {
 	validators.BackendTypes[BackendType] `yaml:"-" json:"-"`
 

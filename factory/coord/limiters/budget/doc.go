@@ -10,12 +10,11 @@
 //
 //	limiter, err := factory.New(cfg.BudgetLimiter).
 //	    UseLogger(logger).
-//	    UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+//	    UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
 //	    Build(ctx)
 //
-// The builder builds only the in-memory storage; the Redis and NATS ones
-// register from factory/coord/limiters/storages/redis and
-// factory/coord/limiters/storages/nats, and a configured type without one
+// The builder builds only the in-memory storage; the Redis one registers from
+// factory/coord/limiters/storages/redis, and a configured type without one
 // fails at Build naming the package to add. InsecureEvictLRU opts memory storage
 // into live-window eviction.
 //

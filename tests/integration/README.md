@@ -8,7 +8,7 @@ tests/integration/
 ├── docker-compose.yml     # the backends the suite runs against
 ├── leadelectit/           # coord/leadelect: multi-node election against a live broker
 ├── dlockit/               # coord/dlock: contended locking against a live broker, SQL servers and MongoDB
-├── limiterit/             # coord/limiters: sliding-window contract on Redis and NATS vs memory, tokenbucket and budget on top
+├── limiterit/             # coord/limiters: sliding-window contract on Redis vs memory, tokenbucket and budget on top
 ├── probfilterit/          # cache/probfilter: Bloom and Cuckoo filters on Redis Stack — membership, deletes, shared rebuilds
 ├── denylistit/            # auth/denylist: Redis exact-read and RawSource enforcement against live replicas and Sentinel
 ├── auditit/               # audit: storage conformance, ordered partial inserts on MongoDB, atomic and idempotent batches on SQL servers
@@ -154,11 +154,10 @@ to finish. Scenarios that need to be serialized rather than rejected loop over `
 guards. The acquisition attempt is bounded separately, by the provider's `WithAcquireTimeout` — folding that bound into the same context would release
 the lock the moment it elapsed.
 
-## limiterit — rate limiting against live Redis and NATS
+## limiterit — rate limiting against live Redis
 
-The unit tests run the Redis provider's Lua script on miniredis and the NATS provider on an embedded server. Here the sliding-window contract runs on
-the real servers, with the in-memory provider as the reference: `TestStorage_MatchesMemory` replays one call sequence on all three and compares every
-admission, `Remaining` and `Reset`.
+The unit tests run the Redis provider's Lua script on miniredis. Here the sliding-window contract runs on a real Redis server, with the in-memory
+provider as the reference: `TestStorage_MatchesMemory` replays one call sequence on both and compares every admission, `Remaining` and `Reset`.
 
 | Scenario                            | Asserts                                                                                               |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -171,10 +170,6 @@ admission, `Remaining` and `Reset`.
 
 On top of each storage, `TestTokenBucket_RulesOverSharedStorage` drives IP, CIDR and token rules from two replicas, and `TestBudget_*` spends one budget
 from two replicas, sees it come back a period later, and reports an unreachable Redis as an error rather than an exhausted budget.
-
-**Contention costs the NATS provider latency, not correctness.** Its compare-and-swap loop retries a revision conflict after a randomized backoff, up to
-`WithMaxCASAttempts` attempts (64 by default), so under the 32-goroutine race and across two replicas every call still ends in a decision: the suite
-requires zero errors, and the limit is never exceeded. A call that exhausts its attempts returns `ErrContention`.
 
 ## probfilterit — Bloom and Cuckoo filters on Redis Stack
 

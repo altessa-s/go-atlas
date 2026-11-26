@@ -5,17 +5,78 @@
 package limiterconfig_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-nomos/loader"
+	"github.com/altessa-s/go-nomos/loader/backend/yaml3"
+
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
-func memoryStorage() *storageconfig.BackendConfig {
-	return &storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory, Memory: &storageconfig.MemoryConfig{}}
+func memoryStorage() *limiterconfig.StorageConfig {
+	return &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory, Memory: &storageconfig.MemoryConfig{}}
+}
+
+func TestStorageConfig_NormalizeAndValidate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("normalize allocates selected sub-config", func(t *testing.T) {
+		t.Parallel()
+		mem := limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory}
+		mem.Normalize()
+		require.NotNil(t, mem.Memory)
+		require.Nil(t, mem.Redis)
+
+		redis := limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
+		redis.Normalize()
+		require.NotNil(t, redis.Redis)
+		require.Nil(t, redis.Memory)
+
+		unknown := limiterconfig.StorageConfig{Type: "nats"}
+		unknown.Normalize()
+		require.Nil(t, unknown.Memory)
+		require.Nil(t, unknown.Redis)
+	})
+
+	t.Run("validate accepts memory, redis, and registered custom types", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, (&limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory, Memory: &storageconfig.MemoryConfig{}}).Validate())
+		require.NoError(t, (&limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis, Redis: &storageconfig.RedisConfig{}}).Validate())
+		require.Error(t, (&limiterconfig.StorageConfig{}).Validate())
+		require.Error(t, (&limiterconfig.StorageConfig{Type: "nats"}).Validate())
+
+		custom := limiterconfig.StorageConfig{Type: "custom"}
+		custom.SetRegisteredTypes([]limiterconfig.StorageType{"custom"})
+		require.NoError(t, custom.Validate())
+	})
+
+	t.Run("loader normalizes nested Storage without top-level Normalize", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "limiter.yaml")
+		content := "budgetLimiter:\n  limit: 10\n  storage:\n    type: redis\ntokenBucketLimiter:\n  storage:\n    type: memory\n  rules:\n    default:\n      limit: 5\n      period: \"1m\"\n"
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		var root struct {
+			Budget      limiterconfig.Budget      `yaml:"budgetLimiter"`
+			TokenBucket limiterconfig.TokenBucket `yaml:"tokenBucketLimiter"`
+		}
+		_, err := loader.New(&yaml3.Backend{}, loader.WithPath(path), loader.WithSkipEnv()).Load(&root)
+		require.NoError(t, err)
+		require.NotNil(t, root.Budget.Storage)
+		require.NotNil(t, root.Budget.Storage.Redis)
+		require.NoError(t, root.Budget.Validate())
+		require.NotNil(t, root.TokenBucket.Storage)
+		require.NotNil(t, root.TokenBucket.Storage.Memory)
+		require.NoError(t, root.TokenBucket.Validate())
+	})
 }
 
 func TestDefaultRequestRate(t *testing.T) {
@@ -189,11 +250,10 @@ func TestTokenBucket_Validate(t *testing.T) {
 			cfg:  limiterconfig.TokenBucket{IpCacheSize: 1000, Storage: memoryStorage(), Rules: validRules},
 		},
 		{
-			name: "invalid NATSContention propagates the nested error",
+			name: "nats storage fails validation",
 			cfg: limiterconfig.TokenBucket{
-				Storage:        memoryStorage(),
-				Rules:          validRules,
-				NATSContention: &limiterconfig.NATSContention{MaxCASAttempts: -1},
+				Storage: &limiterconfig.StorageConfig{Type: "nats"},
+				Rules:   validRules,
 			},
 			wantErr: true,
 		},
@@ -235,10 +295,10 @@ func TestBudget_Validate(t *testing.T) {
 		{name: "period below one second fails", cfg: limiterconfig.Budget{Limit: 1, Period: time.Millisecond, Storage: memoryStorage()}, wantErr: true},
 		{name: "fully specified passes", cfg: limiterconfig.Budget{Limit: 1, Period: time.Hour, Storage: memoryStorage()}},
 		{
-			name: "invalid NATSContention propagates the nested error",
+			name: "nats storage fails validation",
 			cfg: limiterconfig.Budget{
-				Limit: 1, Period: time.Hour, Storage: memoryStorage(),
-				NATSContention: &limiterconfig.NATSContention{MaxCASBackoff: -time.Millisecond},
+				Limit: 1, Period: time.Hour,
+				Storage: &limiterconfig.StorageConfig{Type: "nats"},
 			},
 			wantErr: true,
 		},

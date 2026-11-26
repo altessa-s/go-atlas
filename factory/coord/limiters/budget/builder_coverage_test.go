@@ -40,7 +40,7 @@ func (r *taskRecorder) count() int {
 	return len(r.tasks)
 }
 
-func budgetCfg(limit int64, backend *storageconfig.BackendConfig) *limiterconfig.Budget {
+func budgetCfg(limit int64, backend *limiterconfig.StorageConfig) *limiterconfig.Budget {
 	return &limiterconfig.Budget{Limit: limit, Period: time.Hour, Storage: backend}
 }
 
@@ -57,8 +57,8 @@ func TestBuild_MemoryEnforcesBudgetAndRegistersCleanup(t *testing.T) {
 	t.Parallel()
 	sched := &taskRecorder{}
 	tc := metricstest.NewTestCollector()
-	l, err := factory.New(budgetCfg(2, &storageconfig.BackendConfig{
-		Type:   storageconfig.BackendTypeMemory,
+	l, err := factory.New(budgetCfg(2, &limiterconfig.StorageConfig{
+		Type:   limiterconfig.StorageTypeMemory,
 		Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 1m"},
 	})).UseScheduler(sched).UseMeter(tc).Build(t.Context())
 	require.NoError(t, err)
@@ -70,14 +70,14 @@ func TestBuild_MemoryEnforcesBudgetAndRegistersCleanup(t *testing.T) {
 
 func TestBuild_MissingMemorySection(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(budgetCfg(1, &storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory})).Build(t.Context())
+	_, err := factory.New(budgetCfg(1, &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory})).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 func TestBuild_InvalidLimitIsRejected(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(budgetCfg(0, &storageconfig.BackendConfig{
-		Type: storageconfig.BackendTypeMemory, Memory: &storageconfig.MemoryConfig{},
+	_, err := factory.New(budgetCfg(0, &limiterconfig.StorageConfig{
+		Type: limiterconfig.StorageTypeMemory, Memory: &storageconfig.MemoryConfig{},
 	})).Build(t.Context())
 	require.ErrorIs(t, err, budget.ErrInvalidLimit)
 }

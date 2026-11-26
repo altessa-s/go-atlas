@@ -1,6 +1,6 @@
 # Storage backend configuration template.
-# Storage settings for features using BackendConfig (token-bucket and budget limiters,
-# MongoDB cursor storage). The cache uses cache_storage.yaml, which has no NATS backend.
+# Storage settings for features using BackendConfig (MongoDB cursor storage).
+# Rate limiters use limiter_storage.yaml and the cache uses cache_storage.yaml, which have no NATS backend.
 # This file is included via !include directive in other configuration templates.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

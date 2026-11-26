@@ -7,7 +7,6 @@ package limiterconfig
 import (
 	"time"
 
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -30,16 +29,12 @@ type Budget struct {
 	Period time.Duration `yaml:"period" default:"24h"`
 
 	// Storage defines the storage configuration for budget counters.
-	// Required, specifies backend and settings (memory, nats, or redis).
-	Storage *storageconfig.BackendConfig `yaml:"storage"`
+	// Required, specifies backend and settings (memory or redis).
+	Storage *StorageConfig `yaml:"storage"`
 
 	// InsecureEvictLRU lets memory storage evict a live window at its key cap.
 	// Key churn can reset another key's quota before it expires.
 	InsecureEvictLRU bool `yaml:"insecureEvictLRU"`
-
-	// NATSContention tunes compare-and-swap retries of the NATS storage.
-	// Optional; ignored by other storages.
-	NATSContention *NATSContention `yaml:"natsContention"`
 }
 
 // Validate performs validation of the budget limiter configuration.
@@ -49,7 +44,6 @@ func (b *Budget) Validate() error {
 		validation.Field(&b.Limit, validation.Required, validation.Min(int64(1))),
 		validation.Field(&b.Period, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 		validation.Field(&b.Storage, validation.Required),
-		validation.Field(&b.NATSContention),
 	)
 }
 

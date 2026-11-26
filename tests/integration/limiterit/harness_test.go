@@ -16,15 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-	"github.com/stretchr/testify/require"
-
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
-	natslimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 	redislimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -40,8 +35,7 @@ func envOr(key, fallback string) string {
 
 // namespace derives a name unique to the test and the run: the sanitized test
 // name makes leftovers traceable, the random suffix keeps parallel tests and
-// concurrent runs against the shared servers apart. It is valid as a Redis key
-// prefix and as a NATS bucket name.
+// concurrent runs against the shared server apart.
 func namespace(tb testing.TB) string {
 	tb.Helper()
 
@@ -80,7 +74,6 @@ func backends() []backend {
 	return []backend{
 		{name: "memory", open: openMemory},
 		{name: "redis", shared: true, open: openRedis},
-		{name: "nats", shared: true, open: openNATS},
 	}
 }
 
@@ -127,38 +120,6 @@ func deleteRedisKeys(client *goredis.Client, pattern string) {
 	iter := client.Scan(ctx, 0, pattern, 500).Iterator()
 	for iter.Next(ctx) {
 		_ = client.Del(ctx, iter.Val()).Err()
-	}
-}
-
-// natsConn dials the compose NATS server, skipping when it is unreachable.
-func natsConn(tb testing.TB) *nats.Conn {
-	tb.Helper()
-
-	url := envOr("NATS_URL", "nats://127.0.0.1:14222")
-	nc, err := nats.Connect(url, nats.Timeout(2*time.Second), nats.RetryOnFailedConnect(false))
-	if err != nil {
-		tb.Skipf("NATS unreachable at %s (%v) — start it with: make integration-up", url, err)
-	}
-	tb.Cleanup(nc.Close)
-	return nc
-}
-
-// openNATS gives the test a KeyValue bucket of its own; every replica dials
-// its own connection. The bucket is deleted on cleanup.
-func openNATS(tb testing.TB) replicaFunc {
-	tb.Helper()
-
-	admin, err := jetstream.New(natsConn(tb))
-	require.NoError(tb, err)
-	bucket := namespace(tb)
-	tb.Cleanup(func() { _ = admin.DeleteKeyValue(context.Background(), bucket) })
-
-	return func() storages.Storage {
-		js, err := jetstream.New(natsConn(tb))
-		require.NoError(tb, err)
-		p, err := natslimiter.New(tb.Context(), js, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
-		require.NoError(tb, err)
-		return p
 	}
 }
 
