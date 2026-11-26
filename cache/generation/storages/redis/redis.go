@@ -28,6 +28,15 @@ import (
 // the key above every generation it knows.
 var ErrRegressed = errors.New("generation: stored generation regressed")
 
+// ErrReadOverlappedBump is returned by [Store.Current] when a bump of this
+// replica overlapped the read and the read returned a generation above the one
+// this replica has confirmed. The value may be the bump's own write whose reply
+// is still in flight or another replica's bump, and the read cannot tell which,
+// so it is not installed and the caller uses the source of truth. Unlike
+// [ErrRegressed] it proves no loss: the store heals nothing, and the next read
+// after the bump completes installs the generation normally.
+var ErrReadOverlappedBump = errors.New("generation: read overlapped a bump")
+
 // ErrBumpNotConverged is returned when concurrent observations keep overtaking
 // a Bump's published generation through all three attempts. The namespace
 // stays pending; a later Bump or Current must publish another increment before
@@ -91,8 +100,14 @@ return v
 // [ErrRegressed] without refreshing its local value, and heals the key with a
 // Bump above every generation it knows; later reads resume from the healed
 // value. A read overlapped by a bump of this replica never installs its
-// value; if it returned more than the bump published, it is handled the same
-// way (that value may predate the write and Redis has lost it). Bump itself
+// value. If it returned more than the bump published once the bump finished,
+// it is handled the same way (that value may predate the write and Redis has
+// lost it). While a bump is still in flight such a value may be the bump's own
+// write, whose reply has not arrived, or another replica's bump, so the read
+// bypasses the cache with [ErrReadOverlappedBump] and heals nothing; the bump
+// itself republishes above anything it was overtaken by. The highest generation
+// observed is remembered, and a later independent read that returns less than
+// it is a regression too. Bump itself
 // succeeds only with a value it published that exceeds every generation the
 // replica observed by the time it completes.
 // Residual window: a replica that never observed the higher
@@ -123,6 +138,9 @@ type localGen struct {
 	// seen is the highest generation this replica observed or published
 	// (at least gen); a bump publishes above it.
 	seen uint64
+	// seenAt is when the observation that raised seen completed: a read that
+	// started later and returns less than seen is a regression.
+	seenAt time.Time
 	// seq counts the finished bumps of this replica (successful or failed);
 	// inflight counts the bumps running now. A read overlapped by a bump (seq changed, or a bump
 	// in flight when it started or completed) never installs its value.
@@ -240,14 +258,15 @@ func (s *Store) Bump(ctx context.Context, namespace string) (uint64, error) {
 
 		s.mu.Lock()
 		lg := s.local[namespace]
-		if lg.seen >= published {
-			// A concurrent read observed a generation at least as high:
-			// publish again above it.
+		if lg.seen > published {
+			// A concurrent read observed a generation above it: publish
+			// again above that. A read that saw exactly published saw this
+			// bump's own write.
 			seen = lg.seen
 			s.mu.Unlock()
 			continue
 		}
-		lg.gen, lg.seen = published, published
+		lg.gen, lg.seen, lg.seenAt = published, published, s.clock.Now()
 		lg.seq++
 		lg.inflight--
 		lg.confirmedAt = s.clock.Now()
@@ -304,24 +323,38 @@ func (s *Store) read(ctx context.Context, namespace string) (observation, error)
 // A read overlapped by a bump of this replica (a bump completed since it
 // started, or one was in flight when it started or is now) may predate the
 // write behind that bump, so it never installs its value: a value at or below
-// the current generation is discarded; a higher one proves that Redis lost a
+// the current generation is discarded. A higher one proves that Redis lost a
 // generation the bump did not exceed, so the read fails closed with
-// [ErrRegressed] and the key is healed with a Bump above seen.
+// [ErrRegressed] and the key is healed with a Bump above seen, unless a bump
+// is still in flight: the value may then be that bump's own write or another
+// replica's, so the read fails closed with [ErrReadOverlappedBump] without
+// healing and the bump republishes above it.
 //
 // A read that no bump overlapped installs its value monotonically, unless it
-// started strictly after the current generation was confirmed and returned
-// less: Redis went back, so it fails closed and heals the same way.
+// started strictly after the current generation was confirmed, or after the
+// highest generation observed so far, and returned less: Redis went back, so
+// it fails closed and heals as above.
 func (s *Store) observeRead(ctx context.Context, namespace string, obs observation) (uint64, error) {
 	s.mu.Lock()
 	lg := s.local[namespace]
-	lg.seen = max(lg.seen, obs.gen)
+	prevSeen, prevSeenAt := lg.seen, lg.seenAt
+	if obs.gen > lg.seen {
+		lg.seen, lg.seenAt = obs.gen, obs.completed
+	}
 	overlapped := obs.bumpingAtStart || lg.inflight > 0 || lg.seq != obs.seqAtStart
-	regressed := false
+	regressed, bypass := false, false
 	switch {
+	case overlapped && obs.gen > lg.gen:
+		bypass = lg.inflight > 0
+		regressed = !bypass
 	case overlapped:
-		regressed = obs.gen > lg.gen
+		// At or below the current generation: discarded.
 	case obs.gen < lg.gen:
 		regressed = obs.started.After(lg.confirmedAt)
+	case obs.gen < prevSeen:
+		// Below a generation observed earlier, though not below the
+		// confirmed one.
+		regressed = obs.started.After(prevSeenAt)
 	default:
 		// Without a regression both values are lower bounds of a stored
 		// value that only grows, so the larger one is at least the stored
@@ -338,6 +371,9 @@ func (s *Store) observeRead(ctx context.Context, namespace string, obs observati
 	gen := lg.gen
 	s.mu.Unlock()
 
+	if bypass {
+		return 0, coreerrs.Wrapf(ErrReadOverlappedBump, "namespace %q", namespace)
+	}
 	if regressed {
 		_, _ = s.Bump(ctx, namespace) // heal: write above every observed generation
 		return 0, coreerrs.Wrapf(ErrRegressed, "namespace %q", namespace)

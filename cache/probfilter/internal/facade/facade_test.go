@@ -201,22 +201,60 @@ func TestCoordinator_Add_NotJournaledOutsideRebuild(t *testing.T) {
 	require.Equal(t, []string{"src"}, st2.snapshot())
 }
 
-// TestCoordinator_JournalOrderMatchesWriteOrder checks that, during a rebuild,
-// the journal records adds in the exact order the live filter executed them.
-func TestCoordinator_JournalOrderMatchesWriteOrder(t *testing.T) {
+// TestCoordinator_SlowWriteDoesNotBlockOtherAdds checks that, during a
+// rebuild, an add stuck in its live write does not hold up other adds, and that
+// every live write still reaches the replacement.
+func TestCoordinator_SlowWriteDoesNotBlockOtherAdds(t *testing.T) {
+	t.Parallel()
+	var c facade.Coordinator
+	st := &fakeStaging{}
+
+	slowStarted := make(chan struct{})
+	slowRelease := make(chan struct{})
+	slowDone := make(chan error, 1)
+	fastDone := make(chan error, 1)
+
+	loader := &hookLoader{values: []string{"src"}, count: -1, hookAt: 0, hook: func() {
+		go func() {
+			slowDone <- c.Add(t.Context(), "slow", func() error {
+				close(slowStarted)
+				<-slowRelease
+				return nil
+			})
+		}()
+		<-slowStarted
+		go func() { fastDone <- c.Add(t.Context(), "fast", func() error { return nil }) }()
+
+		select {
+		case err := <-fastDone:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			close(slowRelease)
+			require.Fail(t, "an add waited for another add's live write")
+			return
+		}
+		close(slowRelease)
+		require.NoError(t, <-slowDone)
+	}}
+
+	require.NoError(t, c.Rebuild(t.Context(), loader, stageWith(st)))
+	require.ElementsMatch(t, []string{"src", "slow", "fast"}, st.snapshot())
+}
+
+// TestCoordinator_JournalCoversEveryLiveWrite checks that, during a rebuild,
+// every value the live filter received is replayed, whatever the interleaving.
+func TestCoordinator_JournalCoversEveryLiveWrite(t *testing.T) {
 	t.Parallel()
 	var c facade.Coordinator
 	st := &fakeStaging{}
 
 	var liveMu sync.Mutex
-	var liveOrder []string
+	var live []string
 	write := func(v string) func() error {
 		return func() error {
-			// Yield inside the write to give racing writers a chance to
-			// interleave between the live write and the journal append.
 			time.Sleep(time.Microsecond)
 			liveMu.Lock()
-			liveOrder = append(liveOrder, v)
+			live = append(live, v)
 			liveMu.Unlock()
 			return nil
 		}
@@ -233,7 +271,7 @@ func TestCoordinator_JournalOrderMatchesWriteOrder(t *testing.T) {
 	require.NoError(t, c.Rebuild(t.Context(), loader, stageWith(st)))
 	got := st.snapshot()
 	require.Equal(t, "src", got[0])
-	require.Equal(t, liveOrder, got[1:], "replay order must equal live write order")
+	require.ElementsMatch(t, live, got[1:])
 }
 
 func TestCoordinator_FailedWritesAreStillJournaled(t *testing.T) {
@@ -440,4 +478,77 @@ func TestObserverSlot(t *testing.T) {
 	require.Nil(t, slot.Load())
 	slot.Added(5)
 	require.Equal(t, 2, o.adds, "a removed observer receives nothing")
+}
+
+// TestCoordinator_JournalOverflowFailsTheRebuild checks that a journal that
+// overflows is bounded and fails the rebuild without committing, whatever the
+// loader returns: a fixed snapshot that lacks the concurrent adds, and an
+// iterator that is consumed after the first pass.
+func TestCoordinator_JournalOverflowFailsTheRebuild(t *testing.T) {
+	t.Parallel()
+
+	snapshot := []string{"src"}
+	loaders := map[string]func(hook func()) probfilter.DataLoader{
+		"fixed snapshot": func(hook func()) probfilter.DataLoader {
+			return &hookLoader{values: snapshot, count: -1, hookAt: 0, hook: hook}
+		},
+		"consumed iterator": func(hook func()) probfilter.DataLoader {
+			return &onceLoader{values: snapshot, hook: hook}
+		},
+	}
+	for name, mk := range loaders {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var c facade.Coordinator
+			c.SetJournalLimit(4)
+
+			var stagings []*fakeStaging
+			stage := func(_ context.Context, _ int64) (facade.Staging, error) {
+				st := &fakeStaging{}
+				stagings = append(stagings, st)
+				return st, nil
+			}
+			flood := func() {
+				for _, v := range keys("flood", 10) {
+					require.NoError(t, c.Add(t.Context(), v, func() error { return nil }))
+				}
+			}
+
+			err := c.Rebuild(t.Context(), mk(flood), stage)
+			require.ErrorIs(t, err, probfilter.ErrRebuildJournalOverflow)
+			require.Len(t, stagings, 1, "the rebuild must not retry on a loader that cannot be trusted to repeat")
+			require.False(t, stagings[0].committed)
+			require.True(t, stagings[0].aborted)
+
+			// The overflow leaves no state behind: a quiet rebuild succeeds.
+			require.NoError(t, c.Rebuild(t.Context(), mk(func() {}), stage))
+		})
+	}
+}
+
+// onceLoader yields its values on the first pass only and runs hook after the
+// first value; later passes are empty, like a consumed cursor.
+type onceLoader struct {
+	values []string
+	hook   func()
+	used   bool
+}
+
+func (l *onceLoader) Count(context.Context) (int64, error) { return -1, nil }
+
+func (l *onceLoader) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		if l.used {
+			return
+		}
+		l.used = true
+		for i, v := range l.values {
+			if !yield(v, nil) {
+				return
+			}
+			if i == 0 {
+				l.hook()
+			}
+		}
+	}
 }

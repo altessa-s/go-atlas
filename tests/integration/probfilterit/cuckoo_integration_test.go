@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter/cuckoo"
 
 	cuckooredis "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages/redis"
 )
@@ -177,11 +178,9 @@ func TestCuckoo_RebuildReplacesContents(t *testing.T) {
 	}
 }
 
-// TestCuckoo_InsertsDuringRebuild pins which concurrent inserts a Cuckoo
-// rebuild keeps. Inserts through the rebuilding instance are journaled in
-// process and replayed. Inserts by another process are not journaled in
-// Redis — replaying one twice would store a duplicate fingerprint — so the
-// commit drops them, as cuckoo.Filter.Rebuild documents.
+// TestCuckoo_InsertsDuringRebuild pins that a Cuckoo rebuild keeps every
+// insert made while it ran, by the rebuilding instance and by another one:
+// every process journals its inserts in Redis while a rebuild lease exists.
 func TestCuckoo_InsertsDuringRebuild(t *testing.T) {
 	t.Parallel()
 
@@ -199,9 +198,112 @@ func TestCuckoo_InsertsDuringRebuild(t *testing.T) {
 
 	require.NoError(t, awaitRebuild(t, loader, done))
 	requirePresent(t, b, loader.vals...)
-	requirePresent(t, b, "own-insert")
-	requireAbsent(t, b, "peer-insert")
+	requirePresent(t, b, "own-insert", "peer-insert")
+	requireDeletedOnce(t, b, "own-insert")
+	requireDeletedOnce(t, b, "peer-insert")
 	fx.requireNoRebuildLeftovers(t)
+}
+
+// requireDeletedOnce asserts that value is stored exactly once: one delete
+// removes it, so it is absent afterwards.
+func requireDeletedOnce(tb testing.TB, f *cuckoo.Filter, value string) {
+	tb.Helper()
+	deleted, err := f.Delete(tb.Context(), value)
+	require.NoError(tb, err)
+	require.True(tb, deleted)
+	requireAbsent(tb, f, value)
+}
+
+// TestCuckoo_PeerInsertDuringRebuildIsStoredOnce interleaves a peer's insert
+// with a rebuild at the moments the journal must cover: after the lease but
+// before the staging filter exists, while it is populated, and after the lease
+// was taken over by another rebuild. The insert must survive the commit with
+// one fingerprint.
+func TestCuckoo_PeerInsertDuringRebuildIsStoredOnce(t *testing.T) {
+	t.Parallel()
+
+	t.Run("before staging exists", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t)
+		a := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+		b := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+
+		// Uncounted: the snapshot is collected before the staging filter is created.
+		loader := newGatedLoader(values("snapshot", 50), false)
+		done := rebuildInBackground(t, a, loader)
+		require.Empty(t, fx.keys(t, fx.metaKey("staging")+"*"), "the staging filter must not exist yet")
+		require.NoError(t, b.Add(t.Context(), "x"))
+
+		require.NoError(t, awaitRebuild(t, loader, done))
+		requirePresent(t, b, "x")
+		requireDeletedOnce(t, b, "x")
+	})
+
+	t.Run("during staging", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t)
+		a := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+		b := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+
+		loader := newGatedLoader(values("snapshot", 50), true)
+		done := rebuildInBackground(t, a, loader)
+		require.NotEmpty(t, fx.keys(t, fx.metaKey("staging")+"*"), "the staging filter must exist")
+		require.NoError(t, b.Add(t.Context(), "x"))
+
+		require.NoError(t, awaitRebuild(t, loader, done))
+		requirePresent(t, b, "x")
+		requireDeletedOnce(t, b, "x")
+	})
+
+	t.Run("after lease takeover", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t)
+		a := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+		b := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+		c := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+		ctx := t.Context()
+
+		// "early" is added under A's lease. C's BeginRebuild drops A's journal,
+		// so "early" survives only because the successor's snapshot (the
+		// source of truth) holds it, and then it is stored exactly once.
+		// "x" is added under C's lease and survives through C's journal.
+		stale := newGatedLoader(values("stale", 50), true)
+		staleDone := rebuildInBackground(t, a, stale)
+		require.NoError(t, b.Add(ctx, "early"))
+		require.NoError(t, fx.admin.Del(ctx, fx.metaKey("rebuild-lease")).Err())
+
+		successor := newGatedLoader(append(values("successor", 50), "early"), true)
+		successorDone := rebuildInBackground(t, c, successor)
+		require.NoError(t, b.Add(ctx, "x"))
+
+		require.NoError(t, awaitRebuild(t, successor, successorDone))
+		require.ErrorIs(t, awaitRebuild(t, stale, staleDone), probfilter.ErrRebuildSuperseded)
+		requirePresent(t, b, "x", "early")
+		requireDeletedOnce(t, b, "x")
+		requireDeletedOnce(t, b, "early")
+	})
+}
+
+// TestCuckoo_LostFilterFailsClosed deletes the published filter key behind a
+// process that has seen it: lookups fail with ErrFilterLost instead of
+// answering absent, unless the storage opted into the insecure mode.
+func TestCuckoo_LostFilterFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	fx := newFixture(t)
+	strict := fx.cuckoo(t, cuckooredis.WithCapacity(1000))
+	lenient := fx.cuckoo(t, cuckooredis.WithCapacity(1000), cuckooredis.WithInsecureTreatMissingAsEmpty())
+	ctx := t.Context()
+
+	require.NoError(t, strict.Rebuild(ctx, openLoader([]string{"a"}, true)))
+	requirePresent(t, strict, "a")
+	requirePresent(t, lenient, "a")
+
+	require.NoError(t, fx.admin.Del(ctx, fx.liveKey()).Err())
+
+	_, err := strict.MightExist(ctx, "a")
+	require.ErrorIs(t, err, probfilter.ErrFilterLost)
+	requireAbsent(t, lenient, "a")
 }
 
 // TestCuckoo_SupersededRebuildDoesNotPublish expires a rebuild's lease while

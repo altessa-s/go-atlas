@@ -127,10 +127,11 @@ func (f *Filter) Close(ctx context.Context) error {
 // in one step. A failed or canceled rebuild — including a replacement that
 // runs full — leaves the previous contents and [Filter.LastRebuild] unchanged.
 // Values added through this filter while the rebuild runs are journaled and
-// replayed onto the replacement; deletes are not (see [Filter.Delete]). While
-// a rebuild runs, adds are serialized. Writes made to a shared Redis filter by
-// other processes during the rebuild are lost when the replacement is
-// committed.
+// replayed onto the replacement; deletes are not (see [Filter.Delete]). A
+// shared Redis filter journals, in Redis, the adds of every process made under
+// the rebuild lease, and the commit replays them once, so they survive too.
+// A rebuild whose in-process journal overflows fails with
+// [probfilter.ErrRebuildJournalOverflow] and leaves the previous contents.
 //
 // A Redis commit whose outcome cannot be established returns an error wrapping
 // [probfilter.ErrCommitIndeterminate] and, if the replacement cannot be

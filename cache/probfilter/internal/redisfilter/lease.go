@@ -29,28 +29,37 @@ const leaseRenewDivisor = 3
 // lease with it, or returns -1 when another rebuild holds the lease. It drops
 // the journal a crashed or superseded rebuild may have left, so the new
 // rebuild journals only inserts made under its own lease.
-// KEYS[1] ticket sequence; KEYS[2] lease; KEYS[3] journal; ARGV[1] lease TTL ms.
+// It also records the ticket as the journal generation, which expires after
+// the lease plus a grace period unless the holder keeps renewing.
+// KEYS[1] ticket sequence; KEYS[2] lease; KEYS[3] journal; KEYS[4] journal
+// generation; ARGV[1] lease TTL ms; ARGV[2] journal grace ms.
 var acquireLeaseScript = redis.NewScript(`
 if redis.call('EXISTS', KEYS[2]) == 1 then return -1 end
 local ticket = redis.call('INCR', KEYS[1])
 redis.call('SET', KEYS[2], ticket, 'PX', ARGV[1])
 redis.call('DEL', KEYS[3])
+redis.call('SET', KEYS[4], ticket, 'PX', tonumber(ARGV[1]) + tonumber(ARGV[2]))
 return ticket
 `)
 
-// renewLeaseScript extends the lease while it still holds ARGV[1].
-// KEYS[1] lease; ARGV[1] ticket; ARGV[2] lease TTL ms.
+// renewLeaseScript extends the lease, and the journal and its generation, while
+// the lease still holds ARGV[1].
+// KEYS[1] lease; KEYS[2] journal; KEYS[3] journal generation; ARGV[1] ticket;
+// ARGV[2] lease TTL ms; ARGV[3] journal grace ms.
 var renewLeaseScript = redis.NewScript(`
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+local ttl = tonumber(ARGV[2]) + tonumber(ARGV[3])
+redis.call('PEXPIRE', KEYS[2], ttl)
+redis.call('PEXPIRE', KEYS[3], ttl)
 return redis.call('PEXPIRE', KEYS[1], ARGV[2])
 `)
 
-// releaseLeaseScript deletes the lease, and the journal no rebuild needs any
-// more, while the lease still holds ARGV[1].
-// KEYS[1] lease; KEYS[2] journal; ARGV[1] ticket.
+// releaseLeaseScript deletes the lease, and the journal and its generation no
+// rebuild needs any more, while the lease still holds ARGV[1].
+// KEYS[1] lease; KEYS[2] journal; KEYS[3] journal generation; ARGV[1] ticket.
 var releaseLeaseScript = redis.NewScript(`
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-redis.call('DEL', KEYS[2])
+redis.call('DEL', KEYS[2], KEYS[3])
 return redis.call('DEL', KEYS[1])
 `)
 
@@ -75,7 +84,8 @@ func (c *Core) BeginRebuild(ctx context.Context) (*Lease, error) {
 	if c.keyErr != nil {
 		return nil, c.keyErr
 	}
-	ticket, err := acquireLeaseScript.Run(ctx, c.client, []string{c.seqKey, c.leaseKey, c.journalKey}, c.leaseTTL.Milliseconds()).Int64()
+	ticket, err := acquireLeaseScript.Run(ctx, c.client, []string{c.seqKey, c.leaseKey, c.journalKey, c.journalGenKey},
+		c.leaseTTL.Milliseconds(), journalGrace.Milliseconds()).Int64()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "acquire Redis "+c.cmds.Label+" filter rebuild lease")
 	}
@@ -103,8 +113,8 @@ func (l *Lease) renew(base context.Context) {
 			return
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(base, interval)
-			_ = renewLeaseScript.Run(ctx, l.core.client, []string{l.core.leaseKey},
-				strconv.FormatInt(l.ticket, 10), l.core.leaseTTL.Milliseconds()).Err()
+			_ = renewLeaseScript.Run(ctx, l.core.client, []string{l.core.leaseKey, l.core.journalKey, l.core.journalGenKey},
+				strconv.FormatInt(l.ticket, 10), l.core.leaseTTL.Milliseconds(), journalGrace.Milliseconds()).Err()
 			cancel()
 		}
 	}
@@ -125,7 +135,8 @@ func (l *Lease) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error)
 func (l *Lease) Release(ctx context.Context) error {
 	l.stopOnce.Do(func() { close(l.stop) })
 	<-l.stopped
-	err := releaseLeaseScript.Run(ctx, l.core.client, []string{l.core.leaseKey, l.core.journalKey}, strconv.FormatInt(l.ticket, 10)).Err()
+	keys := []string{l.core.leaseKey, l.core.journalKey, l.core.journalGenKey}
+	err := releaseLeaseScript.Run(ctx, l.core.client, keys, strconv.FormatInt(l.ticket, 10)).Err()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "release Redis "+l.core.cmds.Label+" filter rebuild lease")
 	}

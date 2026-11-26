@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages"
+	"github.com/altessa-s/go-atlas/cache/probfilter/internal/facade"
 	"github.com/altessa-s/go-atlas/cache/probfilter/internal/redisfilter"
 	"github.com/altessa-s/go-atlas/cache/probfilter/stats"
 	"github.com/altessa-s/go-atlas/internal/redis/redisbase"
@@ -38,6 +39,7 @@ var (
 	_ storages.Storage               = (*Storage)(nil)
 	_ storages.ExclusiveRebuilder    = (*Storage)(nil)
 	_ storages.RebuildCommitReporter = (*Storage)(nil)
+	_ facade.DistributedJournaler    = (*Storage)(nil)
 
 	_ storages.RebuildCommitTimeReporter = (*Storage)(nil)
 	_ storages.RebuildLoadReporter       = (*Storage)(nil)
@@ -69,9 +71,22 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 		FalseRejects: true,
 		Reserve:      "CF.RESERVE",
 		Info:         "CF.INFO",
+		// Every process sharing the filter journals its inserts in Redis
+		// while a rebuild lease exists, and the rebuild replays the journal
+		// once onto its replacement (see [Storage.DistributedJournal]).
+		JournalAdds: true,
 	}, s.reserveArgs(opts.capacity)...)
+	if opts.insecureTreatMissingAsEmpty {
+		s.core.TreatMissingAsEmpty()
+	}
 	return s
 }
+
+// DistributedJournal reports true: inserts are journaled in Redis for every
+// process sharing the filter, so the facade does not journal them again. A
+// second local journal would replay an add twice onto the replacement, and a
+// Cuckoo filter counts every copy of a fingerprint.
+func (s *Storage) DistributedJournal() bool { return true }
 
 // reserveArgs returns the CF.RESERVE arguments for a filter of capacity.
 func (s *Storage) reserveArgs(capacity int64) []any {

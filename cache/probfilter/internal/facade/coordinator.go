@@ -47,6 +47,10 @@ type StageFunc func(ctx context.Context, expectedItems int64) (Staging, error)
 // of the rebuild and a release function run when the rebuild ends.
 type BeginFunc func(ctx context.Context) (stage StageFunc, release func(context.Context) error, err error)
 
+// DefaultJournalLimit is the default number of adds a rebuild journals before
+// the journal overflows and the rebuild fails.
+const DefaultJournalLimit = 1 << 20
+
 // Coordinator makes a filter rebuild atomic with respect to concurrent adds.
 // Adds routed through [Coordinator.Add] and [Coordinator.AddBatch] while a
 // rebuild runs are journaled and replayed onto the replacement filter before
@@ -82,11 +86,20 @@ type Coordinator struct {
 	// exclusive gate, read under the shared gate.
 	active bool
 
-	// journalMu guards journal. While a rebuild is active an add holds it
-	// across the live write and the journal append, so the journal order is
-	// the order in which the live filter saw the adds.
+	// journalMu guards journal, dirty and journalLimit. An add holds it only
+	// to append to the journal, never across the live write: the journal is
+	// replayed as a set, so its order does not matter, and a slow write must
+	// not hold up other adds.
 	journalMu sync.Mutex
 	journal   []string
+	// dirty reports that the journal overflowed and dropped values; the
+	// rebuild fails instead of committing an incomplete replacement.
+	dirty bool
+	// journalLimit bounds len(journal); zero means [DefaultJournalLimit].
+	journalLimit int
+	// localJournalOff leaves journaling to the store; see
+	// [DistributedJournaler].
+	localJournalOff bool
 
 	// unresolved is a replacement whose commit outcome is unknown and whose
 	// abort failed: a delayed promotion of it could still replace the live
@@ -109,9 +122,45 @@ func (c *Coordinator) LastLoaded() (loaded int64, known bool) {
 	return max(n-1, 0), n > 0
 }
 
-// Add performs the live write of value. While a rebuild runs, value is also
-// journaled — even when the live write fails, which keeps the rebuilt filter
-// a superset of everything the live filter may hold.
+// SetJournalLimit bounds the number of adds journaled during one rebuild
+// attempt; n <= 0 restores [DefaultJournalLimit]. Call it before the first
+// rebuild.
+func (c *Coordinator) SetJournalLimit(n int) {
+	c.journalMu.Lock()
+	defer c.journalMu.Unlock()
+	c.journalLimit = max(n, 0)
+}
+
+// disableLocalJournal makes adds skip the local journal because the store
+// journals them. Call it before the first rebuild.
+func (c *Coordinator) disableLocalJournal() {
+	c.journalMu.Lock()
+	defer c.journalMu.Unlock()
+	c.localJournalOff = true
+}
+
+// record journals value, or marks the journal overflowed when it is full.
+func (c *Coordinator) record(value string) {
+	c.journalMu.Lock()
+	defer c.journalMu.Unlock()
+	if c.dirty || c.localJournalOff {
+		return
+	}
+	limit := c.journalLimit
+	if limit == 0 {
+		limit = DefaultJournalLimit
+	}
+	if len(c.journal) >= limit {
+		c.dirty = true
+		c.journal = nil
+		return
+	}
+	c.journal = append(c.journal, value)
+}
+
+// Add performs the live write of value. While a rebuild runs, value is
+// journaled before the write — even when the write fails, which keeps the
+// rebuilt filter a superset of everything the live filter may hold.
 func (c *Coordinator) Add(ctx context.Context, value string, write func() error) error {
 	if err := c.admit(ctx); err != nil {
 		return err
@@ -122,9 +171,7 @@ func (c *Coordinator) Add(ctx context.Context, value string, write func() error)
 		return write()
 	}
 
-	c.journalMu.Lock()
-	defer c.journalMu.Unlock()
-	c.journal = append(c.journal, value)
+	c.record(value)
 	return write()
 }
 
@@ -141,11 +188,9 @@ func (c *Coordinator) AddBatch(ctx context.Context, values iter.Seq[string], wri
 		return write(values)
 	}
 
-	c.journalMu.Lock()
-	defer c.journalMu.Unlock()
 	return write(func(yield func(string) bool) {
 		for v := range values {
-			c.journal = append(c.journal, v)
+			c.record(v)
 			if !yield(v) {
 				return
 			}
@@ -354,44 +399,69 @@ func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader,
 	if recorder, ok := st.(LoadRecorder); ok {
 		recorder.SetLoaded(loaded)
 	}
-	if err := ctx.Err(); err != nil {
-		return abort(ctx, st, coreerrs.WrapOperation(err, "load values during rebuild"))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return abort(ctx, st, coreerrs.WrapOperation(ctxErr, "load values during rebuild"))
 	}
 
+	done, err := c.settle(ctx, st, loaded)
+	if err != nil {
+		return err
+	}
+	if !done {
+		// The journal overflowed, so the replacement may miss adds
+		// acknowledged during the load. A loader is not required to return
+		// them (it may be a fixed snapshot or a consumed iterator), so the
+		// rebuild fails and the live filter stays as it is.
+		return coreerrs.WrapOperation(probfilter.ErrRebuildJournalOverflow, "rebuild filter")
+	}
+	committed = true
+	return nil
+}
+
+// settle replays the journal onto st and commits it. It reports done=false
+// with a nil error when the journal overflowed: st is discarded. The caller holds rebuildMu.
+func (c *Coordinator) settle(ctx context.Context, st Staging, loaded int64) (done bool, err error) {
 	// Replay what accumulated during the load without blocking writers, so
 	// the exclusive section below only replays the short tail.
-	if err := replay(ctx, st, c.drain()); err != nil {
-		return abort(ctx, st, err)
+	values, dirty := c.drain()
+	if dirty {
+		return false, abort(ctx, st, nil)
+	}
+	if err := replay(ctx, st, values); err != nil {
+		return false, abort(ctx, st, err)
 	}
 
 	c.gate.Lock()
 	defer c.gate.Unlock()
 
-	if err := replay(ctx, st, c.drain()); err != nil {
-		return abort(ctx, st, err)
+	values, dirty = c.drain()
+	if dirty {
+		return false, abort(ctx, st, nil)
+	}
+	if err := replay(ctx, st, values); err != nil {
+		return false, abort(ctx, st, err)
 	}
 	if err := ctx.Err(); err != nil {
-		return abort(ctx, st, coreerrs.WrapOperation(err, "commit rebuilt filter"))
+		return false, abort(ctx, st, coreerrs.WrapOperation(err, "commit rebuilt filter"))
 	}
 	if err := st.Commit(ctx); err != nil {
 		err = coreerrs.WrapOperation(err, "commit rebuilt filter")
 		if !errors.Is(err, probfilter.ErrCommitIndeterminate) {
-			return abort(ctx, st, err)
+			return false, abort(ctx, st, err)
 		}
 		// The commit may still be promoted later; discarding the replacement
 		// makes that harmless. If even that fails, fence the filter.
 		if abortErr := st.Abort(context.WithoutCancel(ctx)); abortErr != nil {
 			c.unresolved = st
 			c.fenced.Store(true)
-			return errors.Join(err, coreerrs.WrapOperation(abortErr, "abort rebuilt filter"))
+			return false, errors.Join(err, coreerrs.WrapOperation(abortErr, "abort rebuilt filter"))
 		}
-		return err
+		return false, err
 	}
 
 	c.active = false
-	committed = true
 	c.lastLoaded.Store(loaded + 1)
-	return nil
+	return true, nil
 }
 
 // load creates the replacement filter and streams loader into it, returning
@@ -455,16 +525,18 @@ func (c *Coordinator) setActive(active bool) {
 	c.active = active
 	c.journalMu.Lock()
 	c.journal = nil
+	c.dirty = false
 	c.journalMu.Unlock()
 }
 
-// drain takes the journal accumulated so far.
-func (c *Coordinator) drain() []string {
+// drain takes the journal accumulated so far. dirty reports that it overflowed
+// since the last drain or reset and values is incomplete.
+func (c *Coordinator) drain() (values []string, dirty bool) {
 	c.journalMu.Lock()
 	defer c.journalMu.Unlock()
-	values := c.journal
-	c.journal = nil
-	return values
+	values, dirty = c.journal, c.dirty
+	c.journal, c.dirty = nil, false
+	return values, dirty
 }
 
 // replay adds journaled values to st in journal order.

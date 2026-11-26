@@ -16,6 +16,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -56,9 +58,9 @@ type Commands struct {
 	FalseRejects bool
 	// JournalAdds makes inserts into the live filter journal their values
 	// while a rebuild lease exists, so a rebuild replays inserts made by any
-	// process sharing the filter onto its replacement before it commits. Use
-	// it only when replaying an insert twice is harmless (Bloom); a Cuckoo
-	// filter would store a duplicate fingerprint.
+	// process sharing the filter onto its replacement before it commits. A
+	// filter that counts duplicates (Cuckoo) must also keep its facade from
+	// journaling the same adds again, or each would be replayed twice.
 	JournalAdds bool
 	// Reserve is the filter-creation command, e.g. "BF.RESERVE".
 	Reserve string
@@ -107,11 +109,24 @@ type Core struct {
 	// for a staging filter. See journaledInsertScript.
 	journalKey  string
 	journalAdds bool
+	// journalGenKey holds the ticket of the lease generation the journal
+	// belongs to. It and the journal expire shortly after the lease, so a
+	// crashed rebuild leaves nothing behind, and a live rebuild that finds the
+	// key gone fails closed instead of committing without its journal.
+	journalGenKey string
 	// leaseTTL is LeaseTTL; a field so tests can shorten it.
 	leaseTTL            time.Duration
 	stagingDeadlinesKey string
 	// keyErr is ErrReservedKey for a filter key in the reserved namespace.
 	keyErr error
+	// seenKey records that this process saw the live filter key exist, and
+	// seenReady that it saw the ready marker (or committed a rebuild itself).
+	// A lookup that then finds either gone reports [probfilter.ErrFilterLost].
+	seenKey   atomic.Bool
+	seenReady atomic.Bool
+	// missingAsEmpty answers lookups of a vanished filter with false instead
+	// of [probfilter.ErrFilterLost]; see [Core.TreatMissingAsEmpty].
+	missingAsEmpty bool
 
 	opExists string
 	opAdd    string
@@ -162,6 +177,7 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		leaseKey:            metaKey(filterKey, "rebuild-lease", ""),
 		committedKey:        metaKey(filterKey, "rebuild-committed", ""),
 		journalKey:          metaKey(filterKey, "rebuild-journal", ""),
+		journalGenKey:       metaKey(filterKey, "rebuild-journal-gen", ""),
 		leaseTTL:            LeaseTTL,
 		opExists:            "check existence in Redis " + cmds.Label + " filter",
 		opAdd:               "add to Redis " + cmds.Label + " filter",
@@ -172,12 +188,75 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 	}
 }
 
-// MightExist checks if a value might exist in the filter.
+// TreatMissingAsEmpty makes a lookup of a filter that vanished after this
+// process saw it answer false, like a filter that was never created, instead
+// of failing with [probfilter.ErrFilterLost]. Every lookup then answers false
+// until the filter is rebuilt, which is why the storages name the option
+// insecure. Call it before the first use.
+func (c *Core) TreatMissingAsEmpty() {
+	c.missingAsEmpty = true
+}
+
+// MightExist checks if a value might exist in the filter. A false answer for
+// a filter this process has seen but that is gone now (or whose rebuilt
+// contents were replaced by an empty filter) is [probfilter.ErrFilterLost],
+// unless [Core.TreatMissingAsEmpty] was called.
 func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 	if c.keyErr != nil {
 		return false, c.keyErr
 	}
-	reply, err := c.client.Do(ctx, c.cmds.Exists, c.filterKey, value).Result()
+	if c.missingAsEmpty {
+		return c.mightExist(ctx, value)
+	}
+
+	// One script, so the answer and the existence checks describe the same
+	// state of the filter.
+	reply, err := mightExistScript.Run(ctx, c.client, []string{c.filterKey, c.readyKey}, c.cmds.Exists, value).Slice()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, c.opExists)
+	}
+	if len(reply) != mightExistReplyLen {
+		return false, coreerrs.WrapOperation(fmt.Errorf("unexpected reply %v", reply), c.opExists)
+	}
+	exists, err := ToBool(reply[0])
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, c.opExists)
+	}
+	keyThere, _ := reply[1].(int64)
+	readyThere, _ := reply[2].(int64)
+	if keyThere == 1 {
+		c.seenKey.Store(true)
+	}
+	if readyThere == 1 {
+		c.seenReady.Store(true)
+	}
+	if exists {
+		return true, nil
+	}
+	if c.seenKey.Load() && keyThere == 0 || c.seenReady.Load() && readyThere == 0 {
+		return false, coreerrs.WrapOperation(probfilter.ErrFilterLost, c.opExists)
+	}
+	return false, nil
+}
+
+// mightExistReplyLen is the reply length of mightExistScript.
+const mightExistReplyLen = 3
+
+// mightExistScript runs the membership command and reports, in the same atomic
+// step, whether the filter key and the ready marker exist.
+// KEYS[1] filter key; KEYS[2] ready marker; ARGV[1] exists command; ARGV[2] value.
+var mightExistScript = redis.NewScript(`
+local r = redis.call(ARGV[1], KEYS[1], ARGV[2])
+return {r, redis.call('EXISTS', KEYS[1]), redis.call('EXISTS', KEYS[2])}
+`)
+
+// mightExist runs the exists command alone.
+func (c *Core) mightExist(ctx context.Context, value string) (bool, error) {
+	return c.boolReply(c.client.Do(ctx, c.cmds.Exists, c.filterKey, value).Result())
+}
+
+// boolReply converts the reply of the exists command.
+func (c *Core) boolReply(reply any, err error) (bool, error) {
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, c.opExists)
 	}
@@ -266,6 +345,7 @@ func (c *Core) insert(ctx context.Context, args []any, values int, op string) er
 	if err := checkBatchReply(reply, c.cmds.FalseRejects); err != nil {
 		return coreerrs.WrapOperation(err, op)
 	}
+	c.seenKey.Store(true)
 	return nil
 }
 
@@ -369,6 +449,9 @@ func (c *Core) RebuildCommitted(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "check Redis "+c.cmds.Label+" filter rebuild state")
 	}
+	if n == 1 {
+		c.markPublished()
+	}
 	return n == 1, nil
 }
 
@@ -418,6 +501,9 @@ func (c *Core) readyMarker(ctx context.Context) (committed time.Time, loaded int
 	committed, loaded, err = parseReadyMarker(value)
 	if err != nil {
 		return time.Time{}, -1, coreerrs.WrapOperation(err, op)
+	}
+	if !committed.IsZero() {
+		c.markPublished()
 	}
 	return committed, loaded, nil
 }
@@ -482,6 +568,7 @@ func (c *Core) RebuildCommitAge(ctx context.Context) (age time.Duration, committ
 	if committed.IsZero() {
 		return 0, time.Time{}, false, nil
 	}
+	c.markPublished()
 	now, err := parseTime(reply[1], reply[2])
 	if err != nil {
 		return 0, time.Time{}, false, coreerrs.WrapOperation(err, op)

@@ -10,11 +10,12 @@ service instances. Requires the [RedisBloom](https://redis.io/docs/latest/develo
 
 ## Options
 
-| Option          | Default     | Description                                                            |
-|-----------------|-------------|------------------------------------------------------------------------|
-| `WithCapacity`  | `100000`    | Initial capacity reserved with `CF.RESERVE`                            |
-| `WithKeyPrefix` | `"cuckoo:"` | Redis key prefix for the filter                                        |
-| `WithExpansion` | `0`         | RedisBloom `EXPANSION` growth factor; `0` keeps the RedisBloom default |
+| Option                            | Default     | Description                                                                          |
+|-----------------------------------|-------------|--------------------------------------------------------------------------------------|
+| `WithCapacity`                    | `100000`    | Initial capacity reserved with `CF.RESERVE`                                          |
+| `WithKeyPrefix`                   | `"cuckoo:"` | Redis key prefix for the filter                                                      |
+| `WithExpansion`                   | `0`         | RedisBloom `EXPANSION` growth factor; `0` keeps the RedisBloom default               |
+| `WithInsecureTreatMissingAsEmpty` | off         | A vanished filter answers "absent" instead of failing with `probfilter.ErrFilterLost` |
 
 `Stage` reserves the replacement filter of a rebuild under a private staging key in the live key's cluster hash slot; `Commit` renames it onto the
 live

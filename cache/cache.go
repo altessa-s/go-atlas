@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/cache/storages/noop"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // NoTTL is the TTL value indicating that a cache item will not expire.
@@ -208,6 +209,13 @@ func (c *Cache) effectiveKeys(ctx context.Context, keys []string) ([]string, err
 // A context marked by [WithFreshReads] skips the cache: the fallback runs
 // directly in the caller and nothing is stored.
 //
+// The fallback result is assigned to the destination as is when its type is
+// assignable to the destination's element type, so a pointer destination
+// receives a pointer result and an interface destination receives the result
+// itself. A pointer result is dereferenced only when the destination is the
+// pointed-to type. Any other combination returns an error wrapping
+// [coreerrs.ErrInvalidArgument].
+//
 // Example:
 //
 //	var user User
@@ -230,8 +238,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		if err != nil {
 			return err
 		}
-		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
-		return nil
+		return assignResult(dst, fv)
 	}
 
 	// Namespace the key for both the backend and singleflight so concurrent
@@ -243,8 +250,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		if fErr != nil {
 			return fErr
 		}
-		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
-		return nil
+		return assignResult(dst, fv)
 	}
 
 	data, found, err := c.lookupRaw(ctx, ek)
@@ -270,8 +276,26 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		dst.SetZero()
 		return c.deserialize(ld.data, value)
 	}
-	dst.Set(reflect.Indirect(reflect.ValueOf(ld.value)))
+	return assignResult(dst, ld.value)
+}
 
+// assignResult stores a fallback result in dst. A result assignable to dst is
+// set as is, so a pointer destination receives a pointer result. A pointer
+// result is dereferenced only when dst is the pointed-to type. Anything else is
+// [coreerrs.ErrInvalidArgument].
+func assignResult(dst reflect.Value, result any) error {
+	v := reflect.ValueOf(result)
+	switch {
+	case !v.IsValid():
+		return fmt.Errorf("cache: %w: nil fallback result for destination %s", coreerrs.ErrInvalidArgument, dst.Type())
+	case v.Type().AssignableTo(dst.Type()):
+		dst.Set(v)
+	case v.Kind() == reflect.Pointer && !v.IsNil() && v.Elem().Type().AssignableTo(dst.Type()):
+		dst.Set(v.Elem())
+	default:
+		return fmt.Errorf("cache: %w: fallback result %T is not assignable to destination %s",
+			coreerrs.ErrInvalidArgument, result, dst.Type())
+	}
 	return nil
 }
 
@@ -469,7 +493,11 @@ type loaded struct {
 // rejected with [ErrOverloaded] runs the fallback directly in the caller,
 // without sharing it.
 func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
-	v, err := c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
+	// The guard outlives the flight and its waiters, so the epoch in the
+	// flight key cannot reset while the flight is still joinable.
+	guard := c.loads.begin(ek)
+	defer c.loads.end(ek, guard)
+	v, err := c.group.Do(ctx, c.loads.flightKey(ek, guard), func(sharedCtx context.Context) (any, error) {
 		return c.loadAndStore(sharedCtx, ek, fallback)
 	})
 	if !c.failOpen || !errors.Is(err, ErrOverloaded) {
@@ -495,6 +523,7 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
 	guard := c.loads.begin(ek)
 	defer c.loads.end(ek, guard)
+	epoch := c.loads.epochOf(guard)
 
 	stop := c.metrics.fallbackDuration.Start()
 	val, ttl, fErr := fallback(ctx)
@@ -507,7 +536,7 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		// skipped the negative write and every subsequent miss
 		// re-ran the fallback.
 		if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
-			if sErr := c.storeLoaded(ctx, guard, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+			if sErr := c.storeLoaded(ctx, guard, epoch, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 				c.metrics.errors.Inc()
 			}
 		}
@@ -516,7 +545,7 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 
 	if isNilValue(val) {
 		if c.negativeTtl > 0 {
-			if sErr := c.storeLoaded(ctx, guard, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+			if sErr := c.storeLoaded(ctx, guard, epoch, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 				c.metrics.errors.Inc()
 			}
 		}
@@ -533,7 +562,14 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		cacheTtl = ttl
 	}
 
-	if fErr = c.storeLoaded(ctx, guard, ek, encodePayload(cacheData), cacheTtl); fErr != nil {
+	if fErr = c.storeLoaded(ctx, guard, epoch, ek, encodePayload(cacheData), cacheTtl); fErr != nil {
+		if errors.Is(fErr, storages.ErrEntryRejected) {
+			// The storage refuses this entry deterministically: retrying
+			// the write cannot succeed, so the loaded value is returned and
+			// the store is skipped, whatever the fail-open mode.
+			c.metrics.errors.Inc()
+			return &loaded{value: val, data: cacheData}, nil
+		}
 		if !c.failOpen {
 			return nil, fErr
 		}
@@ -547,15 +583,15 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 }
 
 // storeLoaded serializes fallback writes with explicit mutations of the key.
-func (c *Cache) storeLoaded(ctx context.Context, guard *loadGuard, ek string, data []byte, ttl time.Duration) error {
+func (c *Cache) storeLoaded(ctx context.Context, guard *loadGuard, epoch uint64, ek string, data []byte, ttl time.Duration) error {
 	ioCtx, cancel := c.ioContext(ctx)
 	defer cancel()
 	if err := guard.lock(ioCtx); err != nil {
 		return err
 	}
 	defer guard.unlock()
-	if guard.invalidated {
-		return nil
+	if c.loads.epochOf(guard) != epoch {
+		return nil // invalidated since this load began
 	}
 	return c.provider.Save(ioCtx, ek, data, ttl)
 }
@@ -617,11 +653,10 @@ func (c *Cache) saveExplicit(ctx context.Context, key string, data []byte, ttl t
 		return err
 	}
 	defer guard.unlock()
-	if err := c.provider.Save(ioCtx, key, data, ttl); err != nil {
-		return err
-	}
-	guard.invalidated = true
-	return nil
+	err := c.provider.Save(ioCtx, key, data, ttl)
+	// A failed write may have reached storage, as with a failed delete.
+	c.loads.advance(guard)
+	return err
 }
 
 // Exists checks if a key exists in the cache.

@@ -109,13 +109,13 @@ const stageRequestWindow = time.Minute
 // the rebuild loaded from its data source (see [Core.LastRebuildLoaded]).
 // KEYS[1] staging key; KEYS[2] live key; KEYS[3] marker key; KEYS[4]
 // generation key; KEYS[5] lease key; KEYS[6] committed-ticket key; KEYS[7]
-// ready marker; KEYS[8] journal; ARGV[1] marker TTL ms; ARGV[2] ticket ("0":
+// ready marker; KEYS[8] journal; KEYS[9] journal generation; ARGV[1] marker TTL ms; ARGV[2] ticket ("0":
 // no lease); ARGV[3] batch insert command replaying the journal onto the
 // staging filter before the rename ("" when the filter does not journal);
 // ARGV[4:#ARGV-1] its tokens; the last ARGV is the number of values loaded
 // from the data source ("" when unknown).
 // Returns 1 when promoted (now or by an earlier run), 0 when nothing exists to
-// promote, -1 when superseded.
+// promote, -1 when superseded, -2 when the journal generation is gone.
 var commitScript = redis.NewScript(replyCheckLua + commitScriptSource)
 
 const commitScriptSource = `
@@ -129,6 +129,7 @@ if ARGV[2] ~= '0' then
   redis.call('SET', KEYS[6], ARGV[2])
 end
 if ARGV[3] ~= '' then
+  if redis.call('GET', KEYS[9]) ~= ARGV[2] then return -2 end
   local n = redis.call('LLEN', KEYS[8])
   for i = 0, n - 1, 500 do
     local args = {ARGV[3], KEYS[1]}
@@ -138,7 +139,7 @@ if ARGV[3] ~= '' then
     local bad = checked(redis.call(unpack(args)), #items)
     if bad then return bad end
   end
-  redis.call('DEL', KEYS[8])
+  redis.call('DEL', KEYS[8], KEYS[9])
 end
 local gentype = redis.call('TYPE', KEYS[4]).ok
 if gentype ~= 'none' and gentype ~= 'string' then
@@ -253,7 +254,7 @@ func (s *Staging) Commit(ctx context.Context) error {
 	op := "promote Redis " + s.live.cmds.Label + " filter"
 	marker := s.markerKey()
 	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey, s.live.readyKey,
-		s.live.journalKey}
+		s.live.journalKey, s.live.journalGenKey}
 	argv := append([]any{commitMarkerTTL.Milliseconds(), strconv.FormatInt(s.ticket, 10)}, s.journalReplayArgs()...)
 	loaded := ""
 	if s.loaded >= 0 {
@@ -263,7 +264,12 @@ func (s *Staging) Commit(ctx context.Context) error {
 	n, err := s.commit.Run(ctx, s.core.client, keys, argv...).Int()
 	switch {
 	case err == nil && n == 1:
+		s.live.markPublished()
 		return nil
+	case err == nil && n == journalLost:
+		// Definite: nothing was renamed, and the lease holder cannot publish
+		// without its journal.
+		return coreerrs.WrapOperation(errors.Join(probfilter.ErrRebuildSuperseded, errJournalLost), op)
 	case err == nil && n < 0:
 		// Definite: the script renamed nothing, and the lease and committed
 		// ticket only move on, so no retry of this commit can promote later.
@@ -281,6 +287,7 @@ func (s *Staging) Commit(ctx context.Context) error {
 	// discard the staging key (making any late attempt harmless) or fence.
 	committed, checkErr := s.core.client.Exists(context.WithoutCancel(ctx), marker).Result()
 	if checkErr == nil && committed == 1 {
+		s.live.markPublished()
 		return nil
 	}
 	return coreerrs.WrapOperation(errors.Join(probfilter.ErrCommitIndeterminate, err), op)
@@ -294,4 +301,12 @@ func (s *Staging) Abort(ctx context.Context) error {
 // markerKey is the commit marker key of this staging filter.
 func (s *Staging) markerKey() string {
 	return metaKey(s.live.filterKey, "committed", s.id)
+}
+
+// markPublished records that this process published the live filter, so a
+// later lookup that finds it or its ready marker gone reports
+// [probfilter.ErrFilterLost].
+func (c *Core) markPublished() {
+	c.seenKey.Store(true)
+	c.seenReady.Store(true)
 }

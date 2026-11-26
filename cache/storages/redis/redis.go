@@ -54,7 +54,7 @@ func (p *Storage) CompareAndDelete(ctx context.Context, key string, expected []b
 	return deleted == 1, err
 }
 
-// DeleteMany removes multiple keys from Redis in a single transaction.
+// DeleteMany removes multiple keys from Redis in one pipeline of single-key commands.
 func (p *Storage) DeleteMany(ctx context.Context, keys ...string) error {
 	return p.Base.DeleteMany(ctx, keys...)
 }

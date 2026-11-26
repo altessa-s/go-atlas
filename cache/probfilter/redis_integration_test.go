@@ -589,7 +589,7 @@ func onlyKey(t *testing.T, client *goredis.Client, pattern string) string {
 
 // A rebuild whose lease was taken over must neither consume nor drop the
 // journal of its successor: the successor's commit still carries the value
-// added under its lease, and the journal carries no TTL.
+// added under its lease, and the journal expires with its lease generation.
 func TestRedisBloomJournal_TakeoverKeepsSuccessorJournal_Integration(t *testing.T) {
 	client, prefix := newRedisBloomIT(t, 3)
 	ctx := t.Context()
@@ -615,7 +615,7 @@ func TestRedisBloomJournal_TakeoverKeepsSuccessorJournal_Integration(t *testing.
 	journal := onlyKey(t, client, "*"+prefix+"*:rebuild-journal:*")
 	ttl, err := client.PTTL(ctx, journal).Result()
 	require.NoError(t, err)
-	require.Equal(t, time.Duration(-1), ttl, "the journal must not expire or be evictable under volatile-*")
+	require.Positive(t, ttl, "the journal expires with its lease generation, so a crashed rebuild leaves nothing behind")
 
 	require.ErrorIs(t, stA.Commit(ctx), probfilter.ErrRebuildSuperseded)
 	n, err := client.LLen(ctx, journal).Result()
@@ -774,7 +774,7 @@ func TestRedisBloomJournal_RejectedReplayFailsRebuild_Integration(t *testing.T) 
 	t.Run("commit_tail", func(t *testing.T) {
 		var writer *redisfilter.Core
 		// Values arrive after the drain, right before the commit script.
-		hook := beforeHook{keys: "8", marker: ":staging:", fn: func() {
+		hook := beforeHook{keys: "9", marker: ":staging:", fn: func() {
 			require.NoError(t, writer.AddBatch(context.WithoutCancel(t.Context()), slices.Values(values)))
 		}}
 		var st *redisfilter.Staging
@@ -791,7 +791,7 @@ func TestRedisBloomJournal_DrainIsBounded_Integration(t *testing.T) {
 	var writer *redisfilter.Core
 	var seq atomic.Int64
 	added := make(chan string, 1000)
-	hook := beforeHook{keys: "3", marker: ":rebuild-lease:", fn: func() {
+	hook := beforeHook{keys: "4", marker: ":rebuild-lease:", fn: func() {
 		v := fmt.Sprintf("late-%d", seq.Add(1))
 		require.NoError(t, writer.Add(context.WithoutCancel(t.Context()), v))
 		added <- v

@@ -10,9 +10,9 @@ individual items at the cost of slightly higher memory overhead.
 `Rebuild` repopulates the filter from a `DataLoader` atomically, like the Bloom filter: lookups see the previous contents until the replacement (sized
 for the loaded count plus 25% headroom, never below the configured capacity) replaces them; failure or cancellation leaves them unchanged (after
 `probfilter.ErrCommitIndeterminate` either the previous or the rebuilt contents are in place); adds made through the same `Filter` during the rebuild
-are replayed (adds by other processes sharing a Redis filter are lost on commit). Deletes made during a rebuild are **not** replayed — removing a
-fingerprint from a differently populated filter could remove another member — so a deleted value still present in the source reappears as a possible
-member (a false positive, never a false negative).
+are replayed (a Redis filter journals the adds of every process made under the rebuild lease and the commit replays them once). Deletes made during a
+rebuild are **not** replayed — removing a fingerprint from a differently populated filter could remove another member — so a deleted value still present
+in the source reappears as a possible member (a false positive, never a false negative).
 
 ## Key types
 

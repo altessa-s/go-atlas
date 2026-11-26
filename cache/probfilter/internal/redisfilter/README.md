@@ -37,14 +37,17 @@ error-wrapping, batching, and create-on-first-use behavior, parameterized by a `
 
 ## Rebuild journal
 
-With `Commands.JournalAdds` (Bloom only — a Cuckoo filter would store a duplicate fingerprint) inserts into the live filter run through a script that,
-while the rebuild lease exists, also appends the inserted values to a journal list in the reserved namespace. `BeginRebuild` drops a stale journal;
-before the commit the rebuild drains the journal into the staging filter, and the commit script replays the remaining tail onto it and deletes the
-journal before the rename, so inserts by any process sharing the filter survive the rebuild. `Release` drops the journal. Each drain step is one script
-fenced on the lease ticket — read a batch, insert it into the staging filter, then trim it — so a superseded rebuild never consumes its successor's
-journal and a retried drain never loses a batch; a staging filter created without a lease leaves the journal alone. The journal carries no TTL, so
-neither expiry nor a `volatile-*` eviction can drop acknowledged inserts. `CheckEvictionPolicy` reports an `allkeys-*` `maxmemory-policy` on any master
-(`probfilter.ErrUnsafeEvictionPolicy`); only CONFIG permission denial on a complete primary set leaves the policy unverified without an error.
+With `Commands.JournalAdds` (the Cuckoo storage declares `DistributedJournal`, so its facade keeps no second journal that would replay an add twice)
+inserts into the live filter run through a script that, while the rebuild lease exists, also appends the inserted values to a journal list in the
+reserved namespace. `BeginRebuild` drops a stale journal; before the commit the rebuild drains the journal into the staging filter, and the commit
+script replays the remaining tail onto it and deletes the journal before the rename, so inserts by any process sharing the filter survive the rebuild.
+`Release` drops the journal. Each drain step is one script fenced on the lease ticket — read a batch, insert it into the staging filter, then trim it —
+so a superseded rebuild never consumes its successor's journal and a retried drain never loses a batch; a staging filter created without a lease leaves
+the journal alone. The journal and its generation key expire a grace period after the lease, so a crashed rebuild leaves nothing behind, and a rebuild
+whose journal vanished (expiry or eviction) fails closed instead of committing without it. Only accepted items are journaled and replayed: a rejection
+(an error item, or the `-1` of a full Cuckoo filter) fails the drain or commit instead of being trimmed. `CheckEvictionPolicy` reports an `allkeys-*`
+`maxmemory-policy` on any master (`probfilter.ErrUnsafeEvictionPolicy`); only CONFIG permission denial on a complete primary set leaves the policy
+unverified without an error.
 
 ## Staging
 

@@ -5,6 +5,7 @@
 package freecache_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -183,4 +184,37 @@ func TestGetEmptyValue(t *testing.T) {
 	values, err := p.GetMany(t.Context(), []string{"empty", "missing"})
 	require.NoError(t, err)
 	require.Equal(t, map[string][]byte{"empty": nil}, values)
+}
+
+func TestProvider_SaveLargeEntryIsRejected(t *testing.T) {
+	t.Parallel()
+
+	p := freecache.New(freecache.WithMaxSize(1 << 20))
+	err := p.Save(t.Context(), "big", make([]byte, 2048), time.Minute)
+	require.ErrorIs(t, err, storages.ErrEntryRejected)
+}
+
+func TestProvider_SaveTTLOutOfRangeIsRejected(t *testing.T) {
+	t.Parallel()
+
+	p := freecache.New()
+	err := p.Save(t.Context(), "k", []byte("v"), freecache.MaxTTL+time.Second)
+	require.ErrorIs(t, err, freecache.ErrTTLOutOfRange)
+	require.ErrorIs(t, err, storages.ErrEntryRejected)
+}
+
+func TestProvider_DeleteManyCanceledKeepsKeys(t *testing.T) {
+	t.Parallel()
+
+	p := freecache.New()
+	require.NoError(t, p.Save(t.Context(), "a", []byte("v"), time.Minute))
+	require.NoError(t, p.Save(t.Context(), "b", []byte("v"), time.Minute))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, p.DeleteMany(ctx, "a", "b"), context.Canceled)
+
+	got, err := p.GetMany(t.Context(), []string{"a", "b"})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
 }

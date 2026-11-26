@@ -642,5 +642,5 @@ func TestStaging_Commit_ReplayAfterPartialAttemptAdvancesGeneration(t *testing.T
 
 func commitKeys(st *Staging) []string {
 	return []string{st.core.filterKey, st.live.filterKey, st.markerKey(), st.live.genKey, st.live.leaseKey, st.live.committedKey, st.live.readyKey,
-		st.live.journalKey}
+		st.live.journalKey, st.live.journalGenKey}
 }
