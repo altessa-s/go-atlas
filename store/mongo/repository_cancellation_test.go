@@ -58,13 +58,11 @@ func gatedRepository(t *testing.T, replies ...bson.D) (*Mongo, *mongo.Database, 
 			<-release
 		}
 	}})
-	opts.Deployment = drivertest.NewMockDeployment(replies...)
-	client, err := mongo.Connect(opts)
+	coll := dedupTestCollection(t, opts, replies...)
+	db := coll.Database()
+	m, err := New("db", WithClient(db.Client()))
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
-	m, err := New("db", WithClient(client))
-	require.NoError(t, err)
-	return m, client.Database("db"), entered, release, &finds
+	return m, db, entered, release, &finds
 }
 
 func TestGetEntitySendsServerDeadline(t *testing.T) {

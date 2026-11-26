@@ -6,13 +6,15 @@ package mongo
 
 import (
 	"context"
-	"reflect"
+	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
 )
 
 type dedupTenantKey struct{}
@@ -22,57 +24,60 @@ func dedupTenant(ctx context.Context) string {
 	return id
 }
 
-// TestDeduplicationKey_IsolatesByIdentity pins the fix: with an identity func,
-// the same filter from two callers yields distinct singleflight keys, so a
-// concurrent GetEntity/GetEntities never collapses across tenants — while it
-// stays stable within one tenant, preserving legitimate deduplication.
-func TestDeduplicationKey_IsolatesByIdentity(t *testing.T) {
+func TestDeduplicationIdentity(t *testing.T) {
 	t.Parallel()
 
-	m := &repository{dedupIdentity: dedupTenant}
-	coll := dedupTestCollection(t)
-	model := reflect.TypeFor[bson.M]()
-	filter := mustPrepareFilter(t, bson.M{"_id": "shared"})
+	for _, tt := range []struct {
+		name     string
+		identity DeduplicationIdentityFunc
+		first    string
+		second   string
+		finds    int32
+	}{
+		{name: "different tenants", identity: dedupTenant, first: "A", second: "B", finds: 2},
+		{name: "same tenant", identity: dedupTenant, first: "A", second: "A", finds: 1},
+		{name: "nil identity", first: "A", second: "B", finds: 1},
+		{name: "empty identity", identity: func(context.Context) string { return "" }, first: "A", second: "B", finds: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				first := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "first"}})
+				second := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "second"}})
+				_, db, entered, release, finds := gatedRepository(t, first, second)
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				m, err := New("db", WithClient(db.Client()), WithDeduplicationIdentity(tt.identity))
+				require.NoError(t, err)
+				coll := db.Collection("items")
+				encoding := FilterEncoding{Registry: bson.NewRegistry()}
+				read := func(tenant string) (flightModel, error) {
+					ctx := context.WithValue(t.Context(), dedupTenantKey{}, tenant)
+					return GetEntity[flightModel, flightModel](ctx, m, coll, bson.D{}, encoding)
+				}
+				a := beginRead(func() (flightModel, error) { return read(tt.first) })
+				<-entered
+				b := beginRead(func() (flightModel, error) { return read(tt.second) })
+				synctest.Wait()
+				unblock()
 
-	ctxA := context.WithValue(t.Context(), dedupTenantKey{}, "A")
-	ctxB := context.WithValue(t.Context(), dedupTenantKey{}, "B")
-
-	keyA := m.deduplicationKey(ctxA, coll, model, "find", filter)
-	keyB := m.deduplicationKey(ctxB, coll, model, "find", filter)
-
-	require.NotEqual(t, keyA, keyB, "same filter, different identity must not share a singleflight slot")
-	require.Equal(t, keyA, m.deduplicationKey(ctxA, coll, model, "find", filter), "same identity + filter must be stable")
+				require.Equal(t, "first", readValue(t, a).Name)
+				want := "first"
+				if tt.finds == 2 {
+					want = "second"
+				}
+				require.Equal(t, want, readValue(t, b).Name)
+				require.Equal(t, tt.finds, finds.Load())
+			})
+		})
+	}
 }
 
-// TestDeduplicationKey_EmptyIdentity checks that a nil identity func, or one
-// returning "", leaves the identity segment empty.
-func TestDeduplicationKey_EmptyIdentity(t *testing.T) {
-	t.Parallel()
-
-	coll := dedupTestCollection(t)
-	model := reflect.TypeFor[bson.M]()
-	filter := mustPrepareFilter(t, bson.M{"_id": "x"})
-	want := (&repository{}).deduplicationKey(t.Context(), coll, model, "find", filter)
-
-	t.Run("nil identity", func(t *testing.T) {
-		t.Parallel()
-		m := &repository{}
-		require.Equal(t, want, m.deduplicationKey(t.Context(), coll, model, "find", filter))
-		require.Empty(t, want.identity)
-	})
-
-	t.Run("empty identity", func(t *testing.T) {
-		t.Parallel()
-		m := &repository{dedupIdentity: func(context.Context) string { return "" }}
-		require.Equal(t, want, m.deduplicationKey(t.Context(), coll, model, "find", filter))
-		require.Empty(t, want.identity)
-	})
-}
-
-func dedupTestCollection(t *testing.T) *mongo.Collection {
+func dedupTestCollection(t *testing.T, opts *options.ClientOptions, replies ...bson.D) *mongo.Collection {
 	t.Helper()
-	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1"))
+	opts.Deployment = drivertest.NewMockDeployment(replies...)
+	client, err := mongo.Connect(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
-	return client.Database("db").Collection("coll")
+	return client.Database("db").Collection("items")
 }

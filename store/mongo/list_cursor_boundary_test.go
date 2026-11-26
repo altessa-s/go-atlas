@@ -5,12 +5,15 @@
 package mongo
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
@@ -21,14 +24,45 @@ import (
 func TestCursorNullPredicate(t *testing.T) {
 	t.Parallel()
 
-	id := bson.NewObjectID()
-	sort := bson.D{{Key: "rank", Value: 1}}
-	cursor, err := NewCursorWithMetadata(id.Hex(), sort, "position", nil, (*int)(nil))
-	require.NoError(t, err)
-	require.Equal(t, bson.M{"$or": bson.A{
-		bson.M{"rank": nil, "position": bson.M{"$gt": id}},
-		bson.M{"rank": bson.M{"$ne": nil}},
-	}}, buildCursorFilter(cursor, "position", sort))
+	for _, tt := range []struct {
+		name      string
+		direction int
+	}{
+		{name: "ascending", direction: 1},
+		{name: "descending", direction: -1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			id := bson.NewObjectID()
+			sort := bson.D{{Key: "rank", Value: tt.direction}}
+			cursor, err := NewCursorWithMetadata(id.Hex(), sort, "position", nil, (*int)(nil))
+			require.NoError(t, err)
+
+			var match bson.Raw
+			coll := mockReadCollection(t, func(_ context.Context, e *event.CommandStartedEvent) {
+				if e.CommandName == "aggregate" {
+					match = e.Command.Lookup("pipeline").Array().Index(0).Document().Lookup("$match").Document()
+					match = append(bson.Raw(nil), match...)
+				}
+			}, bson.A{})
+			_, err = ListCursor[bson.M](t.Context(), coll,
+				WithListCursorCursor(cursor), WithListCursorSort(sort), WithListCursorIdField("position"))
+			require.NoError(t, err)
+
+			want := bson.M{"rank": nil, "position": bson.M{"$lt": id}}
+			if tt.direction > 0 {
+				want = bson.M{"$or": bson.A{
+					bson.M{"rank": nil, "position": bson.M{"$gt": id}},
+					bson.M{"rank": bson.M{"$ne": nil}},
+				}}
+			}
+			var got bson.M
+			decoder := bson.NewDecoder(bson.NewDocumentReader(bytes.NewReader(match)))
+			decoder.DefaultDocumentM()
+			require.NoError(t, decoder.Decode(&got))
+			require.Equal(t, want, got)
+		})
+	}
 }
 
 func TestListCursorUsesRawBoundary(t *testing.T) {
@@ -83,7 +117,9 @@ func checkListCursorBoundary[T any](t *testing.T, rank any, registry *bson.Regis
 	token, err := ParseCursor(*page.NextCursor)
 	require.NoError(t, err)
 	require.NotEmpty(t, token.SortValue)
-	value, err := decodeSortValue(token.SortValue)
+	wire, err := base64.StdEncoding.DecodeString(token.SortValue)
+	require.NoError(t, err)
+	value, err := bson.Raw(wire).LookupErr("v")
 	require.NoError(t, err)
 	var decoded any
 	require.NoError(t, value.Unmarshal(&decoded))

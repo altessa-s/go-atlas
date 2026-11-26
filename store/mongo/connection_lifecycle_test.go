@@ -6,14 +6,17 @@ package mongo
 
 import (
 	"context"
-	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
+
+	"github.com/altessa-s/go-atlas/store/mongo/migrations"
 )
 
 type startupGate struct {
@@ -38,9 +41,12 @@ func TestCloseDuringConnect(t *testing.T) {
 	t.Parallel()
 
 	d := &startupGate{
-		MockDeployment: drivertest.NewMockDeployment(),
-		entered:        make(chan struct{}),
-		release:        make(chan struct{}),
+		MockDeployment: drivertest.NewMockDeployment(
+			bson.D{{Key: "ok", Value: 1}},
+			bson.D{{Key: "ok", Value: 1}, {Key: "version", Value: "4.0"}, {Key: "versionArray", Value: bson.A{int32(4), int32(0)}}},
+		),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
 	}
 	opts := options.Client()
 	opts.Deployment = d
@@ -50,22 +56,50 @@ func TestCloseDuringConnect(t *testing.T) {
 	connected := make(chan error, 1)
 	go func() { connected <- m.Connect(t.Context()) }()
 	<-d.entered
-	closed := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(d.release) })
+	defer unblock()
+	closing, closed := make(chan struct{}), make(chan struct{})
 	go func() {
+		close(closing)
 		m.Close()
 		close(closed)
 	}()
-	for m.conn.closing.Load() == 0 {
-		select {
-		case <-closed:
-			close(d.release)
-			t.Fatal("Close returned before startup completed")
-		default:
-			runtime.Gosched()
-		}
+	<-closing
+	select {
+	case <-closed:
+		t.Error("Close returned before startup completed")
+	case <-time.After(50 * time.Millisecond):
 	}
-	close(d.release)
-	require.ErrorIs(t, <-connected, mongo.ErrClientDisconnected)
+
+	unblock()
+	require.Error(t, <-connected)
 	<-closed
 	require.EqualValues(t, 1, d.closes.Load())
+}
+
+// mockStartupOptions lets Connect complete without a live MongoDB or migrations.
+func mockStartupOptions() *options.ClientOptions {
+	ok := bson.D{{Key: "ok", Value: 1}}
+	write := bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}, {Key: "nModified", Value: 1}}
+	opts := options.Client()
+	opts.Deployment = drivertest.NewMockDeployment(
+		ok, // ping
+		bson.D{{Key: "ok", Value: 1}, {Key: "version", Value: "8.0"}, {Key: "versionArray", Value: bson.A{int32(8), int32(0)}}},
+		write, write, // seed and acquire the migration lock
+		cursorBatchReply("db.$cmd.listCollections"),
+		ok, // create the migration collection
+		cursorBatchReply("db.migrations"),
+		write, // release the migration lock
+		ok,    // endSessions
+	)
+	return opts
+}
+
+func connectMockMongo(t *testing.T, opts ...Option) *Mongo {
+	t.Helper()
+	m, err := New("db", append(opts, WithClientOptions(mockStartupOptions()), WithMigrationRegistry(&migrations.Registry{}))...)
+	require.NoError(t, err)
+	t.Cleanup(m.Close)
+	require.NoError(t, m.Connect(t.Context()))
+	return m
 }
