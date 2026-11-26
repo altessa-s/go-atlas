@@ -37,7 +37,7 @@ func TestGetCachedResponse_StorageMissMatchesCacheSentinel(t *testing.T) {
 
 	cacher := &recordingCacher{}
 	i := &interceptor{cacher: cacher, opts: newOptions()}
-	resp, cachedErr, found := i.getCachedResponse(t.Context(), "key", nil)
+	resp, cachedErr, found := i.getCachedResponse(t.Context(), "key", []byte("verifier"), nil)
 	require.Nil(t, resp)
 	require.NoError(t, cachedErr)
 	require.False(t, found)

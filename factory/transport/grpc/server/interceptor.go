@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -34,6 +35,7 @@ import (
 	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/requestid"
+	stdslices "slices"
 )
 
 // interceptorsCfg returns the interceptors config or nil if not configured.
@@ -82,8 +84,8 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 		{geoaclinter.Name(), b.WithGeoAclInterceptor},
 		{limiter.Name(), b.WithLimiterInterceptor},
 		{idempotency.Name(), b.WithIdempotencyInterceptor},
-		{cache.Name(), b.WithCacheInterceptor},
 		{auth.Name(), b.WithAuthInterceptor},
+		{cache.Name(), b.WithCacheInterceptor},
 		{fieldbehavior.Name(), b.WithFieldBehaviorInterceptor},
 		{fieldmask.Name(), b.WithFieldMaskInterceptor},
 		{protovalidator.Name(), b.WithBufValidatorInterceptor},
@@ -461,6 +463,9 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 	}
 
 	opts = slices.AppendIf(opts, len(c.KeyMetadata) > 0, cache.WithMetadataKeys(c.KeyMetadata...))
+	if f := cfg.FieldMask; f.IsEnabled() && f.MetadataReadMaskHeader != "" && f.MetadataReadMaskHeader != fieldmask.DefaultMetadataReadMaskHeader {
+		opts = append(opts, cache.WithReadMaskHeader(f.MetadataReadMaskHeader))
+	}
 	opts = slices.AppendIf(opts, b.cacheMetadataProcessor != nil, cache.WithMetadataProcessor(b.cacheMetadataProcessor))
 	opts = slices.AppendIf(opts, len(b.cacheMethodPolicies) > 0, cache.WithMethodPolicy(b.cacheMethodPolicies...))
 	opts = slices.AppendIf(opts, len(c.IgnorePatterns) > 0,
@@ -471,8 +476,39 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 		cache.DefaultSuccessAndErrorDecision(c.SuccessTTL, c.ErrorTTL),
 	))
 
-	b.interceptors = append(b.interceptors, cache.ServerInterceptor(b.cacher, opts...))
+	cacher := b.cacher
+	withAuth := func() interceptors.ServerInterceptor {
+		options := stdslices.Concat(opts, []cache.Option{cache.WithAuthRequired()})
+		return cache.ServerInterceptor(cacher, options...)
+	}
+	authRegistered := false
+	for _, i := range b.interceptors {
+		if nilcheck.IsNotNil(i) && i.Name() == auth.Name() {
+			authRegistered = true
+			break
+		}
+	}
+	if authRegistered {
+		b.interceptors = append(b.interceptors, withAuth())
+	} else {
+		// Keep the authenticated variant available if WithAuthInterceptor is
+		// called after cache. Replace the registration itself so previously
+		// built servers keep their original interceptor.
+		b.interceptors = append(b.interceptors, &pendingCacheAuth{
+			ServerInterceptor: cache.ServerInterceptor(cacher, opts...),
+			requireAuth:       withAuth,
+		})
+	}
 	return b
+}
+
+type pendingCacheAuth struct {
+	interceptors.ServerInterceptor
+	requireAuth func() interceptors.ServerInterceptor
+}
+
+func (i *pendingCacheAuth) Dependencies() []string {
+	return i.ServerInterceptor.(interface{ Dependencies() []string }).Dependencies() //nolint:errcheck // cache's driven interceptor declares dependencies
 }
 
 // WithAuthInterceptor creates an authentication interceptor from the builder's configuration.
@@ -498,6 +534,11 @@ func (b *ServerBuilder) WithAuthInterceptor() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		auth.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
+	for idx, i := range b.interceptors {
+		if pending, ok := i.(*pendingCacheAuth); ok {
+			b.interceptors[idx] = pending.requireAuth()
+		}
+	}
 	b.interceptors = append(b.interceptors, auth.ServerInterceptor(configOpts...))
 	return b
 }

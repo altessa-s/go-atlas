@@ -17,19 +17,24 @@
 // (see WithCacheHeaders), the interceptor sets [HeaderKey] / [HeaderHit] /
 // [HeaderMiss] in gRPC response metadata.
 //
-// Serialization is handled by [Serializer] (default: [DefaultSerializer]) with
-// optional gzip compression via the [compression] sub-package. The
-// [MetadataProcessor] hook allows custom cache key partitioning from gRPC
-// metadata (e.g., extracting tenant IDs from JWT tokens).
+// A dependency-ordered chain runs authentication and access controls before
+// this interceptor. The default identity uses the tenant and subject of the
+// verified principal. Use [WithIdentityFunc] for custom credentials or to
+// distinguish issuers. Calls without an identifiable principal bypass caching
+// when authenticated or when [WithAuthRequired] is set.
+//
+// Cache keys and their independent verifiers cover the method, identity,
+// serialized request, and response discriminators, including the read-mask
+// header. [WithReadMaskHeader] adds a custom header. [Serializer] handles
+// responses with optional gzip compression.
 //
 // Example:
 //
 //	interceptor := cache.ServerInterceptor(memCache,
 //	    cache.WithMethodPolicy(
-//	        cache.Method{
-//	            Method:        "/api.UserService/GetUser",
+//	        cache.MethodPolicy{
+//	            Name:          "/api.UserService/GetUser",
 //	            ResponseProto: &pb.User{},
-//	            TTL:           5 * time.Minute,
 //	        },
 //	    ),
 //	    cache.WithCompressionPreset(compression.PresetBalanced),

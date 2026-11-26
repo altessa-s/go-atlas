@@ -14,11 +14,12 @@ import (
 )
 
 func TestDefaultKeyGenerator(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	key, err := DefaultKeyGenerator(ctx, "/svc/Get", "req")
 	require.NoError(t, err)
 	require.NotEqual(t, "", key)
-	require.Len(t, key, 16)
+	require.Len(t, key, 2*storageKeyBytes)
 }
 
 // TestKeyGenerator_FramingPreventsConcatenationCollisions pins that key

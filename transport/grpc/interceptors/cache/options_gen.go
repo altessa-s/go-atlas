@@ -15,6 +15,16 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAuthRequired enables the authRequired option.
+//
+// authRequired bypasses caching when no verified caller is identifiable.
+func WithAuthRequired() Option {
+	return func(o *options) {
+		value := true
+		o.authRequired = value
+	}
+}
+
 // WithCacheDecision sets the cacheDecision option.
 //
 // cacheDecision is the function that decides whether to cache a response.
@@ -43,6 +53,18 @@ func WithCacheTTL(v time.Duration) Option {
 			return
 		}
 		o.cacheTTL = v
+	}
+}
+
+// WithIdentityFunc sets the identityFunc option.
+//
+// identityFunc resolves the verified caller's cache namespace.
+func WithIdentityFunc(v IdentityFunc) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.identityFunc = v
 	}
 }
 
@@ -98,8 +120,8 @@ func WithIgnorePatterns(v ...*regexp.Regexp) Option {
 
 // WithKeyGenerator sets the keyGenerator option.
 //
-// keyGenerator generates cache keys. The default is built once per
-// interceptor and snapshots DefaultMetadataKeys at construction time.
+// keyGenerator overrides only the storage key. Identity checks and
+// verification of the full request tuple still apply.
 func WithKeyGenerator(v KeyGenerator) Option {
 	return func(o *options) {
 		o.keyGenerator = v
@@ -142,12 +164,73 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMetadataKeys sets the metadataKeys option.
+//
+// metadataKeys selects response discriminators. An empty list uses
+// DefaultMetadataKeys. The default read-mask header is always included.
+func WithMetadataKeys(v ...string) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		transformed := make([]string, len(v))
+		for i, element := range v {
+			transformed[i] = strings.TrimSpace(element)
+		}
+		deduped := make([]string, 0, len(transformed))
+		{
+			seen := make(map[string]struct{}, len(transformed))
+			for _, item := range transformed {
+				if _, ok := seen[item]; ok {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+		}
+		o.metadataKeys = deduped
+	}
+}
+
+// WithMetadataProcessor sets the metadataProcessor option.
+//
+// metadataProcessor supplies additional response discriminators.
+func WithMetadataProcessor(v MetadataProcessor) Option {
+	return func(o *options) {
+		o.metadataProcessor = v
+	}
+}
+
 // WithMethods sets the methods option.
 //
 // methods contains per-method cache configurations
 func WithMethods(v map[string]*MethodPolicy) Option {
 	return func(o *options) {
 		o.methods = v
+	}
+}
+
+// WithReadMaskHeader sets the readMaskHeader option.
+//
+// readMaskHeader adds the configured read-mask header to the discriminators.
+func WithReadMaskHeader[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.readMaskHeader = transformedValue
 	}
 }
 
@@ -165,8 +248,8 @@ func defaultOptions() *options {
 	return &options{
 		cacheHeadersEnabled: true,
 		cacheTTL:            DefaultTTL,
+		identityFunc:        defaultIdentity,
 		ignorePatterns:      defaults.IgnorePatterns,
-		keyGenerator:        newDefaultKeyGenerator(),
 		logger:              slog.New(slog.DiscardHandler),
 		methods:             make(map[string]*MethodPolicy),
 		serializer:          NewDefaultSerializer(nil),
