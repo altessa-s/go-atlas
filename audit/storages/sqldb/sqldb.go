@@ -243,7 +243,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 				return
 			}
 			var e audit.Event
-			if err := json.Unmarshal(payload, &e); err != nil {
+			if err := audit.UnmarshalJSON(payload, &e); err != nil {
 				yield(nil, coreerrs.WrapOperation(err, "decode audit event"))
 				return
 			}

@@ -298,7 +298,7 @@ func decodeFields(s string) (map[string]any, error) {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
+	if err := audit.UnmarshalJSON([]byte(s), &m); err != nil {
 		return nil, fmt.Errorf("decode audit column: %w", err)
 	}
 	if len(m) == 0 {

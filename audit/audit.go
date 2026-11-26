@@ -6,21 +6,42 @@ package audit
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/altessa-s/go-atlas-core/io/wal"
 	"github.com/altessa-s/go-atlas-core/runtime"
+	"github.com/altessa-s/go-atlas-core/runtime/dispatch"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Dispatcher abstracts async item dispatch. The implementation (e.g.
 // [dispatch.Engine]) must be created and started before being passed
 // to [New], and shut down separately by the caller.
+//
+// Implementations that also satisfy [Enqueuer] report typed rejection reasons
+// on [Auditor.Emit]; dispatchers that only implement Submit are counted and
+// logged with [DropReasonRejected].
 type Dispatcher interface {
 	Submit(item *Event) bool
 	Dropped() int64
 }
+
+// Enqueuer is an optional capability implemented by a [Dispatcher] (such as
+// [dispatch.Engine]) that reports typed admission rejections.
+type Enqueuer interface {
+	Enqueue(item *Event) (dispatch.Submission, error)
+}
+
+const (
+	auditorStateUnstarted uint32 = iota
+	auditorStateStarted
+	auditorStateShutdown
+)
 
 // Auditor is the main entry point for emitting audit events. It is a thin
 // facade over a [Dispatcher] with an audit-specific event schema:
@@ -28,13 +49,16 @@ type Dispatcher interface {
 // EventBuilder.
 //
 // The dispatcher is an external dependency created and managed by the
-// caller — typically through [factory/audit]. Auditor does not know
-// or care how it is wired; it only calls [Dispatcher.Submit].
+// caller — typically through [factory/audit]. Auditor uses [Enqueuer] when
+// available and otherwise falls back to [Dispatcher.Submit].
 type Auditor struct {
-	opts       *options
-	metrics    *auditMetrics
-	dispatcher Dispatcher
-	started    atomic.Bool
+	opts                   *options
+	metrics                *auditMetrics
+	dispatcher             Dispatcher
+	state                  atomic.Uint32
+	notStartedDropLogged   atomic.Bool
+	shutdownDropLogged     atomic.Bool
+	closedEngineDropLogged atomic.Bool
 }
 
 // New creates an Auditor that dispatches events through the given
@@ -60,7 +84,7 @@ func New(dispatcher Dispatcher, opts ...Option) (*Auditor, error) {
 // the whole program — pass [WithShutdownHooks] to register into a scope that
 // can be shut down on its own.
 func (a *Auditor) Start() error {
-	if !a.started.CompareAndSwap(false, true) {
+	if !a.state.CompareAndSwap(auditorStateUnstarted, auditorStateStarted) {
 		return ErrAuditorAlreadyStarted
 	}
 
@@ -77,7 +101,7 @@ func (a *Auditor) Start() error {
 
 // Shutdown stops the auditor from accepting new events.
 func (a *Auditor) Shutdown(_ context.Context) error {
-	if !a.started.CompareAndSwap(true, false) {
+	if !a.state.CompareAndSwap(auditorStateStarted, auditorStateShutdown) {
 		return nil
 	}
 
@@ -87,17 +111,49 @@ func (a *Auditor) Shutdown(_ context.Context) error {
 
 // Emit sends an event to the async processing pipeline (fire-and-forget).
 // The event ID and timestamp are set automatically if not already present.
-// Returns false if the event was dropped due to a full buffer.
+// Returns false if the event was nil, the auditor was not active, or the
+// dispatcher rejected the event.
 func (a *Auditor) Emit(event *Event) bool {
-	if event == nil || !a.started.Load() {
+	if event == nil {
+		return false
+	}
+
+	switch a.state.Load() {
+	case auditorStateUnstarted:
+		a.recordDrop(DropReasonNotStarted)
+		if a.notStartedDropLogged.CompareAndSwap(false, true) {
+			a.opts.logger.Warn("audit event dropped: auditor not started",
+				"reason", DropReasonNotStarted,
+				"event_type", event.Type,
+				"action", event.Action)
+		}
+		return false
+	case auditorStateShutdown:
+		a.recordDrop(DropReasonShutdown)
+		if a.shutdownDropLogged.CompareAndSwap(false, true) {
+			a.opts.logger.Warn("audit event dropped: auditor shut down",
+				"reason", DropReasonShutdown,
+				"event_type", event.Type,
+				"action", event.Action)
+		}
 		return false
 	}
 
 	a.fillDefaults(event)
 
+	if enq, ok := a.dispatcher.(Enqueuer); ok {
+		if _, err := enq.Enqueue(event); err != nil {
+			a.handleEnqueueError(event, err)
+			return false
+		}
+		a.metrics.eventsEmitted.Inc()
+		return true
+	}
+
 	if !a.dispatcher.Submit(event) {
-		a.metrics.eventsDropped.Inc()
-		a.opts.logger.Warn("audit event dropped: buffer full",
+		a.recordDrop(DropReasonRejected)
+		a.opts.logger.Warn("audit event dropped: rejected by dispatcher",
+			"reason", DropReasonRejected,
 			"event_id", event.ID,
 			"event_type", event.Type,
 			"action", event.Action)
@@ -108,7 +164,47 @@ func (a *Auditor) Emit(event *Event) bool {
 	return true
 }
 
-// DroppedEvents returns the total number of events dropped due to a full buffer.
+func (a *Auditor) recordDrop(reason string) {
+	a.metrics.eventsDropped.WithLabels(metrics.Labels{labelReason: reason}).Inc()
+}
+
+func (a *Auditor) handleEnqueueError(event *Event, err error) {
+	switch {
+	case errors.Is(err, dispatch.ErrEngineClosed) || errors.Is(err, wal.ErrClosed):
+		a.recordDrop(DropReasonDispatcherClosed)
+		if a.closedEngineDropLogged.CompareAndSwap(false, true) {
+			a.opts.logger.Warn("audit event dropped: dispatcher closed",
+				"reason", DropReasonDispatcherClosed,
+				"event_id", event.ID,
+				"event_type", event.Type,
+				"action", event.Action)
+		}
+	case errors.Is(err, dispatch.ErrQueueFull):
+		a.recordDrop(DropReasonQueueFull)
+		a.opts.logger.Warn("audit event dropped: queue full",
+			"reason", DropReasonQueueFull,
+			"event_id", event.ID,
+			"event_type", event.Type,
+			"action", event.Action)
+	case errors.Is(err, wal.ErrFull):
+		a.recordDrop(DropReasonWALFull)
+		a.opts.logger.Warn("audit event dropped: wal full",
+			"reason", DropReasonWALFull,
+			"event_id", event.ID,
+			"event_type", event.Type,
+			"action", event.Action)
+	default:
+		a.recordDrop(DropReasonRejected)
+		a.opts.logger.Warn("audit event dropped: rejected by dispatcher",
+			"reason", DropReasonRejected,
+			"error_type", fmt.Sprintf("%T", err),
+			"event_id", event.ID,
+			"event_type", event.Type,
+			"action", event.Action)
+	}
+}
+
+// DroppedEvents returns the total number of events dropped by the underlying dispatcher.
 func (a *Auditor) DroppedEvents() int64 {
 	return a.dispatcher.Dropped()
 }

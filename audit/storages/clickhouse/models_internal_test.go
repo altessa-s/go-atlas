@@ -203,6 +203,44 @@ func TestFromRowRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestFromRowPreservesLargeIntegersAndRejectsTrailingJSON(t *testing.T) {
+	t.Parallel()
+
+	const large = "9007199254740993"
+	in := &audit.Event{
+		ID:        "evt-large",
+		Type:      audit.EventTypeDataChange,
+		Action:    audit.ActionUpdate,
+		Timestamp: eventTime,
+		Actor:     audit.Actor{Metadata: map[string]any{"actor_seq": json.Number(large)}},
+		Resource: audit.Resource{
+			Attributes: map[string]any{"res_seq": json.Number(large)},
+			Changes: &audit.ResourceChanges{
+				Before: map[string]any{"seq": json.Number(large)},
+				After:  map[string]any{"seq": json.Number(large)},
+			},
+		},
+		Metadata: map[string]any{"seq": json.Number(large)},
+	}
+
+	row, err := toRow(in)
+	require.NoError(t, err)
+
+	got, err := fromRow(row)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "9007199254740992")
+	require.Contains(t, string(encoded), `"actor_seq":`+large)
+	require.Contains(t, string(encoded), `"res_seq":`+large)
+	require.Contains(t, string(encoded), `"seq":`+large)
+
+	_, err = fromRow(&eventRow{Metadata: `{"a":1}{"b":2}`})
+	var syntaxErr *json.SyntaxError
+	require.ErrorAs(t, err, &syntaxErr)
+}
+
 // A column swap in args would silently corrupt the audit trail, so every
 // string column carries its own name as its value and the whole slice is
 // checked against the schema order.

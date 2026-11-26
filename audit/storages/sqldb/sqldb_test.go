@@ -6,6 +6,7 @@ package sqldb_test
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -285,4 +286,47 @@ func TestStoreBatchNilEvent(t *testing.T) {
 	s, fake := newStorage(t, sqldb.DialectPostgres, nil)
 	storagetest.NilBatchEvent(t, s)
 	require.Empty(t, fake.Calls())
+}
+
+func TestRoundTripPreservesLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	const large = "9007199254740993"
+	var (
+		mu      sync.Mutex
+		payload driver.Value
+	)
+	s, _ := newStorage(t, sqldb.DialectPostgres, func(query string, args []any) testhelpers.FakeSQLReply {
+		mu.Lock()
+		defer mu.Unlock()
+		if strings.HasPrefix(query, "INSERT") {
+			payload = args[len(args)-1]
+			return testhelpers.FakeSQLReply{Affected: 1}
+		}
+		return testhelpers.FakeSQLReply{Columns: []string{"payload"}, Rows: [][]driver.Value{{payload}}}
+	})
+
+	in := event("e-large")
+	in.Metadata = map[string]any{"seq": json.Number(large)}
+	in.Actor.Metadata = map[string]any{"actor_seq": json.Number(large)}
+	in.Resource.Attributes = map[string]any{"res_seq": json.Number(large)}
+	in.Resource.Changes = &audit.ResourceChanges{
+		Before: map[string]any{"seq": json.Number(large)},
+		After:  map[string]any{"seq": json.Number(large)},
+	}
+	require.NoError(t, s.Store(t.Context(), in))
+
+	var got []*audit.Event
+	for e, err := range s.Query(t.Context(), &audit.Query{}) {
+		require.NoError(t, err)
+		got = append(got, e)
+	}
+	require.Len(t, got, 1)
+
+	encoded, err := json.Marshal(got[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "9007199254740992")
+	require.Contains(t, string(encoded), `"seq":`+large)
+	require.Contains(t, string(encoded), `"actor_seq":`+large)
+	require.Contains(t, string(encoded), `"res_seq":`+large)
 }
