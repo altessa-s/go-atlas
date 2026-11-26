@@ -5,6 +5,8 @@
 package metrics
 
 import (
+	"sync/atomic"
+
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 )
 
@@ -13,9 +15,10 @@ import (
 // and a local CAS-loop float add per increment would only double-account
 // what the adapter already stores.
 type counter struct {
-	name    string
-	adapter adapters.Adapter
-	bound   adapters.BoundCounter // unlabeled child, bound at registration when supported
+	name     string
+	adapter  adapters.Adapter
+	shutdown *atomic.Bool
+	bound    adapters.BoundCounter // unlabeled child, bound at registration when supported
 }
 
 // bindUnlabeled resolves the unlabeled child once. The collector calls it
@@ -28,10 +31,14 @@ func (c *counter) bindUnlabeled() {
 	}
 }
 
-func newCounter(name string, adapter adapters.Adapter) *counter {
+func newCounter(name string, adapter adapters.Adapter, shutdown *atomic.Bool) *counter {
+	if shutdown == nil {
+		shutdown = &activeLifecycle
+	}
 	return &counter{
-		name:    name,
-		adapter: adapter,
+		name:     name,
+		adapter:  adapter,
+		shutdown: shutdown,
 	}
 }
 
@@ -40,8 +47,8 @@ func (c *counter) Inc() {
 }
 
 func (c *counter) Add(delta float64) {
-	if delta < 0 {
-		return // Counters can only increase
+	if delta < 0 || c.shutdown.Load() {
+		return // Counters can only increase and are inert after shutdown.
 	}
 	if c.bound != nil {
 		c.bound.Add(delta)
@@ -51,27 +58,36 @@ func (c *counter) Add(delta float64) {
 }
 
 func (c *counter) WithLabels(labels Labels) Counter {
+	if c.shutdown.Load() {
+		return noopCounter{}
+	}
 	return newLabeledCounter(c, labels)
 }
 
-// newLabeledCounter builds a labeled view and, when the adapter supports
-// [adapters.Binder], resolves the concrete child once so Inc/Add are direct
-// updates with no per-observation lookup.
+// newLabeledCounter builds a labeled view with an immutable copy of labels and,
+// when the adapter supports [adapters.Binder], resolves the concrete child once
+// so Inc/Add are direct updates with no per-observation lookup.
 func newLabeledCounter(parent *counter, labels Labels) *labeledCounter {
-	l := &labeledCounter{parent: parent, labels: labels}
+	var bound adapters.BoundCounter
 	if b, ok := parent.adapter.(adapters.Binder); ok {
 		if h, ok := b.BindCounter(parent.name, labels); ok {
-			l.bound = h
+			bound = h
 		}
 	}
-	return l
+	return &labeledCounter{
+		parent:   parent,
+		shutdown: parent.shutdown,
+		labels:   snapshotLabels(labels, bound == nil),
+		bound:    bound,
+	}
 }
 
 // labeledCounter is a counter with labels applied.
 type labeledCounter struct {
-	parent *counter
-	labels Labels
-	bound  adapters.BoundCounter // non-nil when the adapter pre-resolved the child
+	parent   *counter
+	shutdown *atomic.Bool
+	labels   labelSnapshot
+	bound    adapters.BoundCounter // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledCounter) Inc() {
@@ -79,16 +95,19 @@ func (l *labeledCounter) Inc() {
 }
 
 func (l *labeledCounter) Add(delta float64) {
-	if delta < 0 {
+	if delta < 0 || l.shutdown.Load() {
 		return
 	}
 	if l.bound != nil {
 		l.bound.Add(delta)
 		return
 	}
-	l.parent.adapter.RecordCounter(l.parent.name, l.labels, delta)
+	l.parent.adapter.RecordCounter(l.parent.name, l.labels.m, delta)
 }
 
 func (l *labeledCounter) WithLabels(labels Labels) Counter {
-	return newLabeledCounter(l.parent, MergeLabels(l.labels, labels))
+	if l.shutdown.Load() {
+		return noopCounter{}
+	}
+	return newLabeledCounter(l.parent, l.labels.merge(labels))
 }

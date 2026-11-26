@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 )
 
-// gaugeSeries is the shadow value of one gauge series. Adapters only accept
-// absolute gauge values, so Add is computed locally; mu serializes each
-// update with its publication so the backend always ends with the value of
-// the last update.
+// gaugeSeries is the shadow value of one gauge series for backends that only
+// accept absolute gauge values. mu serializes each update with its publication
+// so the backend always ends with the value of the last update.
 type gaugeSeries struct {
 	mu    sync.Mutex
 	value float64
@@ -23,11 +23,14 @@ type gaugeSeries struct {
 
 // gauge is the default implementation of Gauge.
 type gauge struct {
-	name      string
-	adapter   adapters.Adapter
-	unlabeled gaugeSeries
-	bound     adapters.BoundGauge // unlabeled child, bound at registration when supported
-	series    sync.Map            // seriesKey(labels) → *gaugeSeries, shared by all equivalent handles
+	name       string
+	adapter    adapters.Adapter
+	gaugeAdder adapters.GaugeAdder
+	shutdown   *atomic.Bool
+	unlabeled  gaugeSeries
+	bound      adapters.BoundGauge      // unlabeled child, bound at registration when supported
+	boundAdder adapters.BoundGaugeAdder // non-nil when bound also supports native Add
+	series     sync.Map                 // seriesKey(labels) -> *gaugeSeries
 }
 
 // bindUnlabeled resolves the unlabeled child once. The collector calls it
@@ -36,6 +39,9 @@ func (g *gauge) bindUnlabeled() {
 	if b, ok := g.adapter.(adapters.Binder); ok {
 		if h, ok := b.BindGauge(g.name, nil); ok {
 			g.bound = h
+			if ba, ok := h.(adapters.BoundGaugeAdder); ok {
+				g.boundAdder = ba
+			}
 		}
 	}
 }
@@ -49,14 +55,31 @@ func (g *gauge) publishUnlabeled() {
 	g.adapter.RecordGauge(g.name, nil, g.unlabeled.value)
 }
 
-func newGauge(name string, adapter adapters.Adapter) *gauge {
+func newGauge(name string, adapter adapters.Adapter, shutdown *atomic.Bool) *gauge {
+	if shutdown == nil {
+		shutdown = &activeLifecycle
+	}
+	ga, _ := adapter.(adapters.GaugeAdder) //nolint:errcheck // optional capability
 	return &gauge{
-		name:    name,
-		adapter: adapter,
+		name:       name,
+		adapter:    adapter,
+		gaugeAdder: ga,
+		shutdown:   shutdown,
 	}
 }
 
 func (g *gauge) Set(value float64) {
+	if g.shutdown.Load() {
+		return
+	}
+	if g.boundAdder != nil {
+		g.bound.Set(value)
+		return
+	}
+	if g.bound == nil && g.gaugeAdder != nil {
+		g.adapter.RecordGauge(g.name, nil, value)
+		return
+	}
 	g.unlabeled.mu.Lock()
 	defer g.unlabeled.mu.Unlock()
 	g.unlabeled.value = value
@@ -72,6 +95,17 @@ func (g *gauge) Dec() {
 }
 
 func (g *gauge) Add(delta float64) {
+	if g.shutdown.Load() {
+		return
+	}
+	if g.boundAdder != nil {
+		g.boundAdder.Add(delta)
+		return
+	}
+	if g.bound == nil && g.gaugeAdder != nil {
+		g.gaugeAdder.AddGauge(g.name, nil, delta)
+		return
+	}
 	g.unlabeled.mu.Lock()
 	defer g.unlabeled.mu.Unlock()
 	g.unlabeled.value += delta
@@ -83,6 +117,9 @@ func (g *gauge) Sub(delta float64) {
 }
 
 func (g *gauge) WithLabels(labels Labels) Gauge {
+	if g.shutdown.Load() {
+		return noopGauge{}
+	}
 	return newLabeledGauge(g, labels)
 }
 
@@ -93,11 +130,17 @@ func (g *gauge) seriesFor(labels Labels) *gaugeSeries {
 		return &g.unlabeled
 	}
 	key := seriesKey(labels)
-	if s, ok := g.series.Load(key); ok {
-		return s.(*gaugeSeries) //nolint:errcheck // type guaranteed by LoadOrStore
+	if existing, ok := g.series.Load(key); ok {
+		if s, ok := existing.(*gaugeSeries); ok {
+			return s
+		}
 	}
-	s, _ := g.series.LoadOrStore(key, &gaugeSeries{})
-	return s.(*gaugeSeries) //nolint:errcheck // type guaranteed by LoadOrStore
+	actual, _ := g.series.LoadOrStore(key, &gaugeSeries{})
+	s, ok := actual.(*gaugeSeries)
+	if !ok {
+		return &gaugeSeries{}
+	}
+	return s
 }
 
 // seriesKey encodes a label set canonically: names sorted, each name and
@@ -117,29 +160,60 @@ func seriesKey(labels Labels) string {
 	return b.String()
 }
 
-// newLabeledGauge builds a labeled view bound to the series state shared by
-// all equivalent handles and, when the adapter supports [adapters.Binder],
-// resolves the concrete child once so Set/Add are direct updates with no
-// per-observation lookup.
+// newLabeledGauge builds a labeled view with an immutable copy of labels.
+// When the backend supports native additive updates ([adapters.BoundGaugeAdder]
+// or [adapters.GaugeAdder]), updates go directly to the backend; otherwise
+// handles share per-series shadow state.
 func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
-	l := &labeledGauge{parent: parent, labels: labels, series: parent.seriesFor(labels)}
+	var (
+		bound      adapters.BoundGauge
+		boundAdder adapters.BoundGaugeAdder
+	)
 	if b, ok := parent.adapter.(adapters.Binder); ok {
 		if h, ok := b.BindGauge(parent.name, labels); ok {
-			l.bound = h
+			bound = h
+			if ba, ok := h.(adapters.BoundGaugeAdder); ok {
+				boundAdder = ba
+			}
 		}
 	}
-	return l
+	needShadow := boundAdder == nil && (bound != nil || parent.gaugeAdder == nil)
+	var series *gaugeSeries
+	if needShadow {
+		series = parent.seriesFor(labels)
+	}
+	return &labeledGauge{
+		parent:     parent,
+		shutdown:   parent.shutdown,
+		labels:     snapshotLabels(labels, bound == nil),
+		series:     series,
+		bound:      bound,
+		boundAdder: boundAdder,
+	}
 }
 
 // labeledGauge is a gauge with labels applied.
 type labeledGauge struct {
-	parent *gauge
-	labels Labels
-	series *gaugeSeries
-	bound  adapters.BoundGauge // non-nil when the adapter pre-resolved the child
+	parent     *gauge
+	shutdown   *atomic.Bool
+	labels     labelSnapshot
+	series     *gaugeSeries
+	bound      adapters.BoundGauge      // non-nil when the adapter pre-resolved the child
+	boundAdder adapters.BoundGaugeAdder // non-nil when bound also supports native Add
 }
 
 func (l *labeledGauge) Set(value float64) {
+	if l.shutdown.Load() {
+		return
+	}
+	if l.boundAdder != nil {
+		l.bound.Set(value)
+		return
+	}
+	if l.bound == nil && l.parent.gaugeAdder != nil {
+		l.parent.adapter.RecordGauge(l.parent.name, l.labels.m, value)
+		return
+	}
 	l.series.mu.Lock()
 	defer l.series.mu.Unlock()
 	l.series.value = value
@@ -155,6 +229,17 @@ func (l *labeledGauge) Dec() {
 }
 
 func (l *labeledGauge) Add(delta float64) {
+	if l.shutdown.Load() {
+		return
+	}
+	if l.boundAdder != nil {
+		l.boundAdder.Add(delta)
+		return
+	}
+	if l.bound == nil && l.parent.gaugeAdder != nil {
+		l.parent.gaugeAdder.AddGauge(l.parent.name, l.labels.m, delta)
+		return
+	}
 	l.series.mu.Lock()
 	defer l.series.mu.Unlock()
 	l.series.value += delta
@@ -171,9 +256,12 @@ func (l *labeledGauge) record(value float64) {
 		l.bound.Set(value)
 		return
 	}
-	l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
+	l.parent.adapter.RecordGauge(l.parent.name, l.labels.m, value)
 }
 
 func (l *labeledGauge) WithLabels(labels Labels) Gauge {
-	return newLabeledGauge(l.parent, MergeLabels(l.labels, labels))
+	if l.shutdown.Load() {
+		return noopGauge{}
+	}
+	return newLabeledGauge(l.parent, l.labels.merge(labels))
 }
