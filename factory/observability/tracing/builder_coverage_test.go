@@ -22,6 +22,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
 
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 func TestBuild_ConsoleWriterAndAdapterOverride(t *testing.T) {
@@ -343,6 +344,6 @@ func TestBuildSpanLimits(t *testing.T) {
 		cfg := stubTracing()
 		cfg.SpanLimits.MaxAttributes = new(-1)
 		_, err := factory.New(cfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
-		require.Error(t, err)
+		require.ErrorIs(t, err, validation.ErrMinGreaterEqualThanRequired)
 	})
 }
