@@ -92,7 +92,7 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		},
 		repo: repository{
 			metrics:       metrics,
-			singleFlight:  singleflight.New[readFlightKey, *readDocuments](),
+			singleFlight:  singleflight.New[readFlightKey, []bson.Raw](),
 			dedupIdentity: cfg.dedupIdentity,
 			converterOpts: append([]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)}, cfg.ConverterOptions...),
 		},

@@ -6,55 +6,42 @@ package mongo
 
 import (
 	"context"
+	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-
-	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// TestDeduplicateBypassesSessions pins that a read bound to a session never
-// joins, nor is joined by, another caller's in-flight read: the session-bound
-// call runs its own function while an identical flight is still blocked.
+// TestDeduplicateBypassesSessions checks that a session-bound read issues its
+// own query while an identical read is blocked.
 func TestDeduplicateBypassesSessions(t *testing.T) {
 	t.Parallel()
 
-	m, err := New("db")
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		outside := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "outside"}})
+		inside := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "inside"}})
+		m, db, entered, release, finds := gatedRepository(t, outside, inside)
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		coll := db.Collection("items")
+		sess, err := db.Client().StartSession()
+		require.NoError(t, err)
+		defer sess.EndSession(t.Context())
 
-	client, err := mongo.Connect(mongoOptions.Client().ApplyURI("mongodb://127.0.0.1:1"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = client.Disconnect(context.WithoutCancel(t.Context())) })
-	sess, err := client.StartSession()
-	require.NoError(t, err)
-	t.Cleanup(func() { sess.EndSession(context.WithoutCancel(t.Context())) })
-	sessCtx := mongo.NewSessionContext(t.Context(), sess)
-
-	key := readFlightKey{database: "db", collection: "coll", filter: "filter"}
-	inside := &readDocuments{}
-	release := make(chan struct{})
-	entered := make(chan struct{})
-	go func() {
-		_, _ = m.repo.deduplicate(t.Context(), key, false, func(context.Context) (*readDocuments, error) {
-			close(entered)
-			<-release
-			return &readDocuments{}, nil
-		})
-	}()
-	<-entered
-	defer close(release)
-
-	done := make(chan *readDocuments, 1)
-	go func() {
-		v, _ := m.repo.deduplicate(sessCtx, key, false, func(context.Context) (*readDocuments, error) { return inside, nil })
-		done <- v
-	}()
-	select {
-	case v := <-done:
-		require.Same(t, inside, v, "the session-bound read ran on its own")
-	case <-time.After(5 * time.Second):
-		t.Fatal("the session-bound read joined the other caller's flight")
-	}
+		read := func(ctx context.Context) (flightModel, error) {
+			return GetEntity[flightModel, flightModel](ctx, m, coll, bson.D{}, FilterEncoding{Registry: bson.NewRegistry()})
+		}
+		a := beginRead(func() (flightModel, error) { return read(t.Context()) })
+		<-entered
+		b := beginRead(func() (flightModel, error) { return read(mongo.NewSessionContext(t.Context(), sess)) })
+		synctest.Wait()
+		require.Len(t, b, 1, "the session read must complete while the other query is gated")
+		require.Equal(t, "inside", readValue(t, b).Name)
+		unblock()
+		require.Equal(t, "outside", readValue(t, a).Name)
+		require.EqualValues(t, 2, finds.Load())
+	})
 }

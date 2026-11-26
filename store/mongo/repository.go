@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"iter"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
+	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -27,7 +29,7 @@ import (
 )
 
 type repository struct {
-	singleFlight   *singleflight.Group[readFlightKey, *readDocuments]
+	singleFlight   *singleflight.Group[readFlightKey, []bson.Raw]
 	dedupIdentity  DeduplicationIdentityFunc
 	converterOpts  []converter.Option
 	converters     sync.Map
@@ -89,8 +91,8 @@ func (r *repository) deduplicationKey(ctx context.Context, col *mongo.Collection
 }
 
 func (r *repository) deduplicate(
-	ctx context.Context, key readFlightKey, fresh bool, read func(context.Context) (*readDocuments, error),
-) (*readDocuments, error) {
+	ctx context.Context, key readFlightKey, fresh bool, read func(context.Context) ([]bson.Raw, error),
+) ([]bson.Raw, error) {
 	// A session's reads must use its snapshot and cannot share uncommitted data.
 	if fresh || ctx.Value(freshReadKey{}) != nil || mongo.SessionFromContext(ctx) != nil {
 		return read(ctx)
@@ -98,79 +100,189 @@ func (r *repository) deduplicate(
 	return r.singleFlight.Do(ctx, key, read)
 }
 
-// readDocuments holds independent copies of the documents carried by the
-// flight. The closed cursor retains the exact collection codec, including
-// overrides on borrowed handles that the driver does not expose as settings.
-type readDocuments struct {
-	cursor *mongo.Cursor
-	docs   []bson.Raw
-	mu     sync.Mutex // serializes use of Cursor.Current and Decode
+// readQuery visits a document while its bytes and driver decoder are valid.
+func readQuery(ctx context.Context, col *mongo.Collection, filter bson.Raw, single bool, visit func(bson.Raw, func(any) error) error) error {
+	queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	if single {
+		// FindOne keeps the driver's server-side maxTimeMS calculation enabled.
+		result := col.FindOne(queryCtx, filter)
+		raw, err := result.Raw()
+		if err != nil {
+			return coreerrs.WrapOperation(err, "execute query")
+		}
+		return visit(raw, result.Decode)
+	}
+
+	cursor, err := col.Find(queryCtx, filter)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "execute query")
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultCursorCloseTimeout)
+		defer closeCancel()
+		_ = cursor.Close(closeCtx)
+	}()
+
+	for cursor.Next(queryCtx) {
+		if err := visit(cursor.Current, cursor.Decode); err != nil {
+			return err
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return coreerrs.WrapOperation(err, "read documents")
+	}
+	return nil
 }
 
-func (d *readDocuments) decode(raw bson.Raw, target any) error {
-	owned := slices.Clone(raw)
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.cursor.Current = owned
-	defer func() { d.cursor.Current = nil }()
-	return d.cursor.Decode(target)
-}
+func readRepository[T, E any](
+	ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.Raw, single bool, settings []FilterEncoding,
+) ([]E, error) {
+	var encoding FilterEncoding
+	if len(settings) > 0 {
+		encoding = settings[len(settings)-1]
+	}
+	var entities []E
+	decode := func(decodeModel func(any) error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var model T
+		if err := decodeModel(&model); err != nil {
+			return coreerrs.WrapOperation(err, "decode document")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entity, err := convertModel[T, E](sharedConverter[T](&m.repo), model)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "convert document")
+		}
+		entities = append(entities, entity)
+		return ctx.Err()
+	}
 
-func readRepository[T any](
-	ctx context.Context, r *repository, col *mongo.Collection, filter bson.Raw, single bool, settings []FilterEncoding,
-) (*readDocuments, error) {
+	owned := m.conn.externalClient == nil && col.Database().Client() == m.Client()
+	if !owned && encoding.Registry == nil && encoding.BSONOptions == nil {
+		// Preserve the driver's opaque BSON settings on borrowed handles.
+		read := func() ([]E, error) {
+			err := readQuery(ctx, col, filter, single, func(_ bson.Raw, driverDecode func(any) error) error {
+				return decode(driverDecode)
+			})
+			if err != nil {
+				return nil, err
+			}
+			return entities, nil
+		}
+		// A driver session must stay in the caller's goroutine.
+		if mongo.SessionFromContext(ctx) != nil {
+			return read()
+		}
+		return waitForRead(ctx, read)
+	}
+
 	operation := "find"
 	if single {
 		operation = "find_one"
 	}
-	key := r.deduplicationKey(ctx, col, reflect.TypeFor[T](), operation, filter)
-	fresh := len(settings) > 0 && settings[len(settings)-1].FreshRead
-	return r.deduplicate(ctx, key, fresh, func(workCtx context.Context) (*readDocuments, error) {
-		queryCtx, cancel := corecontext.WithMaxTimeout(workCtx, DefaultQueryTimeout)
-		defer cancel()
+	key := m.repo.deduplicationKey(ctx, col, reflect.TypeFor[T](), operation, filter)
+	docs, err := m.repo.deduplicate(ctx, key, encoding.FreshRead, func(workCtx context.Context) ([]bson.Raw, error) {
+		var docs []bson.Raw
+		err := readQuery(workCtx, col, filter, single, func(raw bson.Raw, _ func(any) error) error {
+			docs = append(docs, slices.Clone(raw))
+			return nil
+		})
+		return docs, err
+	})
+	if err != nil {
+		return nil, err
+	}
 
-		opts := options.Find()
-		if single {
-			opts.SetLimit(-1) // As in FindOne, return at most one document in one batch.
-		}
-		cursor, err := col.Find(queryCtx, filter, opts)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "execute query")
-		}
-		defer func() {
-			closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(workCtx), DefaultCursorCloseTimeout)
-			defer closeCancel()
-			_ = cursor.Close(closeCtx)
-			cursor.Current = nil
-		}()
-
-		result := &readDocuments{cursor: cursor}
-		for cursor.Next(queryCtx) {
-			result.docs = append(result.docs, slices.Clone(cursor.Current))
-			if single {
-				break
+	reg, opts := query.FilterEncoding(col, encoding.Registry, encoding.BSONOptions)
+	return waitForRead(ctx, func() ([]E, error) {
+		entities = make([]E, 0, len(docs))
+		for _, raw := range docs {
+			if err := decode(func(target any) error {
+				return decodeReadDocument(slices.Clone(raw), reg, opts, target)
+			}); err != nil {
+				return nil, err
 			}
 		}
-		if err := cursor.Err(); err != nil {
-			return nil, coreerrs.WrapOperation(err, "read documents")
-		}
-		if single && len(result.docs) == 0 {
-			return nil, mongo.ErrNoDocuments
-		}
-		return result, nil
+		return entities, ctx.Err()
 	})
 }
 
-func decodeEntity[T, E any](r *repository, docs *readDocuments, raw bson.Raw) (E, error) {
-	var model T
-	if err := docs.decode(raw, &model); err != nil {
-		return *new(E), coreerrs.WrapOperation(err, "decode document")
+// A BSON decoder or converter can run arbitrary code without taking a context.
+// Allow callers to stop waiting and check cancellation before the next document.
+func waitForRead[E any](ctx context.Context, read func() ([]E, error)) ([]E, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	entity, err := convertModel[T, E](sharedConverter[T](r), model)
-	if err != nil {
-		return *new(E), coreerrs.WrapOperation(err, "convert document")
+	if ctx.Done() == nil {
+		return read()
 	}
-	return entity, nil
+	type result struct {
+		entities []E
+		err      error
+		panicVal any
+	}
+	done := make(chan result, 1)
+	go func() {
+		var r result
+		defer func() {
+			r.panicVal = recover()
+			done <- r
+		}()
+		r.entities, r.err = read()
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-done:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if r.panicVal != nil {
+			panic(r.panicVal)
+		}
+		return r.entities, r.err
+	}
+}
+
+func decodeReadDocument(raw bson.Raw, reg *bson.Registry, opts *options.BSONOptions, target any) error {
+	dec := bson.NewDecoder(bson.NewDocumentReader(bytes.NewReader(raw)))
+	dec.SetRegistry(reg)
+	if opts != nil {
+		if opts.AllowTruncatingDoubles {
+			dec.AllowTruncatingDoubles()
+		}
+		if opts.BinaryAsSlice {
+			dec.BinaryAsSlice()
+		}
+		if opts.DefaultDocumentM {
+			dec.DefaultDocumentM()
+		}
+		if opts.DefaultDocumentMap {
+			dec.DefaultDocumentMap()
+		}
+		if opts.ObjectIDAsHexString {
+			dec.ObjectIDAsHexString()
+		}
+		if opts.UseJSONStructTags {
+			dec.UseJSONStructTags()
+		}
+		if opts.UseLocalTimeZone {
+			dec.UseLocalTimeZone()
+		}
+		if opts.ZeroMaps {
+			dec.ZeroMaps()
+		}
+		if opts.ZeroStructs {
+			dec.ZeroStructs()
+		}
+	}
+	return dec.Decode(target)
 }
 
 // sharedConverter returns the memoized converter for document model type T,
@@ -223,11 +335,11 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 	stopOp := op.duration.Start()
 	defer stopOp()
 
-	docs, err := readRepository[T](ctx, &m.repo, col, raw, true, settings)
+	entities, err := readRepository[T, E](ctx, m, col, raw, true, settings)
 	if err != nil {
 		return zero, err
 	}
-	return decodeEntity[T, E](&m.repo, docs, docs.docs[0])
+	return entities[0], nil
 }
 
 // GetEntities retrieves multiple entities from MongoDB by converting document models to domain entities.
@@ -267,19 +379,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	stopOp := op.duration.Start()
 	defer stopOp()
 
-	docs, err := readRepository[T](ctx, &m.repo, col, raw, false, settings)
-	if err != nil {
-		return nil, err
-	}
-	entities := make([]E, 0, len(docs.docs))
-	for _, raw := range docs.docs {
-		entity, err := decodeEntity[T, E](&m.repo, docs, raw)
-		if err != nil {
-			return nil, err
-		}
-		entities = append(entities, entity)
-	}
-	return entities, nil
+	return readRepository[T, E](ctx, m, col, raw, false, settings)
 }
 
 // GetEntitiesSeq streams matching entities without retaining the full result
