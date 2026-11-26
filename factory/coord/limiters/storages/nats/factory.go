@@ -46,6 +46,7 @@ func Builder(js jetstream.JetStream) storagesfactory.StorageFunc {
 
 		opts := []natsstorage.Option{
 			natsstorage.WithBucket(cfg.NATS.Bucket),
+			natsstorage.WithMaxAge(storagesfactory.NATSRetention),
 			natsstorage.WithReplicas(cfg.NATS.Replicas),
 		}
 		opts = coreslices.AppendIf(opts, cfg.NATS.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())

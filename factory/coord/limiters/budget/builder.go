@@ -88,7 +88,7 @@ func (b *BudgetLimiterBuilder) createStorage(ctx context.Context) (storages.Stor
 	if b.cfg.Storage.Type == storageconfig.BackendTypeMemory {
 		return b.createMemoryStorage() //nolint:contextcheck // the memory cleanup task is process-scoped, not tied to the startup ctx
 	}
-	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "budget")
+	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "budget", b.cfg.Period)
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.

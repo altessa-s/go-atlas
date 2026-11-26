@@ -20,6 +20,7 @@ import (
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
+	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -138,12 +139,17 @@ func TestBuild_RejectsNATSWindowLongerThanRetention(t *testing.T) {
 	t.Parallel()
 	ns := natstest.StartNATSServer(t)
 	_, js := natstest.ConnectJetStream(t, ns)
+	const bucket = "budget-period"
+	const ttl = 48 * time.Hour
+	_, err := limitnats.New(t.Context(), js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(ttl))
+	require.NoError(t, err)
 	cfg := validConfig()
 	cfg.Period = 25 * time.Hour
 	cfg.Storage = &storageconfig.BackendConfig{
 		Type: storageconfig.BackendTypeNATS,
-		NATS: &storageconfig.NATSConfig{Bucket: "budget-period"},
+		NATS: &storageconfig.NATSConfig{Bucket: bucket, MigrateBucketTTL: true},
 	}
-	_, err := factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, natsfactory.Builder(js)).Build(t.Context())
+	_, err = factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, natsfactory.Builder(js)).Build(t.Context())
 	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Equal(t, ttl, natstest.KVBucketTTL(t, js, bucket))
 }
