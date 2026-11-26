@@ -26,4 +26,6 @@
 //	if err := limiter.Allow(ctx, "service:recognizer"); err != nil {
 //	    // budget exhausted or storage error
 //	}
+//
+// With NATS storage, the budget period must fit within the bucket retention.
 package budget

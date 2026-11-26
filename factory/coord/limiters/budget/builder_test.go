@@ -12,6 +12,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
+
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
 
@@ -129,4 +133,18 @@ func TestBuildCustomBackend(t *testing.T) {
 	require.NotNil(t, got)
 	_, err = factory.New(cfg).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+}
+
+func TestBuild_RejectsNATSWindowLongerThanRetention(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	cfg := validConfig()
+	cfg.Period = 25 * time.Hour
+	cfg.Storage = &storageconfig.BackendConfig{
+		Type: storageconfig.BackendTypeNATS,
+		NATS: &storageconfig.NATSConfig{Bucket: "budget-period"},
+	}
+	_, err := factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, natsfactory.Builder(js)).Build(t.Context())
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }

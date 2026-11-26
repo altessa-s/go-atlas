@@ -20,6 +20,8 @@ consistent budget enforcement across multiple service replicas.
 
 `New(limit, period, storage, opts...)` takes the mandatory budget as positional arguments.
 
+With NATS storage, the budget period must fit within the bucket retention.
+
 ## Options
 
 | Option      | Default | Description                  |

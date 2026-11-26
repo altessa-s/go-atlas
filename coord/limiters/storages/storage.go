@@ -39,3 +39,10 @@ type Storage interface {
 	// This can be useful for manual overrides or administrative actions.
 	Reset(ctx context.Context, key string) error
 }
+
+// PeriodValidator is an optional storage capability for validating configured
+// windows at limiter construction. Storage must still validate dynamic periods
+// passed directly to Allow.
+type PeriodValidator interface {
+	ValidatePeriod(time.Duration) error
+}

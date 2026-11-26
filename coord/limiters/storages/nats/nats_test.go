@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
@@ -407,4 +408,15 @@ func TestProvider_AllowAllUnsupported(t *testing.T) {
 	info, err := p.Allow(t.Context(), "host", 1, time.Minute)
 	require.NoError(t, err, "the refused call must not take a slot")
 	require.Equal(t, int64(0), info.Remaining)
+}
+
+func TestProvider_RejectsWindowLongerThanRetention(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	p, err := limitnats.New(t.Context(), js, limitnats.WithBucket("retention"), limitnats.WithMaxAge(100*time.Millisecond))
+	require.NoError(t, err)
+	info, err := p.Allow(t.Context(), "key", 1, time.Hour)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Nil(t, info)
 }

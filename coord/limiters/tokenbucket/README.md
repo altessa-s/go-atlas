@@ -23,7 +23,7 @@ authentication token extraction with configurable storage backends and sophistic
 | `WithLogger`                 | discard | Structured logger                  |
 
 A client service can return `RateLimitSkip` to fall back to IP rules. `RateLimitUnlimited` bypasses storage for either a token or an IP rule.
-Ordinary settings with a non-positive limit or period return `ErrInvalidArgument`.
+Ordinary settings with a non-positive limit or period return `ErrInvalidArgument`. With NATS storage, the period must also fit within the bucket retention.
 
 ## Storage keys
 

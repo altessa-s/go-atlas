@@ -136,6 +136,14 @@ func newCASPolicy(attempts int, maxBackoff time.Duration) *retry.Policy {
 	)
 }
 
+// ValidatePeriod checks that the bucket retains a window for its full period.
+func (p *Provider) ValidatePeriod(period time.Duration) error {
+	if period > p.options.maxAge {
+		return fmt.Errorf("%w: rate limit period %s exceeds NATS retention %s", coreerrs.ErrInvalidArgument, period, p.options.maxAge)
+	}
+	return nil
+}
+
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // The read-modify-write cycle uses NATS KeyValue revision-based CAS:
@@ -152,6 +160,9 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	panics.Must(key != "", "key must not be empty")
 	panics.Must(limit > 0, "limit must be greater than 0")
 	panics.Must(period > 0, "period must be greater than 0")
+	if err := p.ValidatePeriod(period); err != nil {
+		return nil, err
+	}
 
 	key, err := physicalKey(key)
 	if err != nil {

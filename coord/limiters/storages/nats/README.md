@@ -46,6 +46,9 @@ and the caller decides whether to fail open or closed. Through the budget and to
 
 ## Bucket TTL
 
+`Allow` returns `ErrInvalidArgument` if its period exceeds `WithMaxAge`. The budget and token-bucket factories reject such configured windows
+at build time for NATS storage. The default retention is 24 hours.
+
 The bucket's key TTL (`WithMaxAge`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already
 exists with a different key TTL, `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched instead of rewriting it under those processes.
 Align the configuration, use another bucket, or pass `WithMigrateBucketTTL()` to update the existing bucket deliberately; through the budget and

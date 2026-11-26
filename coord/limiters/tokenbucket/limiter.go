@@ -83,6 +83,20 @@ func New(defaults RateLimitSettings, storage storages.Storage, opts ...Option) (
 	if err := validateRules(options.rules); err != nil {
 		return nil, err
 	}
+	if validator, ok := storage.(storages.PeriodValidator); ok {
+		if !defaults.IsUnlimited() {
+			if err := validator.ValidatePeriod(defaults.Period); err != nil {
+				return nil, coreerrs.Wrap(err, "invalid default period")
+			}
+		}
+		for i, rule := range options.rules {
+			if !rule.IsUnlimited() {
+				if err := validator.ValidatePeriod(rule.Period); err != nil {
+					return nil, coreerrs.Wrapf(err, "invalid period at rule index %d", i)
+				}
+			}
+		}
+	}
 	if options.iPv6KeyPrefixBits < 0 || options.iPv6KeyPrefixBits > ipv6Bits {
 		return nil, fmt.Errorf("IPv6 key prefix bits %d out of range [0, %d]", options.iPv6KeyPrefixBits, ipv6Bits)
 	}
