@@ -17,6 +17,8 @@ logger, err := factory.New(cfg.Logger).
 
 After `Build`, `SetLevel` and `GetLevel` act on the default level of the logger built last. With `buffer.enabled`, `Build` registers the
 logger's `Shutdown` with `runtime.OnShutdown` to drain the buffer.
+Set `buffer.bypassLevel: none` to disable synchronous flushing by log level,
+including for error records.
 
 ## Prefix key
 

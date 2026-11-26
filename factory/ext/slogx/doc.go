@@ -10,6 +10,9 @@
 //	    WithEnableMasking().
 //	    Build()
 //
+// With buffering enabled, setting buffer.bypassLevel to none disables
+// synchronous flushing by log level, including for error records.
+//
 // # Prefix key
 //
 // The prefixed and console handlers use [github.com/altessa-s/go-slogx.ModuleKey], which equals
