@@ -17,7 +17,8 @@ caller's constructor, which must return an empty store isolated from every other
 
 | Contract                   | Checks                                                                                  |
 |----------------------------|-----------------------------------------------------------------------------------------|
-| `KeeperStoresReplayRecord` | A Keeper completes a key with a 256 KiB replay record and a repeat reads it back intact |
+| `KeeperStoresReplayRecord`   | A Keeper completes a key with a 256 KiB replay record and a repeat reads it back intact |
+| `StealRefusesCompletedRecord` | Storage refuses matching completed values and preserves the record                     |
 
 ## Usage
 

@@ -64,9 +64,12 @@ func TestStorage_ValidKeyIsStoredUnderItself(t *testing.T) {
 	_, _, _, err := storage.AttemptLock(ctx, natskeytest.PlainKey, []byte("v"))
 	require.NoError(t, err)
 
-	entry, err := storage.KV().Get(ctx, natskeytest.PlainKey)
+	_, err = storage.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
-	require.Equal(t, []byte("v"), entry.Value())
+	acquired, value, _, err := storage.AttemptLock(ctx, natskeytest.PlainKey, []byte("other"))
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, []byte("v"), value)
 }
 
 func TestStorage_KeyTooLong(t *testing.T) {

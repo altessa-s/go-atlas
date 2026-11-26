@@ -15,4 +15,7 @@
 //	    nats.WithMaxAge(24*time.Hour),
 //	)
 //	handler := idempotency.New(storage)
+//
+// Orphan takeover requires synchronized Keeper clocks. Storage decorators must
+// forward storages.KeeperClockStorage to preserve takeover. New rejects mirrors.
 package nats

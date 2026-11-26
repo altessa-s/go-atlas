@@ -47,3 +47,19 @@ func TestNew_BucketStorageMismatch(t *testing.T) {
 	require.ErrorIs(t, err, idempnats.ErrBucketStorageMismatch)
 	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "memory-bucket"))
 }
+
+func TestNew_RejectsMirroredBucket(t *testing.T) {
+	t.Parallel()
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	ctx := t.Context()
+	_, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "source", TTL: time.Hour})
+	require.NoError(t, err)
+	_, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: "mirror", TTL: time.Hour, Mirror: &jetstream.StreamSource{Name: "source"},
+	})
+	require.NoError(t, err)
+
+	_, err = idempnats.New(js, idempnats.WithBucket("mirror"), idempnats.WithMaxAge(time.Hour))
+	require.ErrorIs(t, err, idempnats.ErrMirroredBucket)
+}

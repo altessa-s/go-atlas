@@ -3,9 +3,8 @@
 // the LICENSE file.
 
 // Package storagetest is the conformance kit for [storages.Storage]
-// backends. [Run] executes every contract — currently that a Keeper stores
-// and replays a transport-sized replay record intact — as parallel subtests
-// on fresh stores.
+// backends. [Run] runs parallel contracts on fresh stores, covering
+// transport-sized replay records and protection against completed-record takeover.
 //
 // # Usage
 //

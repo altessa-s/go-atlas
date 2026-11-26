@@ -5,6 +5,7 @@
 package nats_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func TestNew_NilJetStream(t *testing.T) {
 func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	t.Parallel()
 
-	capture := &natstest.JetStreamKVCapture{}
+	capture := &bucketCapture{}
 
 	_, err := idempnats.New(capture,
 		idempnats.WithBucket("idempotency-replicas"),
@@ -55,6 +56,23 @@ func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	require.Equal(t, "idempotency-replicas", capture.KVConfig.Bucket)
 	require.Equal(t, 3, capture.KVConfig.Replicas)
 }
+
+type bucketCapture struct {
+	natstest.JetStreamKVCapture
+}
+
+func (c *bucketCapture) Stream(context.Context, string) (jetstream.Stream, error) {
+	if c.KVConfig.Bucket == "" {
+		return nil, jetstream.ErrStreamNotFound
+	}
+	return capturedStream{}, nil
+}
+
+type capturedStream struct {
+	jetstream.Stream
+}
+
+func (capturedStream) CachedInfo() *jetstream.StreamInfo { return &jetstream.StreamInfo{} }
 
 func TestStorage_AttemptLock_New(t *testing.T) {
 	storage := setupStorage(t)

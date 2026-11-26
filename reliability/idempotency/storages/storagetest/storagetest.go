@@ -24,6 +24,7 @@ var contracts = []struct {
 	check func(*testing.T, storages.Storage)
 }{
 	{"KeeperStoresReplayRecord", KeeperStoresReplayRecord},
+	{"StealRefusesCompletedRecord", StealRefusesCompletedRecord},
 }
 
 // replayResponseSize is the size of the response in the replay record, as
@@ -102,4 +103,28 @@ func KeeperUsesStorageClock(t *testing.T, store storages.Storage) {
 	require.Equal(t, wire, current)
 	require.Nil(t, token)
 	require.NoError(t, store.Complete(ctx, key, []byte("completed by holder"), old))
+}
+
+// StealRefusesCompletedRecord verifies that matching completed bytes do not
+// authorize a takeover, even when the caller requests no age threshold.
+func StealRefusesCompletedRecord(t *testing.T, store storages.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	const key = "completed-key"
+	acquired, _, lockToken, err := store.AttemptLock(ctx, key, []byte("lock"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	done := []byte{1, 0, 255}
+	require.NoError(t, store.Complete(ctx, key, done, lockToken))
+
+	stolen, current, token, err := store.Steal(ctx, key, done, []byte("new lock"), 0, time.Minute)
+	require.NoError(t, err)
+	require.False(t, stolen)
+	require.Equal(t, done, current)
+	require.Nil(t, token)
+	acquired, current, token, err = store.AttemptLock(ctx, key, []byte("another lock"))
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, done, current)
+	require.Nil(t, token)
 }
