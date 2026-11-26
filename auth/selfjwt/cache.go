@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 	"github.com/altessa-s/go-atlas/cache/lru"
+
+	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // cacheKey identifies a cached verification key by subject and key id.

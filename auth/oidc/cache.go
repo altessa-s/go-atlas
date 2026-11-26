@@ -17,9 +17,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/altessa-s/go-atlas/auth/internal/claimnum"
+
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	"github.com/altessa-s/go-atlas/auth/internal/claimnum"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
