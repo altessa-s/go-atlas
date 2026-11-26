@@ -100,7 +100,7 @@ func (s *Storage) AttemptLockWithTTL(_ context.Context, key string, val []byte, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.options.clock()
+	now := s.options.clock.Now()
 	if e, exists := s.entries[key]; exists && !e.expired(now) {
 		return false, slices.Clone(e.value), nil, nil
 	}
@@ -132,7 +132,7 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.options.clock()
+	now := s.options.clock.Now()
 	e, exists := s.entries[key]
 	if !exists || e.expired(now) {
 		// Key gone or expired — TTL elapsed between AttemptLock and
@@ -164,7 +164,7 @@ func (s *Storage) Steal(_ context.Context, key string, expected, replacement []b
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.options.clock()
+	now := s.options.clock.Now()
 	e, exists := s.entries[key]
 	if !exists || e.expired(now) {
 		return false, nil, nil, nil
@@ -214,7 +214,7 @@ func (s *Storage) Release(_ context.Context, key string, lockToken []byte) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
-	if !ok || !bytes.Equal(e.value, lockToken) || e.expired(s.options.clock()) {
+	if !ok || !bytes.Equal(e.value, lockToken) || e.expired(s.options.clock.Now()) {
 		return storages.ErrLockStolen
 	}
 	delete(s.entries, key)

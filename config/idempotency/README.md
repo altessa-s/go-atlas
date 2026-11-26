@@ -19,6 +19,9 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 
 See the [config index](../README.md) for the other schema packages.
 
+For memory storage, `storage.memory.cleanupTaskID` overrides the default `idempotency-memory-cleanup`. Give each memory store sharing a
+scheduler a distinct ID.
+
 ## SQL storage
 
 `StorageTypeSQL` selects PostgreSQL (`postgres`) or MySQL/MariaDB (`mysql`). `SQLStorageConfig` maps to `sqldb: {dialect, table, ensureSchema,

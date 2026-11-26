@@ -17,4 +17,7 @@
 //	if err != nil {
 //		return err
 //	}
+//
+// Scheduled memory stores sharing a scheduler need distinct cleanup task IDs.
+// WithClock accepts a go-atlas-core clock.Clock for acquisition and expiry.
 package memory

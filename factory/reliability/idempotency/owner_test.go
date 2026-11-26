@@ -15,14 +15,13 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	factory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 )
 
 func memoryCfg() *idempotencyconfig.Config {
 	return storageCfg(&idempotencyconfig.StorageConfig{
 		Type:   idempotencyconfig.StorageTypeMemory,
-		Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 1m"},
+		Memory: &idempotencyconfig.MemoryStorageConfig{CleanupSchedule: "@every 1m"},
 	})
 }
 

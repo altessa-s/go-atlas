@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/time/clock"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/storagetest"
 )
@@ -19,7 +20,7 @@ func TestStorageContract(t *testing.T) {
 
 func TestKeeperUsesMemoryClock(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	store := newStore(t, WithClock(func() time.Time { return now }))
+	fakeClock := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	store := newStore(t, WithClock(fakeClock))
 	storagetest.KeeperUsesStorageClock(t, store)
 }

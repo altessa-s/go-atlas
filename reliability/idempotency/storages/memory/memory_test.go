@@ -7,6 +7,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/time/clock"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -294,6 +296,19 @@ func (r *recordingRegistrar) Register(_ context.Context, cfg schedtask.Config) e
 	return nil
 }
 
+func TestNewRejectsDuplicateCleanupTaskID(t *testing.T) {
+	t.Parallel()
+	r := &recordingRegistrar{}
+	opts := []Option{WithScheduler(r), WithCleanupSchedule("@every 5m")}
+	first := newStore(t, opts...)
+	duplicate, err := New(opts...)
+	require.ErrorIs(t, err, ErrDuplicateCleanupTaskID)
+	require.Nil(t, duplicate)
+	require.Equal(t, []string{DefaultCleanupTaskID}, r.ids)
+	newStore(t, WithScheduler(&recordingRegistrar{}), WithCleanupSchedule("@every 5m"))
+	runtime.KeepAlive(first)
+}
+
 func TestCleanupTasksCanUseDistinctIDs(t *testing.T) {
 	t.Parallel()
 	r := &recordingRegistrar{}
@@ -311,15 +326,15 @@ func newStore(tb testing.TB, opts ...Option) *Storage {
 
 func TestStealRefreshesMemoryClockAndTTL(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	store := newStore(t, WithClock(func() time.Time { return now }))
+	fakeClock := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	store := newStore(t, WithClock(fakeClock))
 	ctx := t.Context()
 	first, second := []byte("first"), []byte("second")
 	acquired, _, old, err := store.AttemptLock(ctx, "k", first)
 	require.NoError(t, err)
 	require.True(t, acquired)
 
-	now = now.Add(2 * time.Minute)
+	fakeClock.Advance(2 * time.Minute)
 	stolen, _, token, err := store.Steal(ctx, "k", first, second, time.Minute, time.Second)
 	require.NoError(t, err)
 	require.True(t, stolen)
@@ -331,7 +346,7 @@ func TestStealRefreshesMemoryClockAndTTL(t *testing.T) {
 	require.False(t, stolen)
 	require.Equal(t, second, current)
 
-	now = now.Add(time.Second)
+	fakeClock.Advance(time.Second)
 	acquired, _, _, err = store.AttemptLock(ctx, "k", first)
 	require.NoError(t, err)
 	require.True(t, acquired)

@@ -8,11 +8,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -60,7 +62,7 @@ func TestBuild_MemoryStorageDeduplicates(t *testing.T) {
 	tc := metricstest.NewTestCollector()
 	cfg := storageCfg(&idempotencyconfig.StorageConfig{
 		Type:   idempotencyconfig.StorageTypeMemory,
-		Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 1m"},
+		Memory: &idempotencyconfig.MemoryStorageConfig{CleanupSchedule: "@every 1m"},
 	})
 
 	keeper, err := factory.New(cfg).
@@ -88,7 +90,7 @@ func TestBuild_MemoryCleanupRegistrationFailure(t *testing.T) {
 	scheduler := &testhelpers.MockTaskRegistrar{Err: rejected}
 	cfg := storageCfg(&idempotencyconfig.StorageConfig{
 		Type:   idempotencyconfig.StorageTypeMemory,
-		Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 1m"},
+		Memory: &idempotencyconfig.MemoryStorageConfig{CleanupSchedule: "@every 1m"},
 	})
 
 	keeper, err := factory.New(cfg).UseScheduler(scheduler).Build(t.Context())
@@ -179,4 +181,26 @@ func TestBuildCustomBackend(t *testing.T) {
 	require.NotNil(t, got)
 	_, err = factory.New(cfg).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+}
+
+func TestBuild_MemoryCleanupTaskID(t *testing.T) {
+	t.Parallel()
+	decode := func(id string) *idempotencyconfig.Config {
+		storage := &idempotencyconfig.StorageConfig{}
+		dec := yaml.NewDecoder(strings.NewReader("type: memory\nmemory:\n  cleanupSchedule: '@every 1m'\n  cleanupTaskID: " + id))
+		dec.KnownFields(true)
+		require.NoError(t, dec.Decode(storage))
+		return storageCfg(storage)
+	}
+	scheduler := &taskRecorder{}
+	build := func(cfg *idempotencyconfig.Config) error {
+		_, err := factory.New(cfg).UseScheduler(scheduler).Build(t.Context())
+		return err
+	}
+	require.NoError(t, build(decode("first-cleanup")))
+	require.ErrorIs(t, build(decode("first-cleanup")), memorystorage.ErrDuplicateCleanupTaskID)
+	require.NoError(t, build(decode("second-cleanup")))
+	require.Len(t, scheduler.tasks, 2)
+	require.Equal(t, "first-cleanup", scheduler.tasks[0].ID)
+	require.Equal(t, "second-cleanup", scheduler.tasks[1].ID)
 }
