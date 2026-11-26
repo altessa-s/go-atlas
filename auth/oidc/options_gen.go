@@ -127,6 +127,19 @@ func WithHealthCoordinator(v health.Registrar) Option {
 	}
 }
 
+// WithInsecureRevocationSkipMissingItem enables the revocationSkipMissingItem option.
+//
+// revocationSkipMissingItem looks a token up by the whole token when the
+// configured item claim (jti or kid) is missing or not a string, instead of
+// rejecting it with ErrTokenInvalid. Such a token can never match an item
+// revoked by jti or kid, so it is accepted unchecked.
+func WithInsecureRevocationSkipMissingItem() Option {
+	return func(o *options) {
+		value := true
+		o.revocationSkipMissingItem = value
+	}
+}
+
 // WithIntrospectionFailOpen relaxes introspection to fail-open: when the
 // configured endpoint cannot confirm a token is active (network error, non-2xx
 // response, parse failure) the error is logged and the token is accepted on

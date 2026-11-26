@@ -203,19 +203,46 @@ func TestProvider_checkTokenRevocationVerified_RejectsRevokedKID(t *testing.T) {
 	require.Equal(t, []string{"revoked-kid"}, storage.lookups)
 }
 
-// TestProvider_checkTokenRevocationVerified_FallsBackToFullToken proves the
-// post-verify helper degrades gracefully (full-token key) when the
-// configured field is missing from claims/header rather than skipping the
-// check entirely.
-func TestProvider_checkTokenRevocationVerified_FallsBackToFullToken(t *testing.T) {
+// A token lacking the configured item claim, or carrying it as a non-string,
+// has no revocation key: it is rejected instead of being looked up by the whole
+// token, a key that never matches an item revoked by jti or kid.
+func TestProvider_checkTokenRevocationVerified_RejectsMissingItem(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		itemType string
+		claims   jwt.MapClaims
+		header   map[string]any
+	}{
+		{"jti missing", RevocationItemTypeJTI, jwt.MapClaims{}, nil},
+		{"jti numeric", RevocationItemTypeJTI, jwt.MapClaims{"jti": float64(7)}, nil},
+		{"jti empty", RevocationItemTypeJTI, jwt.MapClaims{"jti": ""}, nil},
+		{"kid missing", RevocationItemTypeKID, jwt.MapClaims{}, map[string]any{}},
+		{"kid numeric", RevocationItemTypeKID, jwt.MapClaims{}, map[string]any{"kid": float64(1)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			storage := newTrackingRevocationStorage("the-full-token")
+			p := newLocalRevocationProvider(t, tc.itemType, storage)
+
+			err := p.revocation.checkTokenRevocationVerified(t.Context(), "the-full-token", tc.claims, tc.header)
+			require.ErrorIs(t, err, ErrTokenInvalid)
+			require.Empty(t, storage.lookups, "no lookup by a key the item type does not name")
+		})
+	}
+}
+
+// WithInsecureRevocationSkipMissingItem restores the whole-token lookup.
+func TestProvider_checkTokenRevocationVerified_SkipMissingItemFallsBackToFullToken(t *testing.T) {
 	t.Parallel()
 
 	storage := newTrackingRevocationStorage("the-full-token")
 	p := newLocalRevocationProvider(t, RevocationItemTypeJTI, storage)
+	p.revocation.skipMissingItem = true
 
 	err := p.revocation.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{}, nil)
-	require.ErrorIs(t, err, ErrTokenRevoked,
-		"missing jti must fall back to the full-token key, not skip the lookup")
+	require.ErrorIs(t, err, ErrTokenRevoked)
 	require.Equal(t, []string{"the-full-token"}, storage.lookups)
 }
 

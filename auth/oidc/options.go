@@ -287,6 +287,11 @@ type options struct {
 	// revocation sync fails. The default (false) is fail-closed: such a token
 	// is rejected with ErrRevocationCheck and construction fails.
 	revocationFailOpen bool
+	// revocationSkipMissingItem looks a token up by the whole token when the
+	// configured item claim (jti or kid) is missing or not a string, instead of
+	// rejecting it with ErrTokenInvalid. Such a token can never match an item
+	// revoked by jti or kid, so it is accepted unchecked.
+	revocationSkipMissingItem bool `opt:"InsecureRevocationSkipMissingItem"`
 	// revocationInitialSyncWait bounds the initial-sync retries — see
 	// DefaultRevocationInitialSyncWait.
 	revocationInitialSyncWait time.Duration `optgen:"default=DefaultRevocationInitialSyncWait"`

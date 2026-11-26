@@ -49,7 +49,8 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 | `WithRevocationFilter`            | nil               | Probabilistic filter wrapped in `NewFilterRevocationStorage` when no storage is set                               |
 | `WithRevocationFilterCleanup`     | nil               | Release a dedicated filter on construction failure or provider close                                              |
 | `WithRevocationLoader`            | nil               | `probfilter.DataLoader` that (re)populates the revocation filter on sync                                                     |
-| `WithRevocationItemType`          | `token`           | What revocation entries identify (`token`, `jti`, `kid`)                                                          |
+| `WithRevocationItemType`          | `token`           | What revocation entries identify (`token`, `jti`, `kid`); a token without a string `jti`/`kid` is rejected (`ErrTokenInvalid`) |
+| `WithInsecureRevocationSkipMissingItem` | off         | Look such a token up by the whole token instead of rejecting it (it can never match a `jti`/`kid` entry)           |
 | `WithRevocationAuthoritative`     | nil               | Exact store confirming filter hits (see Revocation accuracy)                                                      |
 | `WithRevocationFailOpen`          | fail-closed       | Accept tokens on storage errors and start on a failed initial sync                                                |
 | `WithRevocationInitialSyncWait`   | 2m                | How long the initial sync retries while a shared filter is busy                                                   |

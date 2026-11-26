@@ -34,6 +34,7 @@ type revocationChecker struct {
 	tokenCache    Cacher
 
 	itemType                    string
+	skipMissingItem             bool
 	failOpen                    bool
 	initialSyncWait             time.Duration
 	maxStaleness                time.Duration
@@ -70,6 +71,7 @@ func newRevocationChecker(o *options, lifetime context.Context, metrics *oidcMet
 		storage:                     o.revocationStorage,
 		loader:                      o.revocationLoader,
 		itemType:                    o.revocationItemType,
+		skipMissingItem:             o.revocationSkipMissingItem,
 		failOpen:                    o.revocationFailOpen,
 		initialSyncWait:             o.revocationInitialSyncWait,
 		maxStaleness:                o.revocationMaxStaleness,
@@ -140,7 +142,15 @@ func (p *revocationChecker) checkLocalRevocation(ctx context.Context, token stri
 		return nil
 	}
 
-	item := revocationItemFromVerifiedClaims(p.itemType, claims, header, token)
+	item, ok := revocationItemFromVerifiedClaims(p.itemType, claims, header, token)
+	if !ok {
+		if !p.skipMissingItem {
+			p.metrics.revocationCheckErrors.Inc()
+			p.logger.WarnContext(ctx, "token lacks the revocation item claim; rejecting token", "item_type", p.itemType)
+			return coreerrs.Wrapf(ErrTokenInvalid, "token has no %s to check revocation", p.itemType)
+		}
+		item = token
+	}
 	isRevoked, err := p.storage.IsRevoked(ctx, item)
 	if errors.Is(err, ErrRevocationReadinessLost) {
 		p.startRevocationRecovery()
@@ -293,22 +303,19 @@ func (p *revocationChecker) initialRevocationSync(ctx context.Context) error {
 }
 
 // revocationItemFromVerifiedClaims extracts the revocation lookup key from
-// signature-verified claims/header. Falls back to the full token when the
-// configured field is missing so the caller still gets a deterministic key.
-func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, header map[string]any, token string) string {
+// signature-verified claims/header. The bool is false when the configured jti
+// or kid is missing or not a non-empty string, so the caller decides whether to
+// reject the token or fall back to the full token.
+func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, header map[string]any, token string) (string, bool) {
 	switch itemType {
 	case RevocationItemTypeJTI:
-		if jti, ok := claims[RevocationItemTypeJTI].(string); ok && jti != "" {
-			return jti
-		}
+		jti, ok := claims[RevocationItemTypeJTI].(string)
+		return jti, ok && jti != ""
 	case RevocationItemTypeKID:
-		if header != nil {
-			if kid, ok := header[RevocationItemTypeKID].(string); ok && kid != "" {
-				return kid
-			}
-		}
+		kid, ok := header[RevocationItemTypeKID].(string)
+		return kid, ok && kid != ""
 	}
-	return token
+	return token, true
 }
 
 // wireRevocation prepares the revocation clients and storage and shares the
