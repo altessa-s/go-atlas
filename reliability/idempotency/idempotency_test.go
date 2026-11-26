@@ -432,3 +432,43 @@ func TestAttemptLockChecksLatestValueAfterRefusedTakeover(t *testing.T) {
 		})
 	}
 }
+
+func TestAttemptLockSkipsStealForOwnFreshLock(t *testing.T) {
+	t.Parallel()
+	var lock []byte
+	steals := 0
+	s := StorageFunc{
+		AttemptLockWithTTLFunc: func(_ context.Context, _ string, value []byte, _ time.Duration) (bool, []byte, []byte, error) {
+			if lock != nil {
+				return false, lock, nil, nil
+			}
+			lock = value
+			return true, nil, value, nil
+		},
+		StealFunc: func(_ context.Context, _ string, expected, _ []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
+			steals++
+			return false, expected, nil, nil
+		},
+	}
+	opts := []Option{WithMaxLockDuration(time.Hour), WithOwner(func(context.Context) string { return "owner" })}
+	k := New(s, opts...)
+	acquired, _, err := k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.True(t, acquired)
+	acquired, state, err := k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, StatusInProgress, state.Status)
+	require.Zero(t, steals)
+
+	acquired, _, err = New(s, opts...).AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, 1, steals, "another Keeper must defer to the backend clock")
+
+	k.lockEpoch = k.lockEpoch.Add(-2 * time.Hour)
+	acquired, _, err = k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, 2, steals, "once the lock can be stale, this Keeper must defer to the backend clock")
+}

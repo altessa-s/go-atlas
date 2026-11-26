@@ -27,13 +27,15 @@ import (
 // produce distinct bytes — required for byte-equality CAS guards in
 // the memory and redis backends. NATS uses revisions and ignores the
 // nonce. LockedAt supplies the acquisition time for stores that delegate
-// the age check to the Keeper. The
-// public [State] type does NOT carry these fields.
+// the age check to the Keeper. LockIssuer and LockTick let the same Keeper
+// recognize a fresh lock using elapsed monotonic time. [State] omits these fields.
 type serializedState struct {
 	Status      Status    `json:"status"`
 	Data        any       `json:"data,omitempty"`
 	Nonce       string    `json:"nonce,omitempty"`
 	LockedAt    time.Time `json:"locked_at,omitzero"`
+	LockIssuer  string    `json:"lock_issuer,omitempty"`
+	LockTick    int64     `json:"lock_tick,omitzero"`
 	Fingerprint []byte    `json:"fingerprint,omitempty"`
 	Owner       string    `json:"owner,omitempty"`
 }
@@ -121,9 +123,11 @@ type Idempotency interface {
 // Keeper provides duplicate request detection using idempotency keys.
 // It supports multiple storage backends for distributed systems.
 type Keeper struct {
-	storage storages.Storage
-	opts    *options
-	metrics *keeperMetrics
+	storage    storages.Storage
+	opts       *options
+	metrics    *keeperMetrics
+	lockIssuer string
+	lockEpoch  time.Time
 }
 
 // effectiveKey returns the storage key for key: the tuple ("namespace",
@@ -172,9 +176,11 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 	}
 
 	return &Keeper{
-		storage: storage,
-		opts:    options,
-		metrics: newKeeperMetrics(options.meter),
+		storage:    storage,
+		opts:       options,
+		metrics:    newKeeperMetrics(options.meter),
+		lockIssuer: uuid.New().String(),
+		lockEpoch:  time.Now(),
 	}
 }
 
@@ -189,9 +195,9 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *State, err
 // per-call overrides in opts. See [AttemptLockOpts] for field
 // semantics.
 //
-// On collision with an existing InProgress entry, AttemptLock asks the
-// store to reclaim the lock once it is older than MaxLockDuration. The returned *State carries a fresh lock token in
-// that case, so the caller proceeds as the legitimate holder.
+// On collision with an in-progress entry, AttemptLockWithOpts can ask the
+// store to reclaim locks older than MaxLockDuration. A successful takeover
+// returns a state with a fresh lock token.
 func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *State, error) {
 	if key == "" {
 		return false, nil, ErrEmptyKey
@@ -209,11 +215,11 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	wire := serializedState{
 		Status:      StatusInProgress,
 		Nonce:       uuid.New().String(),
-		LockedAt:    i.keeperLockTime(),
 		Fingerprint: slices.Clone(opts.Fingerprint),
 		Owner:       owner,
 	}
 
+	i.stampLock(&wire)
 	val, err := i.opts.serializer.Serialize(wire)
 	if err != nil {
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
@@ -253,7 +259,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 			wire.Fingerprint = existing.Fingerprint
 		}
 		wire.Owner = cmp.Or(existing.Owner, owner)
-		wire.LockedAt = i.keeperLockTime()
+		i.stampLock(&wire)
 		replacement, err := i.opts.serializer.Serialize(wire)
 		if err != nil {
 			return false, nil, coreerrs.WrapOperation(err, "serialize state")
@@ -318,18 +324,31 @@ func (i *Keeper) usesKeeperClock() bool {
 	return ok && store.UsesKeeperClock()
 }
 
-func (i *Keeper) keeperLockTime() time.Time {
+func (i *Keeper) stampLock(wire *serializedState) {
 	if i.usesKeeperClock() {
-		return time.Now()
+		wire.LockedAt = time.Now()
+		return
 	}
-	return time.Time{}
+	wire.LockIssuer = i.lockIssuer
+	wire.LockTick = time.Since(i.lockEpoch).Nanoseconds()
 }
 
 func (i *Keeper) canReclaim(existing serializedState, owner string, maxAge time.Duration) bool {
 	if maxAge <= 0 || existing.Status != StatusInProgress || (existing.Owner != "" && existing.Owner != owner) {
 		return false
 	}
-	return !i.usesKeeperClock() || (!existing.LockedAt.IsZero() && time.Since(existing.LockedAt) > maxAge)
+	if i.usesKeeperClock() {
+		return !existing.LockedAt.IsZero() && time.Since(existing.LockedAt) > maxAge
+	}
+	if existing.LockIssuer == i.lockIssuer {
+		// The stamp precedes acquisition, so a fresh local stamp lets us
+		// skip the write attempt. The backend still decides actual age.
+		now := time.Since(i.lockEpoch).Nanoseconds()
+		if existing.LockTick >= 0 && existing.LockTick <= now && now-existing.LockTick < maxAge.Nanoseconds() {
+			return false
+		}
+	}
+	return true
 }
 
 // ownerOf returns the caller's owner identity, "" without [WithOwner].
