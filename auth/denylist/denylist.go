@@ -16,8 +16,10 @@ import (
 // changing its code.
 type Checker interface {
 	// IsRevoked reports whether key — typically a token's JWT ID (jti), or a
-	// subject for a blanket ban — has been revoked and has not yet expired.
-	IsRevoked(key string) bool
+	// subject for a blanket ban — has been revoked and has not yet expired. A
+	// non-nil error means the checker cannot answer (for example an unprimed or
+	// stale mirror); callers must not treat it as "not revoked".
+	IsRevoked(key string) (bool, error)
 }
 
 // Denylist is a concurrency-safe set of revoked token identifiers. A token
@@ -92,15 +94,16 @@ func (d *Denylist) Restore(key string) {
 
 // IsRevoked reports whether key is currently revoked. An entry past its expiry
 // reports false; it is reclaimed by a later write's periodic sweep or by
-// [Denylist.Sweep].
-func (d *Denylist) IsRevoked(key string) bool {
+// [Denylist.Sweep]. The in-memory set is always authoritative, so the error is
+// always nil; it exists to satisfy [Checker].
+func (d *Denylist) IsRevoked(key string) (bool, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	expiry, ok := d.entries[key]
 	if !ok {
-		return false
+		return false, nil
 	}
-	return expiry.IsZero() || d.now().Before(expiry)
+	return expiry.IsZero() || d.now().Before(expiry), nil
 }
 
 // Len returns the number of tracked entries, including any expired ones not yet

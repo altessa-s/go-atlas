@@ -5,12 +5,17 @@
 package jwt_test
 
 import (
+	"context"
+	"errors"
+	"iter"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/denylist"
+	"github.com/altessa-s/go-atlas/auth/denylist/mirror"
 	"github.com/altessa-s/go-atlas/auth/jwt"
 )
 
@@ -33,13 +38,70 @@ func TestVerifierRevocationRejectsRevokedJTI(t *testing.T) {
 	require.NoError(t, v.ValidateClaims(claims)) // restored
 }
 
-func TestVerifierRevocationEmptyJTIUnchecked(t *testing.T) {
+func TestVerifierRevocationRequiresJTI(t *testing.T) {
+	t.Parallel()
+	v := jwt.NewVerifier(nil, jwt.WithRevocation(denylist.New()))
+
+	err := v.ValidateClaims(jwt.Claims{"exp": futureExp()})
+	require.ErrorIs(t, err, jwt.ErrClaimMissing)
+
+	err = v.ValidateClaims(jwt.Claims{"jti": float64(7), "exp": futureExp()})
+	require.ErrorIs(t, err, jwt.ErrClaimMissing, "a non-string jti is not an identifier")
+}
+
+func TestVerifierRevocationAllowMissingID(t *testing.T) {
 	t.Parallel()
 	dl := denylist.New()
 	dl.Revoke("") // a blank revocation must never match a token without a jti
-	v := jwt.NewVerifier(nil, jwt.WithRevocation(dl))
+	v := jwt.NewVerifier(nil, jwt.WithRevocation(dl), jwt.WithInsecureRevocationAllowMissingID())
 
 	require.NoError(t, v.ValidateClaims(jwt.Claims{"exp": futureExp()}))
+}
+
+func TestVerifierUnprimedMirrorRejects(t *testing.T) {
+	t.Parallel()
+	m := mirror.New(emptySource{})
+	v := jwt.NewVerifier(nil, jwt.WithRevocation(m))
+	claims := jwt.Claims{"jti": "tok-1", "exp": futureExp()}
+
+	err := v.ValidateClaims(claims)
+	require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+	require.NotErrorIs(t, err, jwt.ErrTokenRevoked)
+
+	require.NoError(t, m.Prime(t.Context()))
+	require.NoError(t, v.ValidateClaims(claims))
+}
+
+func TestVerifierStaleMirrorRejects(t *testing.T) {
+	t.Parallel()
+	src := &flakySource{}
+	now := time.Unix(1_750_000_000, 0)
+	m := mirror.New(src, mirror.WithMaxStaleness(time.Minute), mirror.WithClock(func() time.Time { return now }))
+	require.NoError(t, m.Prime(t.Context()))
+	v := jwt.NewVerifier(nil, jwt.WithRevocation(m))
+	claims := jwt.Claims{"jti": "tok-1", "exp": futureExp()}
+	require.NoError(t, v.ValidateClaims(claims))
+
+	src.fail.Store(true)
+	now = now.Add(time.Hour)
+	require.Error(t, m.Refresh(t.Context()))
+	require.ErrorIs(t, v.ValidateClaims(claims), jwt.ErrRevocationUnavailable)
+}
+
+type emptySource struct{}
+
+func (emptySource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(func(string, error) bool) {}
+}
+
+type flakySource struct{ fail atomic.Bool }
+
+func (s *flakySource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		if s.fail.Load() {
+			yield("", errors.New("source down"))
+		}
+	}
 }
 
 func TestVerifierNoRevocationConfigured(t *testing.T) {

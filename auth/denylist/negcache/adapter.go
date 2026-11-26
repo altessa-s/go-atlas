@@ -13,8 +13,8 @@ import (
 // FromChecker adapts a synchronous [denylist.Checker] to the ctx-aware
 // [Authoritative] interface, so any Checker — the in-process [denylist.Denylist]
 // today, a distributed one behind the same seam later — can be the exact tier a
-// [Cache] confirms against. The wrapped Checker performs no I/O, so the context
-// is unused and no error is ever returned.
+// [Cache] confirms against. The wrapped Checker is synchronous, so the context
+// is unused; its error, if any, is returned as is.
 func FromChecker(c denylist.Checker) Authoritative {
 	return checkerAuthoritative{checker: c}
 }
@@ -24,5 +24,5 @@ type checkerAuthoritative struct {
 }
 
 func (a checkerAuthoritative) IsRevoked(_ context.Context, key string) (bool, error) {
-	return a.checker.IsRevoked(key), nil
+	return a.checker.IsRevoked(key)
 }

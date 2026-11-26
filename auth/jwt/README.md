@@ -30,7 +30,7 @@ Use it directly to sign and verify tokens without committing to a JWKS or a part
 | `VerificationKey`           | A public key, optionally bound to the one algorithm it may verify                                   |
 | `Header`                    | The `alg` / `kid` / `typ` a resolver needs to locate a key                                          |
 | `Algorithm`                 | A JWA signature algorithm name (e.g. `EdDSA`, `ES256`, `RS256`)                                     |
-| `RevocationChecker`         | `IsRevoked(id) bool` seam consulted with the token's `jti`; `auth/denylist` satisfies it            |
+| `RevocationChecker`         | `IsRevoked(id) (bool, error)` seam consulted with the token's `jti`; `auth/denylist` satisfies it     |
 
 ## Options
 
@@ -54,7 +54,8 @@ Use it directly to sign and verify tokens without committing to a JWKS or a part
 | `WithNotBeforeRequired`                                         | disabled          | Require the `nbf` claim to be present on verify                                                                                                                                   |
 | `WithSignerClock` / `WithVerifierClock`                         | system UTC        | Injectable clock (tests)                                                                                                                                                          |
 | `WithRand`                                                      | `crypto/rand`     | Injectable randomness source for the jti (tests)                                                                                                                                  |
-| `WithRevocation`                                                | none              | `RevocationChecker` consulted on verify; a token whose `jti` it reports revoked is rejected. A token without `jti` cannot be revoked: require it with `WithRequiredClaims("jti")` |
+| `WithRevocation`                                                | none              | `RevocationChecker` consulted on verify; a token whose `jti` it reports revoked is rejected. A token without a string `jti` is rejected (`ErrClaimMissing`) because it could never be revoked; a checker error rejects with `ErrRevocationUnavailable`. |
+| `WithInsecureRevocationAllowMissingID`                          | off               | Accept a token without `jti` although revocation is configured (it can never be revoked) |
 
 ## Key resolution
 
@@ -157,5 +158,6 @@ subject, scopes := claims.Subject(), claims.Scopes()
 | `ErrSigningKeyInvalid`   | Signing material cannot produce a verifiable token (e.g. empty key id)            |
 | `ErrTokenTypeInvalid`    | typ header does not match the type required via `WithExpectedTokenType`           |
 | `ErrTokenRevoked`        | The token's `jti` is revoked per the `RevocationChecker` set via `WithRevocation` |
+| `ErrRevocationUnavailable` | The checker could not answer (unprimed or stale denylist mirror, store outage); the token is rejected, not accepted unchecked |
 
 A `KeyResolver`'s own error is propagated unwrapped, so a caller can match it with `errors.Is`.

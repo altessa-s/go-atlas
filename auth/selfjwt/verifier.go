@@ -131,7 +131,7 @@ func mapVerifyErr(err error) error {
 		return err
 	case errors.Is(err, jwt.ErrAlgorithmNotAllowed):
 		return fmt.Errorf("%w: %w", ErrAlgorithmNotAllowed, err)
-	case errors.Is(err, jwt.ErrTokenRevoked):
+	case errors.Is(err, jwt.ErrTokenRevoked), errors.Is(err, jwt.ErrRevocationUnavailable):
 		// Propagate the jwt sentinel unwrapped so a caller can errors.Is on it.
 		return err
 	case errors.Is(err, jwt.ErrTokenExpired):

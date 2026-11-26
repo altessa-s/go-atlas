@@ -28,7 +28,7 @@
 //	// Keep the entry past exp by the verifiers' leeway.
 //	dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 //
-//	if dl.IsRevoked(claims.ID()) {
+//	if revoked, err := dl.IsRevoked(claims.ID()); err != nil || revoked {
 //	    return ErrRevoked
 //	}
 //

@@ -14,7 +14,7 @@ to reject tokens revoked before their natural expiry. Transport- and JWT-free, k
 | Type       | Description                                                                                     |
 |------------|-------------------------------------------------------------------------------------------------|
 | `Denylist` | Concurrency-safe revoked-identifier set with permanent and expiry-bounded entries.              |
-| `Checker`  | Read seam (`IsRevoked(key) bool`) a verifier accepts so the backing store can be swapped later. |
+| `Checker`  | Read seam (`IsRevoked(key) (bool, error)`) a verifier accepts so the backing store can be swapped later. |
 
 ## Methods
 
@@ -23,7 +23,7 @@ to reject tokens revoked before their natural expiry. Transport- and JWT-free, k
 | `Revoke(key)`              | Deny `key` permanently, until a matching `Restore`.                               |
 | `RevokeUntil(key, expiry)` | Extend to `expiry` if later. Permanent revocations survive. A past or current expiry is a no-op. |
 | `Restore(key)`             | Re-allow `key`.                                                                   |
-| `IsRevoked(key) bool`      | Whether `key` is currently revoked (expired entries report false).                |
+| `IsRevoked(key) (bool, error)` | Whether `key` is currently revoked (expired entries report false); the error is always nil in memory. |
 | `Sweep() int`              | Drop expired entries, return the count. Writes sweep at most once a minute.       |
 | `Len() int`                | Tracked entries, including not-yet-swept expired ones — for observability/tests.  |
 
@@ -47,7 +47,7 @@ dl := denylist.New()
 // Keep the entry past exp by the verifiers' leeway (and any extra clock difference between instances).
 dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 
-if dl.IsRevoked(claims.ID()) {
+if revoked, err := dl.IsRevoked(claims.ID()); err != nil || revoked {
     return ErrRevoked
 }
 ```

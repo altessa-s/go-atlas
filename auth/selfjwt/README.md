@@ -118,3 +118,4 @@ minter, verifier := selfjwt.New(provider, "billing", "billing-api")
 | `ErrIssuerRequired`      | The minter or verifier was built with an empty issuer                                                          |
 | `ErrAudienceRequired`    | The minter or verifier was built with an empty audience                                                        |
 | `jwt.ErrTokenRevoked`    | The token's `jti` is revoked per `WithRevocation` (propagated unwrapped)                                       |
+| `jwt.ErrRevocationUnavailable` | The `WithRevocation` checker could not answer (for example an unprimed `denylist/mirror`); propagated unwrapped |

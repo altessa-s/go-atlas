@@ -17,6 +17,21 @@
 // Verification compares their exact values to the configured clock and leeway.
 // [Claims.Expiry] rounds upward to a nanosecond for retention deadlines.
 //
+// Other numbers are read without losing digits: a number that float64 holds
+// exactly (every small integer, ordinary decimals) decodes as float64, any
+// other, such as an identifier above 2^53, stays a json.Number with its signed
+// spelling, and [VerifyInto] and [Claims.Decode] read that spelling.
+//
+// # Revocation
+//
+// [WithRevocation] consults a [RevocationChecker] with each token's jti. A
+// token without a string jti is rejected ([ErrClaimMissing]) because it could
+// never be revoked ([WithInsecureRevocationAllowMissingID] opts out), and a
+// checker that cannot answer rejects with [ErrRevocationUnavailable], distinct
+// from [ErrTokenRevoked]. Back it with a primed auth/denylist/mirror — prime it
+// before serving, see factory/auth/denylist/mirror — or the in-memory
+// auth/denylist.
+//
 // # Key resolution seam
 //
 // Verification does not assume where keys come from. A caller supplies a

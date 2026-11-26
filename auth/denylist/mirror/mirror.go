@@ -8,7 +8,11 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"log/slog"
 	"sync/atomic"
+	"time"
+
+	"github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // Source streams the keys an authoritative revocation store currently considers
@@ -20,47 +24,126 @@ type Source interface {
 	StreamValues(ctx context.Context) iter.Seq2[string, error]
 }
 
+// snapshot is one immutable published state: the revoked set, whether it came
+// from a successful refresh, and when. Readers load it once, so a set is never
+// paired with another refresh's timestamp.
+type snapshot struct {
+	set         map[string]struct{}
+	ready       bool
+	refreshedAt time.Time
+}
+
+// Serving states, used to log only when the state changes.
+const (
+	stateServing int32 = iota
+	stateUnprimed
+	stateStale
+)
+
 // Cache is a synchronous, periodically-refreshed local snapshot of a
 // distributed denylist. It satisfies [github.com/altessa-s/go-atlas/auth/jwt.RevocationChecker], so a jwt or
 // selfjwt verifier can enforce distributed revocation without a network call on
 // the hot path. Reads are lock-free; a nil *Cache is not valid — construct with
 // [New].
+//
+// A Cache fails closed: until [Cache.Prime] (or the first [Cache.Refresh])
+// succeeds, and whenever the snapshot is older than [WithMaxStaleness],
+// [Cache.IsRevoked] returns [jwt.ErrRevocationUnavailable] instead of "not
+// revoked".
 type Cache struct {
 	refresh chan struct{} // serializes source reads and snapshot publication
 	src     Source
 	metrics *Metrics
-	set     atomic.Pointer[map[string]struct{}]
+	logger  *slog.Logger
+	now     func() time.Time
+	opts    *options
+	snap    atomic.Pointer[snapshot]
+	state   atomic.Int32
 }
 
-// New returns a Cache backed by src. The snapshot starts empty — nothing is
-// reported revoked — so call [Cache.Refresh] once before serving traffic and
-// then on a schedule to keep it current. src must be non-nil. Pass
-// [WithMetrics] to record refresh outcomes and snapshot size.
+// New returns a Cache backed by src. The cache starts unprimed and refuses to
+// answer — [Cache.IsRevoked] returns [jwt.ErrRevocationUnavailable] — so call
+// [Cache.Prime] before serving traffic and then [Cache.Refresh] on a schedule
+// to keep it current. src must be non-nil. Pass [WithMetrics] to record refresh
+// outcomes and snapshot size, [WithMaxStaleness] to bound the snapshot's age
+// and [WithInsecureServeUnprimed] to opt out of the unprimed refusal.
 func New(src Source, opts ...Option) *Cache {
 	o := newOptions(opts...)
-	c := &Cache{src: src, metrics: o.metrics, refresh: make(chan struct{}, 1)}
-	empty := map[string]struct{}{}
-	c.set.Store(&empty)
+	c := &Cache{src: src, metrics: o.metrics, refresh: make(chan struct{}, 1), opts: o, now: o.clock, logger: o.logger}
+	if c.logger == nil {
+		c.logger = slog.New(slog.DiscardHandler)
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+	c.snap.Store(&snapshot{set: map[string]struct{}{}})
 	return c
 }
 
 // IsRevoked reports whether id (a jti or subject) is in the current snapshot.
-// It reads the snapshot lock-free and never blocks, satisfying the synchronous
-// [github.com/altessa-s/go-atlas/auth/jwt.RevocationChecker] contract.
-func (c *Cache) IsRevoked(id string) bool {
-	m := c.set.Load()
-	if m == nil {
-		return false
+// It reads the snapshot lock-free and never blocks. It returns
+// [jwt.ErrRevocationUnavailable] when the cache is unprimed (unless
+// [WithInsecureServeUnprimed]) or older than [WithMaxStaleness].
+func (c *Cache) IsRevoked(id string) (bool, error) {
+	s := c.snap.Load()
+	if !s.ready {
+		if !c.opts.serveUnprimed {
+			c.unavailable(stateUnprimed, reasonUnprimed)
+			return false, fmt.Errorf("%w: denylist mirror not primed", jwt.ErrRevocationUnavailable)
+		}
+	} else if c.tooOld(s) {
+		c.unavailable(stateStale, reasonStale)
+		return false, fmt.Errorf("%w: denylist mirror snapshot older than %s", jwt.ErrRevocationUnavailable, c.opts.maxStaleness)
 	}
-	_, ok := (*m)[id]
-	return ok
+	if c.state.Swap(stateServing) != stateServing {
+		c.logger.Info("denylist mirror: serving revocation checks again")
+	}
+	_, ok := s.set[id]
+	return ok, nil
+}
+
+func (c *Cache) tooOld(s *snapshot) bool {
+	return c.opts.maxStaleness > 0 && c.now().Sub(s.refreshedAt) > c.opts.maxStaleness
+}
+
+// unavailable counts a refused lookup and logs once per change of state.
+func (c *Cache) unavailable(state int32, reason string) {
+	c.metrics.recordUnavailable(reason)
+	if c.state.Swap(state) != state {
+		c.logger.Error("denylist mirror: refusing revocation checks, tokens with a jti are rejected", slog.String("reason", reason))
+	}
+}
+
+// Prime performs the first synchronous refresh and returns the source error, so
+// a service can refuse to start (or report not-ready) while the denylist is
+// unreachable. It is [Cache.Refresh] under the name that states its role.
+func (c *Cache) Prime(ctx context.Context) error {
+	return c.Refresh(ctx)
+}
+
+// Ready reports whether the cache has a snapshot it will answer from: primed
+// and, when [WithMaxStaleness] is set, not older than it.
+func (c *Cache) Ready() bool {
+	s := c.snap.Load()
+	return s.ready && !c.tooOld(s)
+}
+
+// Age returns the time since the last successful refresh, or zero for a cache
+// that has never refreshed.
+func (c *Cache) Age() time.Duration {
+	s := c.snap.Load()
+	if !s.ready {
+		return 0
+	}
+	return c.now().Sub(s.refreshedAt)
 }
 
 // Refresh rebuilds the snapshot from the authoritative store and atomically
 // swaps it in. On a stream error the previous snapshot is kept and the error is
-// returned, so a transient store failure degrades to slightly staler data
-// rather than an empty denylist. Refresh is intended to run on a scheduler; it
-// is safe to call concurrently with [Cache.IsRevoked].
+// returned: a transient store failure degrades to slightly staler data rather
+// than an empty denylist, until [WithMaxStaleness] makes the cache refuse to
+// answer. Refresh is intended to run on a scheduler; it is safe to call
+// concurrently with [Cache.IsRevoked].
 func (c *Cache) Refresh(ctx context.Context) error {
 	select {
 	case c.refresh <- struct{}{}:
@@ -77,7 +160,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 		}
 		next[key] = struct{}{}
 	}
-	c.set.Store(&next)
+	c.snap.Store(&snapshot{set: next, ready: true, refreshedAt: c.now()})
 	c.metrics.recordRefresh(resultOK, len(next))
 	return nil
 }
@@ -85,9 +168,5 @@ func (c *Cache) Refresh(ctx context.Context) error {
 // Len reports the number of keys in the current snapshot, for observability and
 // tests.
 func (c *Cache) Len() int {
-	m := c.set.Load()
-	if m == nil {
-		return 0
-	}
-	return len(*m)
+	return len(c.snap.Load().set)
 }

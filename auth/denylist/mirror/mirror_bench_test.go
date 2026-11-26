@@ -37,8 +37,8 @@ func BenchmarkIsRevoked(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = m.IsRevoked("9999") // present
-		_ = m.IsRevoked("absent")
+		_, _ = m.IsRevoked("9999") // present
+		_, _ = m.IsRevoked("absent")
 	}
 }
 

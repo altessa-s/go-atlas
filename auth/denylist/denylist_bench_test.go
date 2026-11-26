@@ -17,7 +17,7 @@ func BenchmarkIsRevoked(b *testing.B) {
 	dl.Revoke("revoked")
 	b.ResetTimer()
 	for b.Loop() {
-		_ = dl.IsRevoked("revoked")
+		_, _ = dl.IsRevoked("revoked")
 	}
 }
 

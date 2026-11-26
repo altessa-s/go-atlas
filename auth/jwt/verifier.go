@@ -6,6 +6,7 @@ package jwt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -135,8 +136,11 @@ func (v *Verifier) validateRegistered(claims Claims) error {
 // concrete store, and can be backed by an in-memory denylist now and a
 // distributed one later.
 type RevocationChecker interface {
-	// IsRevoked reports whether the token id (jti) has been revoked.
-	IsRevoked(id string) bool
+	// IsRevoked reports whether the token id (jti) has been revoked. A non-nil
+	// error means the checker cannot answer (see [ErrRevocationUnavailable]);
+	// the verifier then rejects the token, it never treats the error as "not
+	// revoked".
+	IsRevoked(id string) (bool, error)
 }
 
 // validateExtraClaims enforces required claims, audience and revocation.
@@ -150,9 +154,31 @@ func (v *Verifier) validateExtraClaims(claims Claims) error {
 		return fmt.Errorf("%w: audience not accepted", ErrTokenInvalid)
 	}
 	if v.opts.revocation != nil {
-		if jti := claims.ID(); jti != "" && v.opts.revocation.IsRevoked(jti) {
-			return fmt.Errorf("%w: %q", ErrTokenRevoked, jti)
+		return v.checkRevocation(claims)
+	}
+	return nil
+}
+
+// checkRevocation consults the revocation checker for the token's jti. A token
+// without a string jti can never be revoked, so it is rejected unless
+// [WithInsecureRevocationAllowMissingID] was set. A checker that cannot answer
+// rejects the token with [ErrRevocationUnavailable].
+func (v *Verifier) checkRevocation(claims Claims) error {
+	jti := claims.ID()
+	if jti == "" {
+		if v.opts.revocationAllowMissingID {
+			return nil
 		}
+		return fmt.Errorf("%w: %q (needed to check revocation)", ErrClaimMissing, "jti")
+	}
+	revoked, err := v.opts.revocation.IsRevoked(jti)
+	switch {
+	case err != nil && errors.Is(err, ErrRevocationUnavailable):
+		return err
+	case err != nil:
+		return fmt.Errorf("%w: %w", ErrRevocationUnavailable, err)
+	case revoked:
+		return fmt.Errorf("%w: %q", ErrTokenRevoked, jti)
 	}
 	return nil
 }
