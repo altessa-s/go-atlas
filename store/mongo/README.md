@@ -223,11 +223,10 @@ The cursor is base64 JSON, not encrypted: it shows the client the cursor ID and 
 that encrypts (`pagetoken.WithEncryption`), when the sort field is hidden from the client by a projection.
 `ParseCursor` rejects a token longer than `MaxCursorTokenLength` (16 KiB) before decoding it, and `ErrCursorChecksumMismatch` never spells the sort or
 cursor-ID field the server expects.
-Resuming a sort on an embedded-document or array field is not supported: issuing such a cursor fails with `ErrInvalidCursor`.
-
-For reliable continuation, the primary sort field must be present, non-null and have a consistent BSON type across the result set. The legacy cursor
-format omits a null/missing boundary and falls back to the cursor ID, which can skip items when another field defines the sort order. Scalar validation
-prevents query injection; it does not make null or mixed-type sort boundaries safe for pagination.
+The continuation uses the last item's raw BSON sort value. A missing sort key and BSON null share a segment, ordered by the configured cursor ID.
+Keep the populated sort values within one BSON comparison type. An unsupported boundary such as an array, embedded document, or non-ObjectID
+cursor ID fails with `ErrMissingCursorKey`. A non-ID sort requires a continuation with an explicit boundary and rejects tokens that lack one
+with `ErrInvalidCursor`.
 
 ## Cursor sort shapes
 

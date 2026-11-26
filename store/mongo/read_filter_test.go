@@ -217,7 +217,7 @@ func TestListCursorBindsBSONType(t *testing.T) {
 	t.Parallel()
 	coll := newDetachedCollection(t)
 	for _, stored := range []bool{false, true} {
-		req := []ListCursorOption{WithListCursorFilter(bson.M{"n": int32(3)}), WithListCursorSigner(newCursorSigner(t, 1))}
+		req := []ListCursorOption{WithListCursorSort("cursor_id"), WithListCursorFilter(bson.M{"n": int32(3)}), WithListCursorSigner(newCursorSigner(t, 1))}
 		if stored {
 			req = append(req, WithListCursorStorage(newFakeCursorStorage()))
 		}

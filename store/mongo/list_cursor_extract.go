@@ -8,81 +8,14 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"reflect"
 	"strings"
-	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas-core/text/strings/intern"
-
 	corekeys "github.com/altessa-s/go-atlas-core/encoding/keys"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
-
-// tagFieldIndex caches tag-name-to-field-index mappings per reflect.Type,
-// converting the O(n) linear scan in findFieldValueByBSONTag to O(1) map lookup.
-var tagFieldIndex sync.Map // map[reflect.Type]map[string]int
-
-// extractCursorId converts various ID types to their string representation.
-// This function normalizes different ID formats into a consistent string format
-// for cursor generation. It ensures the ID is non-empty and validates it's a
-// MongoDB ObjectID (24 hexadecimal characters).
-//
-// Supported types:
-//   - string: Returned as-is if non-empty and valid (must be ObjectID)
-//   - bson.ObjectID: Converted to hex string representation (always valid)
-//   - fmt.Stringer: Any type implementing String() method
-//
-// Parameters:
-//   - value: ID value in any supported format
-//
-// Returns:
-//   - string: String representation of the ID (validated as ObjectID)
-//   - error: If the type is unsupported, ID is empty, or not a valid ObjectID
-//
-// Error conditions:
-//   - Empty string ID
-//   - Empty string from Stringer implementation
-//   - Unsupported type (doesn't match string, bson.ObjectID, or fmt.Stringer)
-//   - ID is not a valid MongoDB ObjectID (must be 24 hexadecimal characters)
-//
-// Example conversions:
-//   - "507f1f77bcf86cd799439011" → "507f1f77bcf86cd799439011" (ObjectID)
-//   - bson.ObjectID("507f1f77bcf86cd799439011") → "507f1f77bcf86cd799439011" (ObjectID)
-//   - "01HQVZX3M8RFKJH9Q5W0BXYZ12" → error (ULID not supported)
-//   - "550e8400-e29b-41d4-a716-446655440000" → error (UUID not supported)
-func extractCursorId(value any) (string, error) {
-	var id string
-
-	switch v := value.(type) {
-	case string:
-		if v == "" {
-			return "", fmt.Errorf("id must not be empty")
-		}
-		id = v
-	case bson.ObjectID:
-		id = v.Hex()
-	default:
-		if s, ok := v.(fmt.Stringer); ok {
-			id = s.String()
-			if id == "" {
-				return "", fmt.Errorf("stringer id must not be empty")
-			}
-		} else {
-			return "", fmt.Errorf("unsupported id type %T", value)
-		}
-	}
-
-	// Validate that the ID is a valid MongoDB ObjectID
-	// This prevents using ULID, UUID, or other non-ObjectID formats
-	if !isValidCursorId(id) {
-		return "", fmt.Errorf("id %q is not a valid MongoDB ObjectID (must be 24 hexadecimal characters)", id)
-	}
-
-	return id, nil
-}
 
 // isULID checks if a string is a valid ULID format.
 // ULID format: 26 characters using Crockford's Base32 alphabet.
@@ -154,11 +87,14 @@ func validateStatelessCursor(ctx context.Context, c *Cursor, sort bson.D, cursor
 // sort: the server stores one only when the sort is led by a field other than
 // cursorIdField, and it must decode to a supported BSON scalar.
 func validateCursorSortValue(c *Cursor, sort bson.D, cursorIdField string) error {
-	if c.SortValue == "" {
+	if len(sort) == 0 || sort[0].Key == cursorIdField {
+		if c.SortValue != "" {
+			return coreerrs.Wrap(ErrInvalidCursor, "sort value present for a sort led by the cursor ID field")
+		}
 		return nil
 	}
-	if len(sort) == 0 || sort[0].Key == cursorIdField {
-		return coreerrs.Wrap(ErrInvalidCursor, "sort value present for a sort led by the cursor ID field")
+	if c.SortValue == "" {
+		return coreerrs.Wrap(ErrInvalidCursor, "sort value missing for a sort led by a non-ID field")
 	}
 	if _, err := decodeSortValue(c.SortValue); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidCursor, err)
@@ -166,160 +102,38 @@ func validateCursorSortValue(c *Cursor, sort bson.D, cursorIdField string) error
 	return nil
 }
 
-// extractCursorDataFromItem extracts cursor ID and sort field value from an item.
-// The sort field value is needed for compound cursor filter when sorting
-// by a field other than cursor_id.
-//
-// This function is optimized to use reflection for direct field access on structs,
-// avoiding the marshal/unmarshal overhead. Falls back to BSON encoding for non-struct types.
-//
-// Parameters:
-//   - item: The item to extract data from
-//   - cursorIdField: Field name for cursor ID
-//   - sort: Sort specification to determine which field value to extract
-//
-// Returns:
-//   - cursorId: String representation of the cursor ID
-//   - sortFieldValue: Value of the sort field (nil if sorting by cursorIdField)
-//   - error: If extraction fails
-func extractCursorDataFromItem[T any](item T, cursorIdField string, sort bson.D) (cursorId string, sortFieldValue any, err error) {
-	v := reflect.ValueOf(item)
-
-	// Dereference pointers
-	for v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return "", nil, fmt.Errorf("nil item")
-		}
-		v = v.Elem()
-	}
-
-	// Fast path: use reflection for structs
-	if v.Kind() == reflect.Struct {
-		// Extract cursor ID field
-		idValue, err := findFieldValueByBSONTag(v, cursorIdField)
-		if err != nil {
-			return "", nil, coreerrs.Wrapf(err, "cursor id field %q", cursorIdField)
-		}
-
-		cursorId, err = extractCursorId(idValue.Interface())
-		if err != nil {
-			return "", nil, coreerrs.Wrap(err, "extract cursor id")
-		}
-
-		// Extract sort field value if needed
-		if len(sort) > 0 && sort[0].Key != cursorIdField {
-			sortValue, err := findFieldValueByBSONTag(v, sort[0].Key)
-			if err == nil {
-				sortFieldValue = sortValue.Interface()
-			} else {
-				// Reflection failed (e.g., nested dot notation field like "sort_fields.value"):
-				// fall back to BSON marshal + BsonLookup for nested path resolution
-				if itemBytes, marshalErr := bson.Marshal(item); marshalErr == nil {
-					var itemMap bson.M
-					if unmarshalErr := bson.Unmarshal(itemBytes, &itemMap); unmarshalErr == nil {
-						sortFieldValue = BsonLookup(itemMap, sort[0].Key)
-					}
-				}
-			}
-		}
-
-		return cursorId, sortFieldValue, nil
-	}
-
-	// Slow path: fallback to BSON marshal/unmarshal for non-struct types
-	return extractCursorDataViaBSON(item, cursorIdField, sort)
-}
-
-// findFieldValueByBSONTag finds a struct field by its BSON tag name.
-// Searches in order: BSON tag, JSON tag, field name.
-// Uses a sync.Map cache keyed by reflect.Type for O(1) lookups after the first call.
-//
-// Returns the field value if found, or error if not found.
-func findFieldValueByBSONTag(v reflect.Value, tagName string) (reflect.Value, error) {
-	t := v.Type()
-
-	// Fast path: check cached tag-to-index map for this type.
-	if cached, ok := tagFieldIndex.Load(t); ok {
-		indexMap, _ := cached.(map[string]int) //nolint:errcheck // type is guaranteed by tagFieldIndex.Store
-		if idx, found := indexMap[tagName]; found {
-			return v.Field(idx), nil
-		}
-		return reflect.Value{}, fmt.Errorf("field not found")
-	}
-
-	// Slow path: build the index map for this type.
-	indexMap := buildTagFieldIndex(t)
-	tagFieldIndex.Store(t, indexMap)
-
-	if idx, found := indexMap[tagName]; found {
-		return v.Field(idx), nil
-	}
-	return reflect.Value{}, fmt.Errorf("field not found")
-}
-
-// buildTagFieldIndex builds a tag-name-to-field-index map for a struct type.
-// Maps BSON tag names, JSON tag names, and lowercased field names to their indices.
-func buildTagFieldIndex(t reflect.Type) map[string]int {
-	n := t.NumField()
-	m := make(map[string]int, n*2) //nolint:mnd // rough estimate: bson + json tags
-
-	for i := range n {
-		field := t.Field(i)
-
-		// Map BSON tag name
-		if bsonTag := field.Tag.Get("bson"); bsonTag != "" {
-			name, _, _ := strings.Cut(bsonTag, ",")
-			if name != "" && name != "-" {
-				m[name] = i
-			}
-		}
-
-		// Map JSON tag name
-		if jsonTag := field.Tag.Get("json"); jsonTag != "" {
-			name, _, _ := strings.Cut(jsonTag, ",")
-			if name != "" && name != "-" {
-				if _, exists := m[name]; !exists {
-					m[name] = i
-				}
-			}
-		}
-
-		// Map lowercased field name
-		lowerName := intern.LowerString(field.Name)
-		if _, exists := m[lowerName]; !exists {
-			m[lowerName] = i
-		}
-	}
-
-	return m
-}
-
-// extractCursorDataViaBSON is the fallback implementation using BSON marshal/unmarshal.
-// Used for non-struct types (e.g., bson.M, bson.D, maps).
-func extractCursorDataViaBSON[T any](item T, cursorIdField string, sort bson.D) (cursorId string, sortFieldValue any, err error) {
-	itemBytes, err := bson.Marshal(item)
-	if err != nil {
-		return "", nil, coreerrs.WrapOperation(err, "marshal item")
-	}
-
-	var itemMap bson.M
-	if err = bson.Unmarshal(itemBytes, &itemMap); err != nil {
-		return "", nil, coreerrs.WrapOperation(err, "unmarshal item")
-	}
-
-	idValue, ok := itemMap[cursorIdField]
+// extractCursorBoundary reads the wire values before the result model's codec
+// can transform or omit them.
+func extractCursorBoundary(doc bson.Raw, cursorIDField string, sort bson.D) (string, any, error) {
+	id, ok := lookupCursorPath(doc, cursorIDField).ObjectIDOK()
 	if !ok {
-		return "", nil, fmt.Errorf("cursor id field %q missing in item", cursorIdField)
+		return "", nil, coreerrs.Wrap(ErrMissingCursorKey, "cursor ID must be a BSON ObjectID")
+	}
+	if len(sort) == 0 || sort[0].Key == cursorIDField {
+		return id.Hex(), nil, nil
 	}
 
-	cursorId, err = extractCursorId(idValue)
-	if err != nil {
-		return "", nil, coreerrs.Wrap(err, "extract cursor id")
+	value := lookupCursorPath(doc, sort[0].Key)
+	if err := checkSortValueType(value.Type); err != nil {
+		return "", nil, fmt.Errorf("%w: %w", ErrMissingCursorKey, err)
 	}
+	return id.Hex(), value, nil
+}
 
-	if len(sort) > 0 && sort[0].Key != cursorIdField {
-		sortFieldValue = BsonLookup(itemMap, sort[0].Key)
+func lookupCursorPath(doc bson.Raw, path string) bson.RawValue {
+	for {
+		field, rest, nested := strings.Cut(path, ".")
+		value := doc.Lookup(field)
+		switch {
+		case value.IsZero():
+			return bson.RawValue{Type: bson.TypeNull}
+		case !nested, value.Type == bson.TypeArray:
+			// A multikey sort boundary cannot be represented by a scalar.
+			return value
+		case value.Type == bson.TypeEmbeddedDocument:
+			doc, path = value.Document(), rest
+		default:
+			return bson.RawValue{Type: bson.TypeNull}
+		}
 	}
-
-	return cursorId, sortFieldValue, nil
 }

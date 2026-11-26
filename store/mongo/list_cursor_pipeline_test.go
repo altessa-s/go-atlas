@@ -176,7 +176,7 @@ func TestBuildMatchStage(t *testing.T) {
 	t.Run("cursor only", func(t *testing.T) {
 		oid := bson.NewObjectID()
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
 		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
@@ -187,7 +187,7 @@ func TestBuildMatchStage(t *testing.T) {
 		oid := bson.NewObjectID()
 		cursor := &Cursor{CursorId: oid.Hex()}
 		filter := bson.M{"status": "active"}
-		got := buildMatchStage(mustPrepareFilter(t, filter), cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got := buildMatchStage(mustPrepareFilter(t, filter), cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
 		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
@@ -196,7 +196,7 @@ func TestBuildMatchStage(t *testing.T) {
 
 	t.Run("zero cursor treated as no cursor", func(t *testing.T) {
 		cursor := &Cursor{} // zero cursor
-		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got := buildMatchStage(nil, cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
 		require.Empty(t, got, "expected empty pipeline for zero cursor")
 	})
 }
@@ -216,7 +216,7 @@ func TestBuildCursorFilter(t *testing.T) {
 
 	t.Run("descending sort uses $lt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
+		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: -1}})
 		cursorFilter, ok := got["cursor_id"].(bson.M)
 		require.True(t, ok, "expected cursor_id filter, got %v", got)
 		require.Contains(t, cursorFilter, "$lt", "expected $lt for descending sort")
@@ -224,7 +224,7 @@ func TestBuildCursorFilter(t *testing.T) {
 
 	t.Run("ascending sort uses $gt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
-		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: 1}})
+		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "cursor_id", Value: 1}})
 		cursorFilter, ok := got["cursor_id"].(bson.M)
 		require.True(t, ok, "expected cursor_id filter, got %v", got)
 		require.Contains(t, cursorFilter, "$gt", "expected $gt for ascending sort")
@@ -375,6 +375,7 @@ func TestBuildCursorPipeline_CursorFilterDoesNotLeakIntoCountSubPipeline(t *test
 	cursor := &Cursor{CursorId: oid.Hex()}
 
 	opts := baseCursorOpts()
+	opts.sort = bson.D{{Key: opts.cursorIdField, Value: -1}}
 	opts.prepared = mustPrepareFilter(t, bson.M{"status": "active"})
 	opts.cursor = cursor
 	opts.includeTotal = true

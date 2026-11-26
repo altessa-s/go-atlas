@@ -202,7 +202,9 @@ func TestDecodeSortValue_RejectsNonScalar(t *testing.T) {
 			require.NoError(t, err)
 			got, err := decodeSortValue(encoded)
 			require.NoError(t, err)
-			require.Equal(t, v, got)
+			var decoded any
+			require.NoError(t, got.Unmarshal(&decoded))
+			require.Equal(t, v, decoded)
 		}
 	})
 }
@@ -303,13 +305,16 @@ func TestStatefulCursor_SortValueRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, validateCursorSortValue(cursor, sort, DefaultCursorIdField))
 
+	boundary, err := decodeSortValue(cursor.SortValue)
+	require.NoError(t, err)
 	got := buildCursorFilter(cursor, DefaultCursorIdField, sort)
 	want := bson.M{"$or": bson.A{
-		bson.M{"created_at": bson.M{"$lt": sortValue}},
+		bson.M{"created_at": bson.M{"$lt": boundary}},
 		bson.M{"$and": bson.A{
-			bson.M{"created_at": bson.M{"$eq": sortValue}},
+			bson.M{"created_at": bson.M{"$eq": boundary}},
 			bson.M{DefaultCursorIdField: bson.M{"$lt": oid}},
 		}},
+		bson.M{"created_at": nil},
 	}}
 	require.Equal(t, want, got)
 }
@@ -323,13 +328,15 @@ func TestBuildCursorFilter_EqualityUsesEq(t *testing.T) {
 	sortVal, err := encodeSortValue("alice")
 	require.NoError(t, err)
 	oid := bson.NewObjectID()
+	boundary, err := decodeSortValue(sortVal)
+	require.NoError(t, err)
 	got := buildCursorFilter(&Cursor{CursorId: oid.Hex(), SortValue: sortVal}, DefaultCursorIdField,
 		bson.D{{Key: "name", Value: 1}})
 
 	want := bson.M{"$or": bson.A{
-		bson.M{"name": bson.M{"$gt": "alice"}},
+		bson.M{"name": bson.M{"$gt": boundary}},
 		bson.M{"$and": bson.A{
-			bson.M{"name": bson.M{"$eq": "alice"}},
+			bson.M{"name": bson.M{"$eq": boundary}},
 			bson.M{DefaultCursorIdField: bson.M{"$gt": oid}},
 		}},
 	}}
