@@ -44,6 +44,7 @@ logging, and rich error parsing with field-level validation details.
 | `WithProxyFunc`       | env       | Custom resolver matching `http.Transport.Proxy` signature (escape hatch)     |
 | `WithoutProxy`        | env       | Disable proxy resolution including `HTTPS_PROXY` env lookup                  |
 | `WithProxyTLSConfig`  | system    | Custom `*tls.Config` for the handshake to an `https://` proxy (self-signed CA, mTLS, …) |
+| `WithRetry`           | off       | Enables retries; it sets no per-call deadline, so callers supply their own RPC deadlines  |
 | `WithMutationTimeout` | 30s       | Default timeout for Create/Update/Delete operations                          |
 | `WithQueryTimeout`    | 5s        | Default timeout for Get/List operations                                      |
 | `WithErrorConverter`  | nil       | Custom error converter overriding the default `ParseStatusError`             |

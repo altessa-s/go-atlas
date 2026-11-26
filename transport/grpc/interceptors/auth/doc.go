@@ -6,8 +6,8 @@
 // scope-based authorization.
 //
 // Use [ServerInterceptor] with an [Auth] function to validate tokens on the
-// server side. For client-side token injection, use [ClientInterceptor] with
-// [TokenCredentials]. Scope-based authorization is layered on via
+// server side. For client-side token injection, use [NewPerRPCCredentials], whose
+// credentials require transport security. Scope-based authorization is layered on via
 // [ScopeClientAuth], which drives a transport-neutral
 // [ScopeEnforcer] from the verified
 // principal in [Credentials].

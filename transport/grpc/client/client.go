@@ -244,7 +244,6 @@ const retryConfigTemplate = `{%s
   "methodConfig": [{
     "waitForReady": false,
     "name": [{}],
-    "timeout": "%s",
     "retryPolicy": {
       "maxAttempts": %d,
       "initialBackoff": "%s",
@@ -277,13 +276,20 @@ func (c *Client) buildServiceConfig() string {
 	cfg := c.options.retryOptions
 	return fmt.Sprintf(retryConfigTemplate,
 		healthCheck,
-		(time.Duration(cfg.maxAttempts) * cfg.maxBackoff).String(),
 		cfg.maxAttempts,
-		cfg.initialBackoff.String(),
-		cfg.maxBackoff.String(),
+		protoDuration(cfg.initialBackoff),
+		protoDuration(cfg.maxBackoff),
 		cfg.backoffMultiplier,
 		joinStatusCodes(cfg.statusCodes),
 	)
+}
+
+// protoDuration formats d as a protobuf JSON duration, the only notation
+// grpc-go accepts in a service configuration: integer seconds, a nine-digit
+// nanosecond fraction and the "s" suffix. Go's [time.Duration.String] forms
+// such as "50ms" or "1m0s" are rejected, and floats would round.
+func protoDuration(d time.Duration) string {
+	return fmt.Sprintf("%d.%09ds", d/time.Second, d%time.Second)
 }
 
 // joinStatusCodes formats status codes as a JSON array string with quoted elements.

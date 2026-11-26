@@ -35,6 +35,10 @@ const (
 	closeReasonShutdown  closeReason = "shutdown"
 )
 
+// errTargetPoolRetired tells a borrower that the target pool it looked up was
+// retired before the borrow; it looks the target up again.
+var errTargetPoolRetired = errors.New("target pool retired")
+
 // ConnectionPool manages a pool of gRPC client connections with automatic cleanup
 // and health monitoring. Connections are partitioned by target address; each target
 // gets an independent sub-pool bounded by the configured size.
@@ -68,6 +72,12 @@ type ConnectionPool struct {
 	// (zero-overhead when no coordinator is configured) so [CheckHealth]
 	// works as a public API regardless of opt-in.
 	health *poolHealth
+
+	// afterLookup is a test-only gate between the lookup of a target pool and
+	// the borrow from it, used to hold a borrower while cleanup retires the
+	// pool. Nothing in production sets it; tests must set it before the first
+	// concurrent use because it is read without synchronization.
+	afterLookup func(*targetPool)
 }
 
 // targetPool manages connections for a specific target address.
@@ -82,6 +92,10 @@ type targetPool struct {
 	changed chan struct{}
 	waiters int // borrowers blocked on changed; guarded by mu
 	closed  bool
+	// retired is set under mu when the pool holds no connections, borrowers,
+	// waiters or dials and has left the pool map. A borrower that finds it set
+	// looks the target up again instead of using this pool.
+	retired bool
 	dialing int
 	creates sync.WaitGroup
 	reused  metrics.Counter // connectionsReused bound to this target
@@ -201,11 +215,20 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string) (*gr
 }
 
 func (cp *ConnectionPool) getConnection(ctx context.Context, target string, binding *binding) (*grpc.ClientConn, error) {
-	tp, err := cp.getOrCreateTargetPool(target)
-	if err != nil {
-		return nil, err
+	for {
+		tp, err := cp.getOrCreateTargetPool(target)
+		if err != nil {
+			return nil, err
+		}
+		if gate := cp.afterLookup; gate != nil {
+			gate(tp)
+		}
+		conn, err := tp.getConnection(ctx, binding)
+		if errors.Is(err, errTargetPoolRetired) {
+			continue
+		}
+		return conn, err
 	}
-	return tp.getConnection(ctx, binding)
 }
 
 // Binding owns a connection policy for one caller and target. Connections never
@@ -354,16 +377,11 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *binding) (*grp
 			tp.mu.Unlock()
 			return nil, ErrConnectionPoolClosed
 		}
-		for i, pc := range slices.Backward(tp.idle) {
-			if !tp.isHealthy(pc) {
-				tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
-				tp.closeConnectionLocked(pc, closeReasonUnhealthy)
-				continue
-			}
-			if pc.binding != binding {
-				continue
-			}
-			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+		if tp.retired {
+			tp.mu.Unlock()
+			return nil, errTargetPoolRetired
+		}
+		if pc := tp.takeIdleLocked(binding); pc != nil {
 			pc.inUse.Store(true)
 			pc.lastUsed.Store(time.Now().UnixNano())
 			tp.reused.Inc()
@@ -403,6 +421,38 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *binding) (*grp
 			return nil, err
 		}
 	}
+}
+
+// takeIdleLocked removes and returns the idle connection of binding to lend,
+// or nil. Shut down connections are closed on the way. Ready and Idle
+// connections win over Connecting and TransientFailure ones, which are lent
+// only when nothing better is idle.
+func (tp *targetPool) takeIdleLocked(binding *binding) *pooledConnection {
+	var best, fallback *pooledConnection
+	for i, pc := range slices.Backward(tp.idle) {
+		if !tp.isHealthy(pc) {
+			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+			tp.closeConnectionLocked(pc, closeReasonUnhealthy)
+			continue
+		}
+		if pc.binding != binding {
+			continue
+		}
+		if state := pc.conn.GetState(); state == connectivity.Ready || state == connectivity.Idle {
+			best = pc
+			break
+		}
+		if fallback == nil {
+			fallback = pc
+		}
+	}
+	if best == nil {
+		best = fallback
+	}
+	if best != nil {
+		tp.idle = slices.DeleteFunc(tp.idle, func(pc *pooledConnection) bool { return pc == best })
+	}
+	return best
 }
 
 func (tp *targetPool) returnConnection(conn *grpc.ClientConn) {
@@ -479,12 +529,15 @@ func (tp *targetPool) createConnection(ctx context.Context, binding *binding) (*
 	return conn, nil
 }
 
+// isHealthy reports whether pc may stay in the pool. Connecting and
+// TransientFailure connections are kept: grpc-go reconnects them with backoff,
+// while replacing them would dial at the request rate against a down backend.
+// Only a shut down connection is unusable.
 func (tp *targetPool) isHealthy(pc *pooledConnection) bool {
 	if pc == nil || pc.conn == nil {
 		return false
 	}
-	state := pc.conn.GetState()
-	return state == connectivity.Ready || state == connectivity.Idle
+	return pc.conn.GetState() != connectivity.Shutdown
 }
 
 // closeConnectionLocked removes accounting exactly once. The caller removes
@@ -528,7 +581,19 @@ func (tp *targetPool) cleanup() int {
 			cleaned++
 		}
 	}
+	tp.retireIfEmptyLocked()
 	return cleaned
+}
+
+// retireIfEmptyLocked removes an unused target pool from the pool map so
+// targets that came and went do not accumulate. Lookup and retirement meet at
+// mu: a borrower that loaded this pool earlier sees retired and retries.
+func (tp *targetPool) retireIfEmptyLocked() {
+	if len(tp.active) > 0 || len(tp.idle) > 0 || tp.waiters > 0 || tp.dialing > 0 {
+		return
+	}
+	tp.retired = true
+	tp.pool.pools.CompareAndDelete(tp.target, tp)
 }
 
 func (tp *targetPool) close() {

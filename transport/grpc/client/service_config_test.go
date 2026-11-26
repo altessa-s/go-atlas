@@ -65,24 +65,22 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 		RetryableStatusCodes []string `json:"retryableStatusCodes"`
 	}
 	type methodConfig struct {
-		Timeout     string      `json:"timeout"`
+		Timeout     *string     `json:"timeout"`
 		RetryPolicy retryPolicy `json:"retryPolicy"`
 	}
 
 	tests := []struct {
-		name        string
-		opt         Option
-		wantTimeout string
-		want        retryPolicy
+		name string
+		opt  Option
+		want retryPolicy
 	}{
 		{
-			name:        "default",
-			opt:         WithRetry(),
-			wantTimeout: "50s",
+			name: "default",
+			opt:  WithRetry(),
 			want: retryPolicy{
 				MaxAttempts:          DefaultMaxRetryAttempts,
-				InitialBackoff:       "1s",
-				MaxBackoff:           "10s",
+				InitialBackoff:       "1.000000000s",
+				MaxBackoff:           "10.000000000s",
 				BackoffMultiplier:    DefaultBackoffMultiplier,
 				RetryableStatusCodes: DefaultRetryableStatusCodes,
 			},
@@ -96,11 +94,10 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 				WithRetryBackoffMultiplier(1.5),
 				WithRetryStatusCodes("UNAVAILABLE", "INTERNAL"),
 			),
-			wantTimeout: "6s",
 			want: retryPolicy{
 				MaxAttempts:          3,
-				InitialBackoff:       "200ms",
-				MaxBackoff:           "2s",
+				InitialBackoff:       "0.200000000s",
+				MaxBackoff:           "2.000000000s",
 				BackoffMultiplier:    1.5,
 				RetryableStatusCodes: []string{"UNAVAILABLE", "INTERNAL"},
 			},
@@ -119,8 +116,43 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal([]byte(raw), &cfg), raw)
 			require.Len(t, cfg.MethodConfig, 1, raw)
-			require.Equal(t, tc.wantTimeout, cfg.MethodConfig[0].Timeout)
+			require.Nil(t, cfg.MethodConfig[0].Timeout, "retries must not impose a deadline: %s", raw)
 			require.Equal(t, tc.want, cfg.MethodConfig[0].RetryPolicy)
 		})
 	}
+}
+
+// TestNew_RetryDurationsAreValidServiceConfig dials with durations that are
+// not whole seconds: grpc-go accepts only protobuf JSON durations, so a Go
+// duration string such as "50ms" or "1m0s" would reject the configuration.
+func TestNew_RetryDurationsAreValidServiceConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		initial time.Duration
+		maxBack time.Duration
+	}{
+		{"milliseconds and minute", 50 * time.Millisecond, time.Minute},
+		{"nanoseconds", 1500 * time.Nanosecond, 2*time.Second + 5*time.Millisecond},
+		{"whole seconds", time.Second, 10 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := New(t.Context(), "passthrough:///retry-durations",
+				WithInsecure(),
+				WithRetry(WithRetryInitialBackoff(tc.initial), WithRetryMaxBackoff(tc.maxBack)),
+			)
+			require.NoError(t, err)
+			require.NoError(t, c.Close(t.Context()))
+		})
+	}
+}
+
+func TestRetryDurationsRejectNegative(t *testing.T) {
+	t.Parallel()
+	require.Panics(t, func() { WithRetryInitialBackoff(-time.Second)(&retryOptions{}) })
+	require.Panics(t, func() { WithRetryMaxBackoff(-time.Second)(&retryOptions{}) })
 }

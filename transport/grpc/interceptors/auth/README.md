@@ -5,8 +5,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 ```
 
 Package `auth` provides gRPC interceptors for token-based authentication and scope-based authorization. ServerInterceptor validates tokens via a
-pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. `ScopeClientAuth` enforces the method→scope policy held in an
-[`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
+pluggable `Auth` function, `NewPerRPCCredentials` attaches tokens to outgoing calls over TLS only. `ScopeClientAuth` enforces the method→scope policy
+held in an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
 
 Callback failures retain their gRPC code and support sentinel matching with `errors.Is`. Logs and observers receive a fixed classification. The client
 receives the code name, with callback messages and status details discarded.
@@ -27,7 +27,7 @@ receives the code name, with callback messages and status details discarded.
 | `CredentialsFromContext` | Reads the `Credentials` the server interceptor stores after authentication |
 | `Request`         | Authentication request with method, token, and metadata                      |
 | `ExtractBearerToken` / `ExtractTokenFromHeader` | Built-in `TokenExtractor` constructors                  |
-| `StaticTokenProvider` | `TokenProvider` returning a fixed token for `ClientInterceptor`              |
+| `StaticTokenProvider` | `TokenProvider` returning a fixed token for `NewPerRPCCredentials`           |
 
 After a successful authentication the server interceptor stores `Credentials` in the context (read them with `CredentialsFromContext`). When
 `Credentials.Data` is an [`auth/principal`](../../../../auth/principal) `Principal` (or a non-nil `*Principal`), it is also stored through
@@ -50,12 +50,22 @@ No method is exempt by default — gRPC health and reflection included. Exempt o
 reflection and health exemptions applied by default before are available as an explicit opt-in: `auth.WithIgnorePatterns(defaults.IgnorePatterns...)`
 (package [`defaults`](../defaults)); note that its health pattern also matches any service whose name starts with `grpc.health.v1.Health`.
 
-## Client options
+## Client credentials
 
-| Option           | Default         | Description                                       |
-|------------------|-----------------|---------------------------------------------------|
-| `WithHeaderName` | "authorization" | Metadata header name for the token                |
-| `WithScheme`     | "Bearer"        | Authentication scheme prefix (empty for none)     |
+`NewPerRPCCredentials(provider, opts...)` returns `credentials.PerRPCCredentials` for `grpc.WithPerRPCCredentials` (for example through
+`client.WithDialOptions`). Behavior:
+
+- `RequireTransportSecurity()` is true: gRPC refuses to send the token over a plaintext connection. Plaintext development clients use
+  `client.InsecureTokenCredentials` explicitly.
+- A call whose outgoing metadata already carries the credential header is rejected with `codes.Unauthenticated`; two values are never sent.
+- A provider failure is reported as `codes.Unauthenticated` with a fixed message; the provider's error text never reaches the call status.
+- A nil provider is a construction error that matches `errors.Is(err, errors.ErrInvalidArgument)` of go-atlas-core.
+
+| Option           | Default         | Description                                                  |
+|------------------|-----------------|--------------------------------------------------------------|
+| `WithHeaderName` | "authorization" | Metadata header name for the token; trimmed and lowercased   |
+| `WithScheme`     | "Bearer"        | Authentication scheme prefix                                 |
+| `WithNoScheme`   | false           | Send the bare token without a scheme prefix                  |
 
 ## Subpackages
 

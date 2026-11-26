@@ -64,9 +64,11 @@ func TestStateTrackerStateForTargetBest(t *testing.T) {
 	tr.attach("api", pc1)
 	tr.attach("api", pc2)
 
-	// Manually steer entries: one TransientFailure, one Ready.
+	// Manually steer entries: one TransientFailure, one Ready. A non-nil
+	// cancel marks the entry as watched, so its recorded state is used.
 	tr.mu.Lock()
 	for pc, entry := range tr.perTarget["api"] {
+		entry.cancel = func() {}
 		switch pc {
 		case pc1:
 			entry.state = connectivity.TransientFailure
@@ -97,13 +99,16 @@ func TestStateTrackerSubscribeFanOutAndUnsubscribe(t *testing.T) {
 	unsub2 := tr.subscribe("api", func(s connectivity.State) { got2.Store(int32(s)) })
 
 	tr.recordAndFanOut("api", entry, connectivity.Ready)
-	require.Equal(t, int32(connectivity.Ready), got1.Load())
-	require.Equal(t, int32(connectivity.Ready), got2.Load())
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		return got1.Load() == int32(connectivity.Ready) && got2.Load() == int32(connectivity.Ready)
+	}, "subscribers did not receive Ready")
 
 	unsub1()
 	tr.recordAndFanOut("api", entry, connectivity.TransientFailure)
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		return got2.Load() == int32(connectivity.TransientFailure)
+	}, "remaining subscriber did not receive TransientFailure")
 	require.Equal(t, int32(connectivity.Ready), got1.Load(), "unsubscribed callback was invoked")
-	require.Equal(t, int32(connectivity.TransientFailure), got2.Load())
 	unsub2()
 }
 
@@ -194,7 +199,9 @@ func TestPoolHealthAggregateStatusWorstAcrossTargets(t *testing.T) {
 
 	p.tracker.mu.Lock()
 	p.tracker.perTarget["api"][pcReady].state = connectivity.Ready
+	p.tracker.perTarget["api"][pcReady].cancel = func() {}
 	p.tracker.perTarget["backup"][pcDown].state = connectivity.Shutdown
+	p.tracker.perTarget["backup"][pcDown].cancel = func() {}
 	p.tracker.mu.Unlock()
 
 	require.Equal(t, health.StatusNotServing, p.health.aggregateStatus())
@@ -416,4 +423,102 @@ func TestExplicitScopedHealthReporter(t *testing.T) {
 	require.ElementsMatch(t, []string{DefaultPoolHealthServiceName, DefaultPoolHealthServiceName + ".api"}, slices.Collect(last.ListServices()))
 	stop()
 	require.Empty(t, slices.Collect(last.ListServices()))
+}
+
+func TestSubscriberQueueIsBoundedAndKeepsLatest(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var got []connectivity.State
+	sub := newSubscriber(func(s connectivity.State) {
+		<-release
+		mu.Lock()
+		got = append(got, s)
+		mu.Unlock()
+	})
+	t.Cleanup(sub.close)
+
+	states := []connectivity.State{connectivity.Ready, connectivity.TransientFailure}
+	for i := range 10 * subscriberQueueSize {
+		sub.enqueue(states[i%2])
+	}
+	sub.enqueue(connectivity.Shutdown)
+	sub.mu.Lock()
+	queued := len(sub.queue)
+	sub.mu.Unlock()
+	require.LessOrEqual(t, queued, subscriberQueueSize)
+
+	close(release)
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) > 0 && got[len(got)-1] == connectivity.Shutdown
+	}, "latest state was not delivered")
+}
+
+// TestSubscribeAfterShutdownRegistersNothing races registration with
+// shutdown: whichever order wins, no subscriber may outlive shutdown.
+func TestSubscribeAfterShutdownRegistersNothing(t *testing.T) {
+	t.Parallel()
+
+	for range 200 {
+		tr := newStateTracker()
+		var wg sync.WaitGroup
+		wg.Go(func() { tr.subscribe("api", func(connectivity.State) {}) })
+		wg.Go(tr.shutdown)
+		wg.Wait()
+
+		tr.subsMu.RLock()
+		left := len(tr.subs)
+		tr.subsMu.RUnlock()
+		require.Zero(t, left, "a subscriber was registered after shutdown swept")
+	}
+
+	tr := newStateTracker()
+	tr.shutdown()
+	tr.subscribe("api", func(connectivity.State) {})
+	tr.subsMu.RLock()
+	defer tr.subsMu.RUnlock()
+	require.Empty(t, tr.subs)
+}
+
+// TestDetachNotifiesTargetSubscribers removes the Ready connection of a target
+// whose other connection is failing: subscribers must learn the aggregate
+// changed.
+func TestDetachNotifiesTargetSubscribers(t *testing.T) {
+	t.Parallel()
+	tr := newStateTracker()
+	t.Cleanup(tr.shutdown)
+
+	pcReady := newTrackedConn(t)
+	pcDown := newTrackedConn(t)
+	tr.attach("api", pcReady)
+	tr.attach("api", pcDown)
+	tr.mu.Lock()
+	for pc, entry := range tr.perTarget["api"] {
+		entry.cancel = func() {} // watched: the recorded state is used
+		entry.state = connectivity.TransientFailure
+		if pc == pcReady {
+			entry.state = connectivity.Ready
+		}
+	}
+	tr.mu.Unlock()
+
+	var mu sync.Mutex
+	var got []connectivity.State
+	unsub := tr.subscribe("api", func(s connectivity.State) {
+		mu.Lock()
+		got = append(got, s)
+		mu.Unlock()
+	})
+	t.Cleanup(unsub)
+
+	tr.detach("api", pcReady)
+
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) > 0 && got[len(got)-1] == connectivity.TransientFailure
+	}, "subscriber was not told the target aggregate changed")
 }

@@ -38,9 +38,10 @@ const echoMethod = "/test.Echo/Get"
 type echoBackend struct {
 	lis *bufconn.Listener
 
-	mu        sync.Mutex
-	err       error
-	userAgent string
+	mu            sync.Mutex
+	err           error
+	userAgent     string
+	authorization string
 }
 
 func startBackend(t *testing.T) *echoBackend {
@@ -61,6 +62,7 @@ func startBackend(t *testing.T) *echoBackend {
 				b.mu.Lock()
 				defer b.mu.Unlock()
 				b.userAgent = strings.Join(md.Get("user-agent"), ",")
+				b.authorization = strings.Join(md.Get("authorization"), ",")
 				if b.err != nil {
 					return nil, b.err
 				}
@@ -85,6 +87,12 @@ func (b *echoBackend) lastUserAgent() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.userAgent
+}
+
+func (b *echoBackend) lastAuthorization() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.authorization
 }
 
 func (b *echoBackend) dialer() grpc.DialOption {

@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 ```
 
 Package `pool` provides gRPC client connection pooling with automatic cleanup and health monitoring. Each target address gets its own sub-pool of
-connections bounded by the configured size. A background goroutine periodically evicts idle and unhealthy connections based on configurable thresholds.
+connections bounded by the configured size. A background goroutine periodically evicts idle and shut down connections and retires unused target pools.
 Callers must return every connection obtained via `GetConnection` by calling `ReturnConnection`.
 
 ## Key types
@@ -42,7 +42,7 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 | `Bind(target, factory)` | Creates an isolated connection-policy binding sharing the target capacity |
 | `GetConnection(ctx, target)`    | Borrows or dials a conn for target                                                |
 | `Binding.GetConnection(ctx)`    | Borrows or dials a conn through the binding's own factory                         |
-| `ReturnConnection(conn)`        | Returns a conn to the pool; unhealthy conns are closed                            |
+| `ReturnConnection(conn)`        | Returns a conn to the pool; shut down conns are closed                          |
 | `SubscribeTarget(target, cb)`   | Push notifications for state changes; first call enables the state tracker      |
 | `StateForTarget(target)`        | Synchronous best-of-conns connectivity state; returns `Idle` for unknown targets |
 | `CheckHealth(ctx)`              | Implements `health.Checker` for the aggregate pool service                       |
@@ -60,6 +60,10 @@ When configured with `WithHealthCoordinator`, the pool aggregates the worst per-
 
 Coordinator subscribers receive an immediate push on every per-conn state change. The watcher goroutine calls `NotifyStatusChange` synchronously — gRPC
 does not hold any mutex while `WaitForStateChange` returns, so no async indirection is required.
+
+Subscriber callbacks run on their own goroutine: a slow subscriber can lose intermediate states (the latest is always delivered), and the
+unsubscribe function can return while a callback is still running. Idle target pools are retired by cleanup, but the per-target metric series
+already recorded (labeled by `target`) remain registered because the metrics port has no series deletion.
 
 The state-tracking infrastructure is also exposed via `SubscribeTarget` and `StateForTarget` so the gRPC client can observe pool state in pool mode
 without configuring a coordinator on the pool itself.

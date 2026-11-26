@@ -6,11 +6,17 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	grpcmetadata "google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func TestStaticTokenProvider(t *testing.T) {
@@ -29,64 +35,81 @@ func TestTokenProviderFunc(t *testing.T) {
 	require.Equal(t, "dynamic", tok)
 }
 
-func TestClientInterceptor_Name(t *testing.T) {
-	ic := ClientInterceptor(StaticTokenProvider("t"))
-	require.Equal(t, "auth", ic.Name())
+func TestPerRPCCredentials_RequireTransportSecurity(t *testing.T) {
+	t.Parallel()
+	creds := mustCredentials(t, StaticTokenProvider("t"))
+	require.True(t, creds.RequireTransportSecurity())
 }
 
-func TestClientInterceptor_AttachToken(t *testing.T) {
-	ci := ClientInterceptor(StaticTokenProvider("tok123"))
-	inner := ci.(*clientInterceptor)
+func TestPerRPCCredentials_GetRequestMetadata(t *testing.T) {
+	t.Parallel()
 
-	ctx, err := inner.attachToken(t.Context())
-	require.NoError(t, err)
-
-	md, ok := grpcmetadata.FromOutgoingContext(ctx)
-	require.True(t, ok, "no outgoing metadata")
-	auth := md.Get("authorization")
-	require.NotEqual(t, 0, len(auth))
-	require.Equal(t, "Bearer tok123", auth[0])
+	tests := []struct {
+		name  string
+		token string
+		opts  []ClientOption
+		want  map[string]string
+	}{
+		{"bearer by default", "tok123", nil, map[string]string{"authorization": "Bearer tok123"}},
+		{"empty token", "", nil, nil},
+		{"custom header without scheme", "key", []ClientOption{WithHeaderName("X-Api-Key"), WithNoScheme()}, map[string]string{"x-api-key": "key"}},
+		{"custom scheme", "tok", []ClientOption{WithScheme("Token")}, map[string]string{"authorization": "Token tok"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			creds := mustCredentials(t, StaticTokenProvider(tc.token), tc.opts...)
+			got, err := creds.GetRequestMetadata(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
-func TestClientInterceptor_EmptyToken(t *testing.T) {
-	ci := ClientInterceptor(StaticTokenProvider(""))
-	inner := ci.(*clientInterceptor)
-
-	ctx, err := inner.attachToken(t.Context())
+func mustCredentials(t *testing.T, p TokenProvider, opts ...ClientOption) credentials.PerRPCCredentials {
+	t.Helper()
+	creds, err := NewPerRPCCredentials(p, opts...)
 	require.NoError(t, err)
-
-	// No metadata should be attached for empty token
-	_, ok := grpcmetadata.FromOutgoingContext(ctx)
-	require.False(t, ok, "should not have outgoing metadata for empty token")
+	return creds
 }
 
-func TestClientInterceptor_CustomHeader(t *testing.T) {
-	ci := ClientInterceptor(StaticTokenProvider("key"), WithHeaderName("x-api-key"), WithScheme(""))
-	inner := ci.(*clientInterceptor)
-
-	ctx, err := inner.attachToken(t.Context())
-	require.NoError(t, err)
-
-	md, ok := grpcmetadata.FromOutgoingContext(ctx)
-	require.True(t, ok, "no outgoing metadata")
-	val := md.Get("x-api-key")
-	require.NotEqual(t, 0, len(val))
-	require.Equal(t, "key", val[0])
+func TestNewPerRPCCredentials_RejectsMissingProvider(t *testing.T) {
+	t.Parallel()
+	var typedNil TokenProviderFunc
+	for _, p := range []TokenProvider{nil, typedNil} {
+		_, err := NewPerRPCCredentials(p)
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	}
 }
 
-func TestClientInterceptor_ExistingMetadata(t *testing.T) {
-	ci := ClientInterceptor(StaticTokenProvider("tok"))
-	inner := ci.(*clientInterceptor)
+func TestPerRPCCredentials_ProviderErrorIsSanitized(t *testing.T) {
+	t.Parallel()
+	const marker = "SECRET-MARKER-7f3a"
+	errToken := errors.New("vault said " + marker)
+	creds := mustCredentials(t, TokenProviderFunc(func(context.Context) (string, error) { return "", errToken }))
+	_, err := creds.GetRequestMetadata(t.Context())
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.NotContains(t, err.Error(), marker)
+}
 
-	ctx := grpcmetadata.NewOutgoingContext(t.Context(), grpcmetadata.Pairs("x-custom", "val"))
-	ctx, err := inner.attachToken(ctx)
+func TestPerRPCCredentials_RejectsConflictingHeader(t *testing.T) {
+	t.Parallel()
+	creds := mustCredentials(t, StaticTokenProvider("tok"))
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "Authorization", "Bearer other")
+	md, err := creds.GetRequestMetadata(ctx)
+	require.Nil(t, md)
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+
+	other := metadata.AppendToOutgoingContext(t.Context(), "x-trace", "1")
+	got, err := creds.GetRequestMetadata(other)
 	require.NoError(t, err)
+	require.Equal(t, map[string]string{"authorization": "Bearer tok"}, got)
+}
 
-	md, _ := grpcmetadata.FromOutgoingContext(ctx)
-	v := md.Get("x-custom")
-	require.NotEqual(t, 0, len(v))
-	require.Equal(t, "val", v[0])
-	v = md.Get("authorization")
-	require.NotEqual(t, 0, len(v))
-	require.Equal(t, "Bearer tok", v[0])
+func TestWithHeaderName_Normalizes(t *testing.T) {
+	t.Parallel()
+	creds := mustCredentials(t, StaticTokenProvider("k"), WithHeaderName("  X-Api-Key "), WithNoScheme())
+	got, err := creds.GetRequestMetadata(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"x-api-key": "k"}, got)
 }

@@ -6,12 +6,16 @@ package auth
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
-	stdGrpc "google.golang.org/grpc"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // TokenProvider is an interface for providing authentication tokens for outgoing requests.
@@ -37,141 +41,75 @@ var _ TokenProvider = TokenProviderFunc(nil)
 // Example:
 //
 //	provider := auth.StaticTokenProvider("my-api-key")
-//	interceptor := auth.ClientInterceptor(provider)
+//	creds := auth.NewPerRPCCredentials(provider)
 func StaticTokenProvider(token string) TokenProvider {
 	return TokenProviderFunc(func(_ context.Context) (string, error) {
 		return token, nil
 	})
 }
 
-var _ interceptors.ClientInterceptor = (*clientInterceptor)(nil)
+var _ credentials.PerRPCCredentials = (*perRPCCredentials)(nil)
 
-type clientInterceptor struct {
-	provider   TokenProvider
-	headerName string
-	scheme     string
+type perRPCCredentials struct {
+	provider TokenProvider
+	opts     clientOptions
 }
 
-// ClientInterceptor returns a new client interceptor that attaches authentication tokens
-// to outgoing gRPC requests. The token is obtained from the provided TokenProvider and
-// attached to the request metadata.
+// NewPerRPCCredentials returns credentials that attach a token from provider
+// to every outgoing gRPC call. They require transport security: gRPC refuses to
+// send them over a plaintext connection, so a token never travels in cleartext
+// by accident. For development without TLS use
+// [github.com/altessa-s/go-atlas/transport/grpc/client.InsecureTokenCredentials].
 //
-// By default, tokens are attached as Bearer tokens in the "authorization" header.
-// Use WithHeaderName and WithScheme options to customize the header and scheme.
+// By default the token is sent as a Bearer token in the "authorization" header.
+// Use WithHeaderName, WithScheme and WithNoScheme to customize the header and scheme.
+//
+// A call whose outgoing metadata already carries the credential header is
+// rejected with codes.Unauthenticated instead of sending two values, and a
+// provider failure is reported with a fixed message: the provider's error text
+// never reaches the call status. A nil provider is a construction error that
+// matches [coreerrs.ErrInvalidArgument].
 //
 // Example:
 //
-//	// Using static token
-//	interceptor := auth.ClientInterceptor(auth.StaticTokenProvider("my-token"))
-//
-//	// Using dynamic token provider
-//	interceptor := auth.ClientInterceptor(auth.TokenProviderFunc(func(ctx context.Context) (string, error) {
+//	creds, err := auth.NewPerRPCCredentials(auth.TokenProviderFunc(func(ctx context.Context) (string, error) {
 //	    return fetchTokenFromVault(ctx)
 //	}))
-//
-//	conn, err := grpc.Dial(target,
-//	    grpc.WithUnaryInterceptor(interceptor.ClientUnaryInterceptor()),
-//	    grpc.WithStreamInterceptor(interceptor.ClientStreamInterceptor()),
+//	if err != nil {
+//	    return err
+//	}
+//	c, err := client.New(ctx, target,
+//	    client.WithDialOptions(grpc.WithPerRPCCredentials(creds)),
 //	)
-func ClientInterceptor(provider TokenProvider, opts ...ClientOption) interceptors.ClientInterceptor {
-	ic := &clientInterceptor{
-		provider:   provider,
-		headerName: "authorization",
-		scheme:     "Bearer",
+func NewPerRPCCredentials(provider TokenProvider, opts ...ClientOption) (credentials.PerRPCCredentials, error) {
+	if nilcheck.IsNil(provider) {
+		return nil, fmt.Errorf("%w: token provider is required", coreerrs.ErrInvalidArgument)
 	}
-
-	for _, opt := range opts {
-		opt(ic)
-	}
-
-	return ic
+	c := &perRPCCredentials{provider: provider, opts: *newClientOptions(opts...)}
+	return c, nil
 }
 
-// ClientOption configures the client auth interceptor.
-type ClientOption func(*clientInterceptor)
+// RequireTransportSecurity reports true: the token is never sent over plaintext.
+func (*perRPCCredentials) RequireTransportSecurity() bool { return true }
 
-// WithHeaderName sets the metadata header name for the token.
-// Default is "authorization".
-func WithHeaderName(name string) ClientOption {
-	return func(c *clientInterceptor) {
-		c.headerName = name
+// GetRequestMetadata returns the token header for one call. It returns no
+// metadata when the provider has no token to attach.
+func (c *perRPCCredentials) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
+	if md, ok := metadata.FromOutgoingContext(ctx); ok && len(md.Get(c.opts.headerName)) > 0 {
+		return nil, status.Error(codes.Unauthenticated, "credential header already set on the call")
 	}
-}
 
-// WithScheme sets the authentication scheme prefix.
-// Default is "Bearer". Set to empty string for no scheme prefix.
-func WithScheme(scheme string) ClientOption {
-	return func(c *clientInterceptor) {
-		c.scheme = scheme
-	}
-}
-
-// Name returns the interceptor name.
-func (c *clientInterceptor) Name() string {
-	return interceptorName
-}
-
-// ClientUnaryInterceptor returns a unary client interceptor.
-func (c *clientInterceptor) ClientUnaryInterceptor() stdGrpc.UnaryClientInterceptor {
-	return func(
-		ctx context.Context,
-		method string,
-		req, reply any,
-		cc *stdGrpc.ClientConn,
-		invoker stdGrpc.UnaryInvoker,
-		opts ...stdGrpc.CallOption,
-	) error {
-		ctx, err := c.attachToken(ctx)
-		if err != nil {
-			return err
-		}
-		return invoker(ctx, method, req, reply, cc, opts...)
-	}
-}
-
-// ClientStreamInterceptor returns a streaming client interceptor.
-func (c *clientInterceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor {
-	return func(
-		ctx context.Context,
-		desc *stdGrpc.StreamDesc,
-		cc *stdGrpc.ClientConn,
-		method string,
-		streamer stdGrpc.Streamer,
-		opts ...stdGrpc.CallOption,
-	) (stdGrpc.ClientStream, error) {
-		ctx, err := c.attachToken(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return streamer(ctx, desc, cc, method, opts...)
-	}
-}
-
-// attachToken gets the token from the provider and attaches it to the context metadata.
-func (c *clientInterceptor) attachToken(ctx context.Context) (context.Context, error) {
 	token, err := c.provider.Token(ctx)
 	if err != nil {
-		return ctx, err
+		return nil, status.Error(codes.Unauthenticated, "token unavailable")
 	}
 
 	if token == "" {
-		return ctx, nil
+		return nil, nil //nolint:nilnil // No token means no metadata.
 	}
 
-	// Build the header value
-	headerValue := token
-	if c.scheme != "" {
-		headerValue = c.scheme + " " + token
+	if !c.opts.noScheme {
+		token = c.opts.scheme + " " + token
 	}
-
-	// Get existing metadata or create new
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if ok {
-		md = md.Copy()
-	} else {
-		md = metadata.New(nil)
-	}
-
-	md.Set(c.headerName, headerValue)
-	return metadata.NewOutgoingContext(ctx, md), nil
+	return map[string]string{c.opts.headerName: token}, nil
 }

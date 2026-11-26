@@ -4,6 +4,7 @@
 package client
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -28,8 +29,8 @@ func WithRetryBackoffMultiplier(v float64) RetryOption {
 // initialBackoff is the initial backoff duration between retries.
 func WithRetryInitialBackoff(v time.Duration) RetryOption {
 	return func(o *retryOptions) {
-		if v <= 0 {
-			return
+		if v < (0) {
+			panic(fmt.Errorf("initialBackoff is below minimum (0)"))
 		}
 		o.initialBackoff = v
 	}
@@ -52,8 +53,8 @@ func WithRetryMaxAttempts(v int) RetryOption {
 // maxBackoff is the maximum backoff duration.
 func WithRetryMaxBackoff(v time.Duration) RetryOption {
 	return func(o *retryOptions) {
-		if v <= 0 {
-			return
+		if v < (0) {
+			panic(fmt.Errorf("maxBackoff is below minimum (0)"))
 		}
 		o.maxBackoff = v
 	}
