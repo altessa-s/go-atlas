@@ -453,8 +453,8 @@ func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (b
 	l.campDone = done
 	l.stopCleanup = context.AfterFunc(ctx, func() {
 		defer panics.Handle(ctx)
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
-		defer cancel()
+		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
+		defer cancelRelease()
 		if err := l.Release(releaseCtx); err != nil {
 			l.logger.ErrorContext(releaseCtx, "failed to release lease", slog.Any("error", err))
 		}
