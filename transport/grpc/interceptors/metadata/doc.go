@@ -9,8 +9,9 @@
 // [CallMetadata] is created once per RPC by [NewCallMetadata] and stored in the
 // context via [NewContext]. Subsequent interceptors retrieve it with [FromContext]
 // or use the convenience helper [EnsureInContext] which creates metadata on
-// demand. Parsed method names are cached process-wide in a [sync.Map] for
-// efficient repeated lookups.
+// demand. Registered server method names are cached process-wide in a bounded
+// [sync.Map] for efficient repeated lookups; unknown and client method names
+// are parsed without interning.
 //
 // The [Interceptor] function returns a [driver.DrivenInterceptor] that the
 // [interceptors.Chain] automatically prepends, so all downstream

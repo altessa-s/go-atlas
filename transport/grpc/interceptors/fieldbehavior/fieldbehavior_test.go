@@ -7,6 +7,7 @@ package fieldbehavior_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,37 @@ func TestServerInterceptor_StripResponse(t *testing.T) {
 	require.Empty(t, got.GetPassword(), "INPUT_ONLY cleared on response")
 	require.Equal(t, "id-1", got.GetId(), "IDENTIFIER preserved on response")
 	require.Equal(t, "2026-01-01T00:00:00Z", got.GetCreateTime(), "OUTPUT_ONLY preserved on response")
+}
+
+var sharedPackageResource = fullResource()
+
+func TestServerInterceptor_UnaryPreservesSharedResponse(t *testing.T) {
+	t.Parallel()
+
+	uni := newUnary(t)
+	info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/GetResource"}
+	start := make(chan struct{})
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			<-start
+			got, err := uni(t.Context(), &pb.Resource{}, info, func(context.Context, any) (any, error) {
+				return sharedPackageResource, nil
+			})
+			require.NoError(t, err)
+			res, ok := got.(*pb.Resource)
+			require.True(t, ok)
+			require.Empty(t, res.GetPassword(), "wire response must have INPUT_ONLY stripped")
+			require.Equal(t, "id-1", res.GetId())
+			_, mErr := proto.Marshal(res)
+			require.NoError(t, mErr)
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, "secret", sharedPackageResource.GetPassword(), "handler-owned shared message must keep its INPUT_ONLY field")
 }
 
 func TestServerInterceptor_HandlerErrorSkipsResponseStrip(t *testing.T) {

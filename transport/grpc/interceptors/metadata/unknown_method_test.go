@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -82,4 +84,42 @@ type callMetadataStream struct {
 
 func (s *callMetadataStream) Context() context.Context {
 	return NewContext(s.ServerStream.Context(), s.meta)
+}
+
+// TestNewCallMetadata_RandomMethodsBounded pins that random method names cannot
+// grow the process-wide method cache without bound and that unknown/client
+// method names are not interned.
+//
+// Serial: inspects process-wide methodCache and GlobalInterner.
+func TestNewCallMetadata_RandomMethodsBounded(t *testing.T) {
+	ctx := t.Context()
+
+	internBefore := intern.Default().Size()
+	for i := range 1000 {
+		m := fmt.Sprintf("/uninterned.Client%d/Call%d", i, i)
+		meta := NewCallMetadataFromMethod(ctx, m)
+		require.Equal(t, fmt.Sprintf("uninterned.Client%d", i), meta.ServiceName)
+		require.Equal(t, fmt.Sprintf("Call%d", i), meta.MethodName)
+	}
+	NewCallMetadata(ctx, UnknownMethod, &grpc.StreamServerInfo{
+		FullMethod:     UnknownMethod,
+		IsClientStream: true,
+		IsServerStream: true,
+	})
+	require.Equal(t, internBefore, intern.Default().Size(), "client and unknown methods must not be interned")
+
+	for i := range int(1e5) {
+		m := fmt.Sprintf("/flood.Svc%d/Method%d", i, i)
+		info := &grpc.UnaryServerInfo{FullMethod: m}
+		meta := NewCallMetadata(ctx, m, info)
+		require.Equal(t, fmt.Sprintf("flood.Svc%d", i), meta.ServiceName)
+		require.Equal(t, fmt.Sprintf("Method%d", i), meta.MethodName)
+	}
+
+	var count int
+	methodCache.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	require.LessOrEqual(t, count, 8192, "method cache must remain bounded under random method flood")
 }

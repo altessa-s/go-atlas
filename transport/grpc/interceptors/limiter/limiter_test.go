@@ -16,7 +16,72 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	"google.golang.org/grpc/metadata"
+
+	stdGrpc "google.golang.org/grpc"
 )
+
+type headerCapturingTransportStream struct {
+	header metadata.MD
+}
+
+func (s *headerCapturingTransportStream) Method() string { return "/svc/Method" }
+func (s *headerCapturingTransportStream) SetHeader(md metadata.MD) error {
+	s.header = metadata.Join(s.header, md)
+	return nil
+}
+func (s *headerCapturingTransportStream) SendHeader(md metadata.MD) error {
+	s.header = metadata.Join(s.header, md)
+	return nil
+}
+func (s *headerCapturingTransportStream) SetTrailer(metadata.MD) error { return nil }
+
+type headerCapturingServerStream struct {
+	stdGrpc.ServerStream
+	ctx    context.Context
+	header metadata.MD
+}
+
+func (s *headerCapturingServerStream) Context() context.Context { return s.ctx }
+func (s *headerCapturingServerStream) SetHeader(md metadata.MD) error {
+	s.header = metadata.Join(s.header, md)
+	return nil
+}
+
+// TestServerInterceptor_DoesNotEchoOutgoingMetadata verifies that downstream
+// outgoing metadata attached to the server context is never echoed back to the
+// caller via response headers.
+func TestServerInterceptor_DoesNotEchoOutgoingMetadata(t *testing.T) {
+	t.Parallel()
+
+	ic := ServerInterceptor(fakeLimiter(), WithExposeHeaders())
+
+	t.Run("unary", func(t *testing.T) {
+		t.Parallel()
+		ts := &headerCapturingTransportStream{}
+		ctx := stdGrpc.NewContextWithServerTransportStream(t.Context(), ts)
+		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", "Bearer s3cret"))
+
+		_, err := ic.ServerUnaryInterceptor()(ctx, "req", &stdGrpc.UnaryServerInfo{FullMethod: "/svc/Method"}, func(context.Context, any) (any, error) {
+			return "ok", nil
+		})
+		require.NoError(t, err)
+		require.Empty(t, ts.header.Get("authorization"))
+		require.Equal(t, []string{"100"}, ts.header.Get(RateLimitMetadataKey))
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		t.Parallel()
+		ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer s3cret"))
+		ss := &headerCapturingServerStream{ctx: ctx}
+
+		err := ic.ServerStreamInterceptor()(nil, ss, &stdGrpc.StreamServerInfo{FullMethod: "/svc/Method"}, func(any, stdGrpc.ServerStream) error {
+			return nil
+		})
+		require.NoError(t, err)
+		require.Empty(t, ss.header.Get("authorization"))
+		require.Equal(t, []string{"100"}, ss.header.Get(RateLimitMetadataKey))
+	})
+}
 
 func fakeLimiter() limiters.Limiter {
 	return limiters.Func(func(context.Context) (*limiters.LimitInfo, error) {

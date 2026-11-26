@@ -22,6 +22,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -42,9 +43,11 @@ func Name() string { return interceptorName }
 var ID = interceptors.Ref(interceptorName)
 
 var (
-	_ driver.DrivenInterceptor = (*interceptor)(nil)
-	_ driver.DriverStream      = (*requestInterceptor)(nil)
-	_ interceptors.Interceptor = (*interceptor)(nil)
+	_ interceptors.ServerInterceptor = (*interceptor)(nil)
+	_ driver.DrivenInterceptor       = (*interceptor)(nil)
+	_ driver.DriverStream            = (*requestInterceptor)(nil)
+	_ driver.DriverStreamPreSend     = (*requestInterceptor)(nil)
+	_ interceptors.Interceptor       = (*interceptor)(nil)
 )
 
 // interceptor implements the fieldbehavior gRPC interceptor.
@@ -112,7 +115,40 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		updates:   opts.updateNormalizer,
 	}
 
-	return interceptors.ServerDrivenInterceptor(ic)
+	return ic
+}
+
+// ServerUnaryInterceptor returns a unary server interceptor that strips
+// request fields in PreCall and strips a clone of the response message so
+// handler-owned or shared messages are never mutated.
+func (i *interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		ctx, _ = sharedmetadata.EnsureInContext(ctx, info.FullMethod, info)
+		d, newCtx := i.DrivenInterceptor(ctx)
+
+		preResp, err := d.PreCall(newCtx, req)
+		if err != nil {
+			return nil, err
+		}
+		if preResp != nil {
+			return preResp, nil
+		}
+
+		ri := d.(*requestInterceptor) //nolint:errcheck // DrivenInterceptor always returns *requestInterceptor
+		newCtx = ri.RequestContext(newCtx)
+
+		resp, err := handler(newCtx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return ri.stripUnaryResponse(newCtx, resp)
+	}
+}
+
+// ServerStreamInterceptor returns a streaming server interceptor.
+func (i *interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
+	return interceptors.ServerDrivenInterceptor(i).ServerStreamInterceptor()
 }
 
 // classify returns the configured Kind for fullMethod, falling back to the
@@ -162,11 +198,12 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		return nil
 	}
 
-	if stripErr := ri.stripResponse(ctx, resp); stripErr != nil {
-		return stripErr
+	if resp == nil {
+		return nil
 	}
 
-	return nil
+	_, stripErr := ri.stripUnaryResponse(ctx, resp)
+	return stripErr
 }
 
 // PostMsgReceive runs on every incoming streaming message and applies the
@@ -288,14 +325,43 @@ func (ri *requestInterceptor) stripRequest(ctx context.Context, req any) error {
 	return nil
 }
 
-// stripResponse applies StripResponse to resp.
-func (ri *requestInterceptor) stripResponse(ctx context.Context, resp any) error {
-	msg, ok := resp.(proto.Message)
-	if !ok {
-		return nil
+// stripUnaryResponse clones resp before running StripResponse so handler-owned
+// or shared messages remain untouched.
+func (ri *requestInterceptor) stripUnaryResponse(ctx context.Context, resp any) (out any, err error) {
+	if ri.meta != nil && ri.meta.IsClient {
+		return resp, nil
 	}
 
-	return ri.runStrip(ctx, msg, pbfieldbehavior.StripResponse, "response", "response")
+	if ri.shouldSkip() || ri.opts.skipResponse {
+		return resp, nil
+	}
+
+	msg, ok := resp.(proto.Message)
+	if !ok || msg == nil || !msg.ProtoReflect().IsValid() {
+		return resp, nil
+	}
+
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
+			slog.String("side", "response"),
+			slog.String("category", sharedrecovery.PanicCategory),
+		)
+		out = nil
+		err = interceptors.NewError(
+			status.New(codes.Internal, "Internal Error"),
+			sharedrecovery.ErrPanicRecovered,
+		)
+	}()
+
+	clone := proto.Clone(msg)
+	if err := ri.runStrip(ctx, clone, pbfieldbehavior.StripResponse, "response", "response"); err != nil {
+		return nil, err
+	}
+
+	return clone, nil
 }
 
 // stripFn is the shared signature of every fieldbehavior.Strip* entry point.

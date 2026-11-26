@@ -4,9 +4,10 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 ```
 
-Server-side gRPC interceptor that runs the matching [go-aip `fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/fieldbehavior) `Strip*` function
-against the request and the response based on the method name. Operates in mutation mode — it clears server-managed and INPUT_ONLY fields in place.
-Strict mode is intentionally not exposed here: rejecting payloads at the interceptor layer is a contract decision that belongs in the handler.
+Server-side gRPC interceptor that runs the matching [go-aip `fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/fieldbehavior)
+`Strip*` function against the request and the response based on the method name. Operates in mutation mode — it clears server-managed and
+`INPUT_ONLY` fields in place. Strict mode is intentionally not exposed here: rejecting payloads at the interceptor layer is a contract decision
+that belongs in the handler.
 
 By default, the Update mask is a singular `google.protobuf.FieldMask` declared as `update_mask`, falling back to `updateMask` only when
 `update_mask` is not declared. `WithUpdateNormalizer` can override this lookup through the supplied normalizer.
@@ -25,7 +26,8 @@ Following AIP-203, `IDENTIFIER` fields are cleared on Create (the server assigns
 updated — also when the resource is nested in an `Update*Request` wrapper. `OUTPUT_ONLY` is cleared on both.
 
 Updates use `update.Prepare` to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
-`IMMUTABLE` and `IDENTIFIER` values are captured in the deferred plan for comparison with stored state; their paths do not authorize writes in the initial mask.
+`IMMUTABLE` and `IDENTIFIER` values are captured in the deferred plan for comparison with stored state; their paths do not authorize writes in the
+initial mask.
 Protected paths, including explicit clears, are deferred. An unchanged protected value is ignored; a change is `INVALID_ARGUMENT` from stateful
 planning in the handler. `OUTPUT_ONLY` input is sanitized during normalization, including explicit empty and dropped-only masks.
 An omitted mask implies populated fields; an explicit empty mask is a no-op. An empty interim mask can still require protected-field comparison.
@@ -53,8 +55,8 @@ When lookup fails (for example, a bare resource or an unconfigured nested mask),
 values. That fallback has no deferred mask plan; custom masked requests should configure an extractor so explicit clear intent is retained.
 AIP-202 formats are still checked on all retained values, including those of an explicit empty-mask request.
 
-Successful responses always pass through `StripResponse` (INPUT_ONLY → cleared) unless [`WithSkipResponse`](#options) is set or the method is classified
-`KindSkip`. The handler-error path skips response stripping because gRPC drops the body anyway.
+Successful responses always pass through `StripResponse` (`INPUT_ONLY` cleared) unless [`WithSkipResponse`](#options) is set or the method is
+classified `KindSkip`. The handler-error path skips response stripping because gRPC drops the body anyway.
 
 ## Options
 
@@ -91,14 +93,14 @@ if err != nil {
 server := grpc.NewServer(srvOpts...)
 ```
 
-`fieldbehavior` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `protovalidator` after `fieldbehavior` so the
-validator never sees client-supplied `OUTPUT_ONLY` fields the strip is about to clear.
+`fieldbehavior` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `protovalidator` after `fieldbehavior`
+so the validator never sees client-supplied `OUTPUT_ONLY` fields the strip is about to clear.
 
 ## Streaming
 
-The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport. An
-outgoing message with populated INPUT_ONLY fields is stripped on a clone, so the handler's message is not mutated (the unary path still strips the
-returned response in place). Method classification is computed once at stream start from `info.FullMethod` and reused for every frame.
+The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport. Both
+unary responses and outgoing stream messages are stripped on a `proto.Clone` copy, so handler-owned or shared messages are never mutated. Method
+classification is computed once at call start from `info.FullMethod` and reused for every frame.
 
 ## Errors
 

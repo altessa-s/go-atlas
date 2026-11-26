@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
@@ -53,16 +54,67 @@ type callerConstraint interface {
 	*grpc.StreamServerInfo | *grpc.UnaryServerInfo | *grpc.StreamDesc
 }
 
+// maxCachedMethods bounds the process-wide parsed method cache so random or
+// dynamic method paths cannot grow memory or the global string interner
+// without bound.
+const maxCachedMethods = 4096
+
 // parsedMethod caches the result of parsing a full method name.
 type parsedMethod struct {
 	service string
 	method  string
 }
 
-var methodCache sync.Map // Map[string]parsedMethod
+var (
+	methodCache      sync.Map // Map[string]parsedMethod
+	methodCacheCount atomic.Int64
+)
+
+func init() {
+	methodCache.Store(UnknownMethod, parsedMethod{
+		service: "_unknown",
+		method:  "Unknown",
+	})
+	methodCacheCount.Store(1)
+}
+
+func splitMethod(fullMethod string) (service, method string, valid bool) {
+	trimmed, hasLeadingSlash := strings.CutPrefix(fullMethod, "/")
+	if before, after, ok := strings.Cut(trimmed, "/"); ok {
+		return before, after, hasLeadingSlash && before != "" && after != ""
+	}
+	return trimmed, "", false
+}
+
+func canCacheServerMethod[T callerConstraint](fullMethod string, c T) bool {
+	if c == nil || fullMethod == UnknownMethod {
+		return false
+	}
+	switch ct := any(c).(type) {
+	case *grpc.UnaryServerInfo:
+		return ct != nil && ct.FullMethod == fullMethod
+	case *grpc.StreamServerInfo:
+		return ct != nil && ct.FullMethod == fullMethod
+	default:
+		return false
+	}
+}
+
+func reserveMethodCacheSlot() bool {
+	for {
+		cur := methodCacheCount.Load()
+		if cur >= maxCachedMethods {
+			return false
+		}
+		if methodCacheCount.CompareAndSwap(cur, cur+1) {
+			return true
+		}
+	}
+}
 
 // NewCallMetadata creates a new CallMetadata instance from gRPC call information.
-// It performs high-performance parsing and string interning.
+// Registered server method names are parsed, interned, and cached up to a fixed
+// bound; unknown and client method names are sliced without interning or caching.
 func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string, c T) *CallMetadata {
 	callMetadata := &CallMetadata{
 		FullyMethodName: fullMethod,
@@ -70,25 +122,27 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 		StartTime:       time.Now(),
 	}
 
-	// Use cache for parsed method names to avoid string manipulations in hot path
+	// Use cache for parsed server method names to avoid string manipulations in hot path.
 	if v, ok := methodCache.Load(fullMethod); ok {
 		m := v.(parsedMethod) //nolint:errcheck // Type is guaranteed by methodCache.Store
 		callMetadata.ServiceName = m.service
 		callMetadata.MethodName = m.method
 	} else {
-		// Slow path: parse and intern
-		trimmed := strings.TrimPrefix(fullMethod, "/")
-		if before, after, ok0 := strings.Cut(trimmed, "/"); ok0 {
-			callMetadata.ServiceName = intern.String(before)
-			callMetadata.MethodName = intern.String(after)
-		} else {
-			callMetadata.ServiceName = intern.String(trimmed)
+		service, method, valid := splitMethod(fullMethod)
+		if valid && canCacheServerMethod(fullMethod, c) && reserveMethodCacheSlot() {
+			entry := parsedMethod{
+				service: intern.String(service),
+				method:  intern.String(method),
+			}
+			key := intern.String(fullMethod)
+			if actual, loaded := methodCache.LoadOrStore(key, entry); loaded {
+				methodCacheCount.Add(-1)
+				entry = actual.(parsedMethod) //nolint:errcheck // Type is guaranteed by methodCache.LoadOrStore
+			}
+			service, method = entry.service, entry.method
 		}
-
-		methodCache.Store(fullMethod, parsedMethod{
-			service: callMetadata.ServiceName,
-			method:  callMetadata.MethodName,
-		})
+		callMetadata.ServiceName = service
+		callMetadata.MethodName = method
 	}
 
 	if c != nil {
