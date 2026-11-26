@@ -41,6 +41,8 @@ the send context into the outgoing metadata. Its attributes include the destinat
 event creation. A failed publish records an exception and error status. Unsampled parents pass through unchanged. Events without a valid parent
 produce no dispatcher span.
 
+The message creation timestamp stays in `message_created_time` metadata. The outbox records a new creation time at save, which anchors the event TTL.
+
 ## Ordering
 
 To order several subjects for one aggregate, put the same `msg.MetaKeyOrderKey` in their message metadata. The adapter moves it into
