@@ -21,7 +21,7 @@ backend](../mongo/README.md).
 | `PurgeExpired(ctx) (int64, error)`                   | Drains expired rows in bounded batches and returns the total                       |
 | `MaxKeyLength`                                       | 255 characters, including the Keeper's composed namespace                          |
 
-The caller opens and closes `*sql.DB` and registers its driver. This adapter imports `database/sql` and accepts the application’s driver. Oversized keys
+The caller opens and closes `*sql.DB` and registers its driver. This adapter uses `database/sql` with the application's driver. Oversized keys
 fail with `ErrValueTooLong` before SQL execution; they are never truncated or hashed. PostgreSQL keys are text; MySQL uses `VARBINARY(1020)` for up to
 255 UTF-8 characters, preserving case and trailing spaces. Values use `BYTEA` or `LONGBLOB` for binary-safe CAS and replay.
 
@@ -64,8 +64,14 @@ write reports acquisition even when competing callers supply identical bytes. A 
 that read, acquisition retries until it obtains a result or the context ends. In a transaction the read is locking, avoiding stale MySQL snapshots.
 
 CAS tokens are copies of the stored lock bytes, matching MongoDB. `Complete` with a nil token unconditionally inserts or overwrites; the higher-level
-Keeper requires lock state. `Release` rejects empty tokens. Completion and release report `storages.ErrLockStolen` when the key is missing, expired, or changed. A refused takeover returns the currently observed value if the key still exists. Changing a
+Keeper requires lock state. `Release` rejects empty tokens. Completion and release report `storages.ErrLockStolen` when the key is missing,
+expired, or changed. A refused takeover returns the currently observed value if the key still exists. Changing a
 revision column ensures a matching MySQL update succeeds even when its bytes and expiry are unchanged at the database's timestamp precision.
+
+## Upgrade
+
+Stop old writers and recreate existing idempotency tables that lack `locked_at` before running the new version. Call `EnsureSchema` to
+create the replacement table. `EnsureSchema` creates missing tables and indexes. It leaves existing table columns as they are.
 
 ## Transactions
 

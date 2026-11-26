@@ -75,8 +75,8 @@ func (target sqlTarget) open(tb testing.TB, ttl time.Duration, opts ...sqldb.Opt
 	return db, table, s
 }
 
-// Run includes the 256 KiB transport replay-record contract used by each
-// storage's replay_record_test.go. Every contract gets its own table.
+// TestSQLStorageContract runs the shared replay and takeover contracts.
+// Every contract gets its own table.
 func TestSQLStorageContract(t *testing.T) {
 	t.Parallel()
 	for _, target := range sqlTargets() {
@@ -86,6 +86,55 @@ func TestSQLStorageContract(t *testing.T) {
 				_, _, s := target.open(tb, longTTL)
 				return s
 			})
+		})
+	}
+}
+
+// TestMySQLStealAgeBoundary freezes the session clock so separate statements
+// can observe an exact age on MySQL and MariaDB.
+func TestMySQLStealAgeBoundary(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		if target.dialect != sqldb.DialectMySQL {
+			continue
+		}
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table, store := target.open(t, longTTL, sqldb.WithPurgeInterval(0))
+			tx, err := db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback() }()
+			ctx := sqldb.WithTx(t.Context(), tx)
+			_, err = tx.ExecContext(ctx, "SET timestamp = 1767225600")
+			require.NoError(t, err)
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 3*time.Second)
+				defer cancel()
+				_, err := tx.ExecContext(ctx, "SET timestamp = DEFAULT")
+				require.NoError(t, err)
+			}()
+
+			old, replacement := payload("lock"), payload("replacement")
+			acquired, _, _, err := store.AttemptLock(ctx, "boundary", old)
+			require.NoError(t, err)
+			require.True(t, acquired)
+			stolen, current, token, err := store.Steal(ctx, "boundary", old, replacement, time.Nanosecond, 0)
+			require.NoError(t, err)
+			require.False(t, stolen, "a same-tick lock is younger than one nanosecond")
+			require.Equal(t, old, current)
+			require.Nil(t, token)
+
+			_, err = tx.ExecContext(ctx, "UPDATE "+table+" SET locked_at = UTC_TIMESTAMP(6) - INTERVAL 1 MICROSECOND WHERE `key` = ?", "boundary")
+			require.NoError(t, err)
+			stolen, current, token, err = store.Steal(ctx, "boundary", old, replacement, time.Microsecond, 0)
+			require.NoError(t, err)
+			require.False(t, stolen, "equality does not authorize takeover")
+			require.Equal(t, old, current)
+			require.Nil(t, token)
+			stolen, _, token, err = store.Steal(ctx, "boundary", old, replacement, time.Nanosecond, 0)
+			require.NoError(t, err)
+			require.True(t, stolen, "one microsecond exceeds a one-nanosecond threshold")
+			require.NotEmpty(t, token)
 		})
 	}
 }

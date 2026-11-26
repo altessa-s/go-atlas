@@ -35,7 +35,7 @@ type Storage struct {
 var _ storages.Storage = (*Storage)(nil)
 
 type statements struct {
-	insert, takeover, observe, complete, steal, upsert, release, remove, cleanup, expiredKeys string
+	insert, takeover, observe, complete, steal, stealAged, upsert, release, remove, cleanup, expiredKeys string
 }
 
 // New validates the configuration without I/O. Call EnsureSchema separately.
@@ -77,7 +77,7 @@ func (s *Storage) buildStatements() statements {
 		complete: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", locked_at = NULL, revision = revision + 1" +
 			" WHERE " + k + " = ? AND val = ?" + live,
 		steal: "UPDATE " + t + " SET val = ?, expires_at = " + d.expiresIn() + ", locked_at = " + d.now + ", revision = revision + 1" +
-			" WHERE " + k + " = ? AND val = ?" + live + " AND locked_at <= " + d.expiresIn(),
+			" WHERE " + k + " = ? AND val = ?" + live + " AND locked_at IS NOT NULL",
 		upsert: upsert + " ON CONFLICT (" + k + ") DO UPDATE SET val = EXCLUDED.val, expires_at = EXCLUDED.expires_at, locked_at = NULL, revision = " +
 			d.Ident(s.name) + ".revision + 1",
 		release: "DELETE FROM " + t + " WHERE " + k + " = ? AND val = ?" + live,
@@ -92,6 +92,7 @@ func (s *Storage) buildStatements() statements {
 		st.cleanup = "DELETE FROM " + t + " WHERE " + k + " IN (%s) AND expires_at <= " + d.now
 	}
 	st.insert, st.takeover, st.observe = d.bind(st.insert), d.bind(st.takeover), d.bind(st.observe)
+	st.stealAged = d.bind(st.steal + " AND " + d.lockAgeExceeds())
 	st.complete, st.steal, st.upsert = d.bind(st.complete), d.bind(st.steal), d.bind(st.upsert)
 	st.release, st.remove, st.cleanup = d.bind(st.release), d.bind(st.remove), d.bind(st.cleanup)
 	return st
@@ -190,8 +191,13 @@ func (s *Storage) Steal(ctx context.Context, key string, expected, replacement [
 		ttl = s.ttl
 	}
 	arg := s.dialect.keyArg(key)
-	n, err := execCount(ctx, s.db, s.stmts.steal, nonNilBytes(replacement), s.dialect.duration(ttl),
-		arg, nonNilBytes(expected), s.dialect.duration(-max(0, maxLockAge)))
+	stmt := s.stmts.steal
+	args := []any{nonNilBytes(replacement), s.dialect.duration(ttl), arg, nonNilBytes(expected)}
+	if maxLockAge > 0 {
+		stmt = s.stmts.stealAged
+		args = append(args, maxLockAge.Nanoseconds())
+	}
+	n, err := execCount(ctx, s.db, stmt, args...)
 	if err != nil {
 		return false, nil, nil, s.operationError(ctx, err, "steal idempotency lock in SQL")
 	}

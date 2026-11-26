@@ -139,19 +139,19 @@ func TestTTLAndCAS(t *testing.T) {
 			require.Contains(t, c[1].Query, "revision = revision + 1")
 			require.Contains(t, c[1].Query, "AND val = ")
 			require.Contains(t, c[1].Query, "AND expires_at > ")
-			require.Contains(t, c[1].Query, "AND locked_at <= ")
+			require.Contains(t, c[1].Query, "AND locked_at IS NOT NULL")
 			require.Contains(t, c[2].Query, "locked_at = NULL")
 			require.Contains(t, c[2].Query, "AND expires_at > ")
 			require.Contains(t, c[4].Query, "AND expires_at > ")
 			if d == sqldb.DialectPostgres {
 				require.Equal(t, time.Second.Seconds(), c[1].Args[1])
-				require.Equal(t, -time.Minute.Seconds(), c[1].Args[4])
+				require.Equal(t, time.Minute.Nanoseconds(), c[1].Args[4])
 				require.Contains(t, c[0].Query, "ON CONFLICT")
 				require.Contains(t, c[5].Query, "DO UPDATE")
 				require.Contains(t, c[7].Query, "SKIP LOCKED")
 			} else {
 				require.Equal(t, time.Second.Microseconds(), c[1].Args[1])
-				require.Equal(t, -time.Minute.Microseconds(), c[1].Args[4])
+				require.Equal(t, time.Minute.Nanoseconds(), c[1].Args[4])
 				require.Contains(t, c[0].Query, "INSERT IGNORE")
 				require.Contains(t, c[5].Query, "ON DUPLICATE KEY UPDATE")
 				require.Contains(t, c[7].Query, "LIMIT ?")
@@ -329,4 +329,62 @@ func TestPostgresPurgeSkipsLockedRows(t *testing.T) {
 	_, err := s.PurgeExpired(t.Context())
 	require.NoError(t, err)
 	require.Contains(t, fake.Calls()[0].Query, "LIMIT $1 FOR UPDATE SKIP LOCKED")
+}
+
+// TestStealAgeBoundary checks the generated predicate and its bound
+// threshold at database clock precision, without a live database clock.
+func TestStealAgeBoundary(t *testing.T) {
+	t.Parallel()
+	for _, d := range dialects {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				name           string
+				age, threshold time.Duration
+				want           bool
+			}{
+				{"no threshold", 0, 0, true},
+				{"equal", time.Microsecond, time.Microsecond, false},
+				{"older", 2 * time.Microsecond, time.Microsecond, true},
+				{"sub-microsecond same tick", 0, time.Nanosecond, false},
+				{"sub-microsecond next tick", time.Microsecond, time.Nanosecond, true},
+				{"fractional threshold", 2 * time.Microsecond, 1500 * time.Nanosecond, true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					expected := []byte("lock")
+					s, _ := newStore(t, d, func(q string, args []any) testhelpers.FakeSQLReply {
+						if strings.HasPrefix(q, "SELECT") {
+							return testhelpers.FakeSQLReply{Columns: []string{"val"}, Rows: [][]driver.Value{{expected}}}
+						}
+						require.Contains(t, q, "AND locked_at IS NOT NULL")
+						if tc.threshold <= 0 {
+							require.Len(t, args, 4, "no age comparison for a zero threshold")
+							return testhelpers.FakeSQLReply{Affected: 1}
+						}
+						require.Len(t, args, 5)
+						threshold, ok := args[4].(int64)
+						require.True(t, ok)
+						require.Equal(t, tc.threshold.Nanoseconds(), threshold)
+						if d == sqldb.DialectPostgres {
+							require.Contains(t, q, "EXTRACT(EPOCH FROM (statement_timestamp() - locked_at)) * 1000000000 > CAST($5 AS BIGINT)")
+						} else {
+							require.Contains(t, q, "TIMESTAMPDIFF(MICROSECOND, locked_at, UTC_TIMESTAMP(6)) * CAST(1000 AS DECIMAL(4,0)) > ?")
+						}
+						if tc.age.Nanoseconds() > threshold {
+							return testhelpers.FakeSQLReply{Affected: 1}
+						}
+						return testhelpers.FakeSQLReply{}
+					})
+					stolen, current, token, err := s.Steal(t.Context(), "k", expected, []byte("new"), tc.threshold, 0)
+					require.NoError(t, err)
+					require.Equal(t, tc.want, stolen)
+					if !tc.want {
+						require.Equal(t, expected, current)
+						require.Nil(t, token)
+					}
+				})
+			}
+		})
+	}
 }
