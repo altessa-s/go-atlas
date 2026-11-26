@@ -110,6 +110,11 @@ func (s *validationScope) fieldScope(tree fieldmask.FieldMask, fd protoreflect.F
 	if tree == nil || selected || !root {
 		return sub, tree == nil || selected, nil
 	}
+	if s.selection.Err != nil {
+		// An unresolved mask has no selected paths. Keep only the spec's routing identity.
+		policy, err := s.selection.FieldPolicy(fd)
+		return nil, policy.Identity, err
+	}
 	always, err := s.selection.AlwaysCheck(fd)
 	return nil, always, err
 }

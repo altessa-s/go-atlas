@@ -84,6 +84,10 @@ non-empty protected values, are rejected.
 fieldmask.ServerInterceptor(fieldmask.WithStrictMode())
 ```
 
+For a unary Update RPC registered with `WithUpdateSpec`, the factory's Buf validator checks only request fields outside the resource and
+the spec's resource identity fields when mask resolution fails. The handler reports the indexed error before resource body validation.
+See [update-mask normalization](../updatemask/README.md#unary-validation-scope).
+
 ## Custom extractors
 
 The built-in extractor assumes the canonical AIP-134 shape — `UpdateXxxRequest{Xxx resource, FieldMask update_mask}` — and finds the mask on the top

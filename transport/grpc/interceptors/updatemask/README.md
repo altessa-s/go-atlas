@@ -55,7 +55,7 @@ and leaves the sent mask and other values for handler-owned write planning.
 
 Handler checklist
 
-- Always check `selection.Err` before planning or writing. An unresolved mask with a valid body reaches the handler.
+- Always check `selection.Err` before planning or writing.
 - Use `selection.OriginalMask()` to preserve whole-message write intent.
 `selection.Spec.ValidateResolved(selection.Resource, selection.Mask, update.WithCurrent(stored))`
 checks the selected values against stored state and returns indexed violations. The handler can
@@ -69,11 +69,12 @@ For whole list elements and map entries, required checks follow populated nested
 An absent optional nested message is skipped unless the mask explicitly names a descendant.
 An absent required nested message and its required descendants are reported for both collection types.
 
-If a registered mask does not resolve, the factory checks the whole body first. An empty
-required field in a present resource message reports `required` before its other field
-rules. If the body passes, the handler receives the indexed resolution error in
-`selection.Err`. If the downstream validator is absent or ignores the RPC, the chain
-rejects the unresolved mask before invoking the handler.
+If a registered mask does not resolve, Buf validates only the request fields outside the
+resource and the spec's resource identity fields. The handler receives the indexed error
+in `selection.Err` and reports it before resource body validation. The field-behavior
+interceptor still applies its usual AIP-202 format checks on retained input. If the
+downstream validator is absent or ignores the RPC, the chain rejects the unresolved mask
+before invoking the handler.
 
 Unregistered RPCs and streaming RPCs use the deferred write plan and effective-mask writeback.
 

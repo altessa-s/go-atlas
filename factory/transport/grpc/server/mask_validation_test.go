@@ -163,6 +163,7 @@ func TestMaskAwareValidationFactoryChain(t *testing.T) {
 		mask         []string
 		req          *pb.UpdateSettingsRequest
 		path, rule   string
+		maskIndex    int
 	}{
 		{name: "leaf without required sibling", mask: []string{"general.retentionDays"},
 			req: &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{RetentionDays: 7}}}},
@@ -200,17 +201,29 @@ func TestMaskAwareValidationFactoryChain(t *testing.T) {
 				"bob":   {Kind: pb.Route_KIND_EMAIL, Nested: &pb.General{TimeZone: "UTC", RetentionDays: 3651}},
 				"alice": {Nested: &pb.General{RetentionDays: 6}},
 			}}}, path: `settings.delegates["bob"].nested.retention_days`, rule: "int32.lte"},
-		{name: "invalid mask checks required inside atomic message", method: "UpdateAtomic", mask: []string{"bogus"},
+		{name: "invalid mask skips required inside atomic message", method: "UpdateAtomic", mask: []string{"bogus"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
-			path: "settings.general.time_zone", rule: "required"},
+			rule: "handler mask refusal"},
 		{name: "output timestamp outside allow-list is stripped", method: "UpdateRegistered", mask: []string{"general.time_zone"},
 			req: &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{TimeZone: "UTC"}, UpdateTime: &timestamppb.Timestamp{Seconds: 1}}}},
 		{name: "map required preserves quoted key", mask: []string{"delegates.`a.b`.kind"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{Delegates: map[string]*pb.Route{"a.b": {}}}},
 			path: "settings.delegates[\"a.b\"].kind", rule: "required"},
-		{name: "invalid mask checks whole body", mask: []string{"noSuchField"},
+		{name: "unknown mask path skips required resource field", mask: []string{"noSuchField"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
-			path: "settings.general.time_zone", rule: "required"},
+			rule: "handler mask refusal"},
+		{name: "rejected output-only path skips resource field rule", method: "UpdateRegistered",
+			mask: []string{"general.retentionDays", "server_note"},
+			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{TimeZone: "UTC", RetentionDays: 3651}}},
+			rule: "handler mask refusal", maskIndex: 1},
+		{name: "invalid mask skips supplied write-only field", mask: []string{"bogus"},
+			req: &pb.UpdateSettingsRequest{Settings: &pb.Settings{ApiKey: "invalid"}}, rule: "handler mask refusal"},
+		{name: "invalid mask still checks etag", mask: []string{"bogus"},
+			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{Etag: "long-etag", General: &pb.General{}}},
+			path: "settings.etag", rule: "string.max_len"},
+		{name: "invalid mask still checks outside resource", mask: []string{"bogus"},
+			req:  &pb.UpdateSettingsRequest{Caller: "invalid", Settings: &pb.Settings{General: &pb.General{}}},
+			path: "caller", rule: "string.max_len"},
 		{name: "extractor miss runs legacy validation", method: "UpdateUnlocated", mask: []string{"noSuchField"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
 			path: "settings.general.time_zone", rule: "string.min_len"},
@@ -220,9 +233,9 @@ func TestMaskAwareValidationFactoryChain(t *testing.T) {
 			req: &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{TimeZone: "UTC", RetentionDays: 3651}}}},
 		{name: "registered skips invalid submitted sibling", method: "UpdateRegistered", mask: []string{"general.timeZone"},
 			req: &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{TimeZone: "UTC", RetentionDays: 3651}}}},
-		{name: "registered rejected path checks body first", method: "UpdateRegistered", mask: []string{"notifications"},
+		{name: "path outside allow-list skips resource body", method: "UpdateRegistered", mask: []string{"notifications"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
-			path: "settings.general.time_zone", rule: "required"},
+			rule: "handler mask refusal"},
 		{name: "selected rule retains protobuf path", mask: []string{"general.retentionDays"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{RetentionDays: 3651}}},
 			path: "settings.general.retention_days", rule: "int32.lte"},
@@ -262,9 +275,12 @@ func TestMaskAwareValidationFactoryChain(t *testing.T) {
 		{name: "resolved mask respects resolver override", method: "UpdatePolicy", mask: []string{"general.time_zone"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
 			path: "settings.general.time_zone", rule: "string.min_len"},
-		{name: "unresolved mask respects resolver override", method: "UpdatePolicy", mask: []string{"bogus"},
+		{name: "invalid mask still checks configured identity", method: "UpdatePolicy", mask: []string{"bogus"},
+			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{RoutingKey: "invalid", Id: "also invalid", Etag: "also invalid"}},
+			path: "settings.routing_key", rule: "string.max_len"},
+		{name: "unresolved mask skips rules with resolver override", method: "UpdatePolicy", mask: []string{"bogus"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{General: &pb.General{}}},
-			path: "settings.general.time_zone", rule: "string.min_len"},
+			rule: "handler mask refusal"},
 		{name: "resolver can remove output-only", method: "UpdatePolicy", mask: []string{"server_note"},
 			req:  &pb.UpdateSettingsRequest{Settings: &pb.Settings{ServerNote: "invalid"}},
 			path: "settings.server_note", rule: "string.max_len"},
@@ -303,7 +319,7 @@ func TestMaskAwareValidationFactoryChain(t *testing.T) {
 			}
 			if tc.rule == "handler mask refusal" {
 				require.Equal(t, codes.InvalidArgument, status.Code(err))
-				require.Contains(t, status.Convert(err).Message(), "updateMask.paths[0]")
+				require.Contains(t, status.Convert(err).Message(), fmt.Sprintf("updateMask.paths[%d]", tc.maskIndex))
 				require.Empty(t, status.Convert(err).Details())
 				return
 			}

@@ -67,10 +67,8 @@ func (r *requiredViolations) walk(msg protoreflect.Message, prefix []*validate.F
 	if !msg.IsValid() {
 		return nil
 	}
-	if scope != nil {
-		if _, ok := scope.instances[msg.Interface()]; !ok {
-			return nil
-		}
+	if _, ok := scope.instances[msg.Interface()]; !ok {
+		return nil
 	}
 	fields := msg.Descriptor().Fields()
 	for i := range fields.Len() {
@@ -95,7 +93,7 @@ func (r *requiredViolations) walk(msg protoreflect.Message, prefix []*validate.F
 func (r *requiredViolations) checkField(msg protoreflect.Message, prefix []*validate.FieldPathElement,
 	fd protoreflect.FieldDescriptor, scope *validationScope, sel *updatevalidation.Selection, route []protoreflect.FieldDescriptor,
 ) (bool, error) {
-	if (scope != nil && !scope.allows(msg, fd)) || !isEmpty(msg, fd) {
+	if !scope.allows(msg, fd) || !isEmpty(msg, fd) {
 		return false, nil
 	}
 	policy, err := sel.FieldPolicy(route...)
@@ -104,7 +102,7 @@ func (r *requiredViolations) checkField(msg protoreflect.Message, prefix []*vali
 	}
 	fieldPath := extendPath(prefix, pathElement(fd))
 	r.add(msg, fd, fieldPath)
-	if scope != nil && fd.Message() != nil && !isCollection(fd) && slices.ContainsFunc(route[:len(route)-1], isCollection) {
+	if fd.Message() != nil && !isCollection(fd) && slices.ContainsFunc(route[:len(route)-1], isCollection) {
 		return true, r.walkAbsent(fd.Message(), fieldPath, sel, route, make(map[protoreflect.MessageDescriptor]bool))
 	}
 	return true, nil

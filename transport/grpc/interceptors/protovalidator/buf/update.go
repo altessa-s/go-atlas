@@ -11,6 +11,8 @@ import (
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 
+	"github.com/altessa-s/go-aip/fieldmask/update"
+
 	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -38,12 +40,15 @@ func validateUpdate(validator protovalidate.Validator, msg proto.Message, filter
 		prefix = append(prefix, pathElement(fd))
 	}
 
-	var scope *validationScope
+	var paths []update.ResolvedPath
+	var resolvedViolations []update.ResolvedViolation
 	if sel.Err == nil {
 		violations, err := sel.Spec.ValidateResolved(sel.Resource, sel.Mask)
 		if err != nil {
 			return internalValidationError(err)
 		}
+		resolvedViolations = violations
+		paths = sel.Mask.Paths()
 		tree := sel.Tree()
 		if updatevalidation.HasPartialMap(resource, tree) {
 			body = proto.Clone(msg)
@@ -53,26 +58,25 @@ func validateUpdate(validator protovalidate.Validator, msg proto.Message, filter
 			}
 			updatevalidation.PruneMaps(resource, tree)
 		}
-		built, err := buildSelectedScope(resource, sel.Mask.Paths(), prefix, sel)
-		if err != nil {
-			return internalValidationError(err)
-		}
-		scope = &built
-		if err := required.addResolvedViolations(resource, prefix, violations, sel); err != nil {
-			return internalValidationError(err)
-		}
 	}
-	if err := required.walk(resource, prefix, scope, sel, nil); err != nil {
+	scope, scopeErr := buildSelectedScope(resource, paths, prefix, sel)
+	if scopeErr != nil {
+		return internalValidationError(scopeErr)
+	}
+	if err := required.addResolvedViolations(resource, prefix, resolvedViolations, sel); err != nil {
+		return internalValidationError(err)
+	}
+	if err := required.walk(resource, prefix, &scope, sel, nil); err != nil {
 		return internalValidationError(err)
 	}
 
 	var outside map[proto.Message]bool
-	if scope != nil && len(sel.Route) != 0 {
+	if len(sel.Route) != 0 {
 		outside = make(map[proto.Message]bool)
 		markOutside(body.ProtoReflect(), resource.Interface(), outside)
 	}
 	scoped := protovalidate.FilterFunc(func(owner protoreflect.Message, desc protoreflect.Descriptor) bool {
-		inScope := scope == nil || outside[owner.Interface()] || scope.allows(owner, desc)
+		inScope := outside[owner.Interface()] || scope.allows(owner, desc)
 		return inScope && required.allows(owner, desc) && (filter == nil || filter.ShouldValidate(owner, desc))
 	})
 	err := validator.Validate(body, protovalidate.WithFilter(scoped))
@@ -80,13 +84,11 @@ func validateUpdate(validator protovalidate.Validator, msg proto.Message, filter
 	if err != nil {
 		return err
 	}
-	if scope != nil {
-		for _, target := range scope.targets {
-			err = validator.Validate(target.message.Interface(), protovalidate.WithFilter(scoped))
-			violations, err = appendValidationErrors(violations, err, target.prefix, scope)
-			if err != nil {
-				return err
-			}
+	for _, target := range scope.targets {
+		err = validator.Validate(target.message.Interface(), protovalidate.WithFilter(scoped))
+		violations, err = appendValidationErrors(violations, err, target.prefix, scope)
+		if err != nil {
+			return err
 		}
 	}
 	if len(violations) == 0 {
@@ -114,7 +116,7 @@ func markOutside(msg protoreflect.Message, resource proto.Message, outside map[p
 }
 
 func appendValidationErrors(dst []*protovalidate.Violation, err error,
-	prefix []*validate.FieldPathElement, scope *validationScope,
+	prefix []*validate.FieldPathElement, scope validationScope,
 ) ([]*protovalidate.Violation, error) {
 	if err == nil {
 		return dst, nil
@@ -129,7 +131,7 @@ func appendValidationErrors(dst []*protovalidate.Violation, err error,
 				Elements: slices.Concat(prefix, violation.Proto.GetField().GetElements()),
 			}.Build())
 		}
-		if scope == nil || scope.keepsViolation(violation) {
+		if scope.keepsViolation(violation) {
 			dst = append(dst, violation)
 		}
 	}
