@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -28,6 +29,12 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }
 
 func (b *lockedBuffer) String() string {
@@ -122,7 +129,8 @@ func TestParseExplainResult_SiblingExecutionStatsAndQueryPlanner(t *testing.T) {
 	})
 }
 
-func TestLogStats_WarnsOnlyOnCollscan(t *testing.T) {
+// This guard exercises logStats with the pipeline summary introduced by WP-11.
+func TestLogStatsWithPipelineSummary_WarnsOnlyOnCollscan(t *testing.T) {
 	t.Parallel()
 
 	var buf lockedBuffer
@@ -132,18 +140,37 @@ func TestLogStats_WarnsOnlyOnCollscan(t *testing.T) {
 	require.NotContains(t, buf.String(), "collection scan detected")
 	require.NotContains(t, buf.String(), "level=WARN")
 
-	buf.buf.Reset()
+	buf.Reset()
 	logStats(t.Context(), &Stats{Stage: "COLLSCAN", IndexUsed: false}, "users", []string{"$match"}, []string{"email"}, logger)
 	require.Contains(t, buf.String(), "collection scan detected")
 	require.Contains(t, buf.String(), "level=WARN")
+}
+
+func TestRun_RejectsUnknownVerbosityBeforeCommand(t *testing.T) {
+	t.Parallel()
+
+	deployment := drivertest.NewMockDeployment(bson.D{{Key: "ok", Value: 1}})
+	opts := mongoopts.Client()
+	opts.Deployment = deployment
+	client, err := mongo.Connect(opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Disconnect(context.WithoutCancel(t.Context())) })
+
+	_, err = Run(t.Context(), client.Database("app").Collection("users"), bson.A{}, nil, nil,
+		WithVerbosity(Verbosity("allPlansExecution")))
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 func TestRun_SendsOrderedExplainAndRedactsFilterMarkers(t *testing.T) {
 	t.Parallel()
 
 	const marker = "secret-filter-marker@example.com"
+	const literalKey = "secret-literal-document-key"
 	pipeline := bson.A{
-		bson.D{{Key: "$match", Value: bson.D{{Key: "email", Value: marker}}}},
+		bson.D{{Key: "$match", Value: bson.D{
+			{Key: "email", Value: marker},
+			{Key: "$expr", Value: bson.D{{Key: "$literal", Value: bson.D{{Key: literalKey, Value: marker}}}}},
+		}}},
 	}
 
 	t.Run("success", func(t *testing.T) {
@@ -171,6 +198,7 @@ func TestRun_SendsOrderedExplainAndRedactsFilterMarkers(t *testing.T) {
 		require.True(t, stats.IndexUsed)
 		require.Equal(t, "email_1", stats.IndexName)
 		require.NotContains(t, buf.String(), marker)
+		require.NotContains(t, buf.String(), literalKey)
 	})
 
 	t.Run("failure", func(t *testing.T) {
@@ -192,6 +220,7 @@ func TestRun_SendsOrderedExplainAndRedactsFilterMarkers(t *testing.T) {
 		_, err = Run(t.Context(), client.Database("app").Collection("users"), pipeline, nil, logger)
 		require.Error(t, err)
 		require.NotContains(t, buf.String(), marker)
+		require.NotContains(t, buf.String(), literalKey)
 	})
 
 	t.Run("raw output option logs raw explain", func(t *testing.T) {
@@ -199,7 +228,10 @@ func TestRun_SendsOrderedExplainAndRedactsFilterMarkers(t *testing.T) {
 		deployment := drivertest.NewMockDeployment(bson.D{
 			{Key: "ok", Value: 1},
 			{Key: "queryPlanner", Value: bson.D{
-				{Key: "parsedQuery", Value: bson.D{{Key: "email", Value: marker}}},
+				{Key: "parsedQuery", Value: bson.D{
+					{Key: "email", Value: marker},
+					{Key: "$literal", Value: bson.D{{Key: literalKey, Value: "secret-literal-value"}}},
+				}},
 				{Key: "winningPlan", Value: bson.D{
 					{Key: "stage", Value: "IXSCAN"},
 					{Key: "indexName", Value: "email_1"},
@@ -226,5 +258,7 @@ func TestRun_SendsOrderedExplainAndRedactsFilterMarkers(t *testing.T) {
 		require.Equal(t, int64(2), stats.DocsExamined)
 		require.Equal(t, int64(1), stats.DocsReturned)
 		require.Contains(t, buf.String(), marker)
+		require.NotContains(t, buf.String(), literalKey)
+		require.NotContains(t, buf.String(), "secret-literal-value")
 	})
 }

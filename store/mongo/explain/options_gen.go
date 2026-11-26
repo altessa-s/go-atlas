@@ -7,7 +7,7 @@ package explain
 type Option func(o *options)
 
 // WithInsecureLogRawExplain logs the full MongoDB explain response at Debug level.
-// Raw explain output includes parsedQuery and can expose sensitive filter values.
+// Raw explain output can expose sensitive filter values. The contents of $literal are redacted.
 func WithInsecureLogRawExplain() Option {
 	return func(o *options) {
 		value := true
@@ -15,14 +15,10 @@ func WithInsecureLogRawExplain() Option {
 	}
 }
 
-// WithVerbosity sets the MongoDB explain verbosity mode.
+// WithVerbosity sets the MongoDB explain verbosity mode. Run rejects unknown modes
+// before sending the command.
 func WithVerbosity(v Verbosity) Option {
 	return func(o *options) {
-		switch v {
-		case VerbosityQueryPlanner, VerbosityExecutionStats:
-		default:
-			return
-		}
 		o.verbosity = v
 	}
 }

@@ -4,7 +4,9 @@
 
 // Package explain executes MongoDB aggregation explain commands and reports query statistics.
 // By default [Run] uses [VerbosityQueryPlanner] and omits filter values and raw explain
-// payloads from logs; pass [WithVerbosity] or [WithInsecureLogRawExplain] to opt in.
+// payloads from logs. [WithVerbosity] selects the execution mode. [Run] rejects
+// unknown modes during command construction. [WithInsecureLogRawExplain] logs the
+// explain payload with the contents of $literal expressions redacted.
 //
 // # Usage
 //

@@ -15,6 +15,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // HighExaminationRatio is the warning threshold for examined versus returned documents.
@@ -48,13 +50,19 @@ type Stats struct {
 // Run executes an aggregation pipeline explain command for query plan analysis.
 // By default it uses [VerbosityQueryPlanner] so the pipeline is not executed a
 // second time; pass [WithVerbosity] with [VerbosityExecutionStats] to collect
-// runtime counters. Filter literals and raw explain documents are omitted from
-// logs unless [WithInsecureLogRawExplain] is explicitly set.
+// runtime counters. An unknown verbosity returns an invalid argument error
+// during command construction. [WithInsecureLogRawExplain] enables raw result
+// logging with the contents of $literal expressions redacted.
 func Run(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hint any, logger *slog.Logger, opts ...Option) (*Stats, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	o := newOptions(opts...)
+	switch o.verbosity {
+	case VerbosityQueryPlanner, VerbosityExecutionStats:
+	default:
+		return nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "invalid MongoDB explain verbosity")
+	}
 
 	innerCmd := bson.D{
 		{Key: "aggregate", Value: collection.Name()},
@@ -90,11 +98,12 @@ func Run(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hin
 		return nil, err
 	}
 
-	if o.insecureLogRawExplain {
+	stats := parseExplainResult(explainResult)
+	if o.insecureLogRawExplain && logger.Enabled(ctx, slog.LevelDebug) {
+		redactExplainLiterals(explainResult)
 		logger.DebugContext(ctx, "raw explain result", "explain_output", explainResult)
 	}
 
-	stats := parseExplainResult(explainResult)
 	logStats(ctx, stats, collection.Name(), stages, fields, logger)
 
 	return stats, nil
@@ -119,21 +128,53 @@ func summarizePipeline(pipeline bson.A) ([]string, []string) {
 }
 
 func collectFilterFields(v any, fields *[]string) {
-	if doc, ok := asDoc(v); ok {
-		for k, sub := range doc {
-			if strings.HasPrefix(k, "$") {
-				collectFilterFields(sub, fields)
-				continue
+	doc, ok := asDoc(v)
+	if !ok {
+		return
+	}
+	for k, sub := range doc {
+		switch k {
+		case "$and", "$or", "$nor":
+			if arr, ok := sub.(bson.A); ok {
+				for _, item := range arr {
+					collectFilterFields(item, fields)
+				}
 			}
-			if !slices.Contains(*fields, k) {
+		default:
+			// Other operators can contain expressions or data. In particular,
+			// every key and value inside a $literal expression is opaque.
+			if !strings.HasPrefix(k, "$") && !slices.Contains(*fields, k) {
 				*fields = append(*fields, k)
 			}
 		}
-		return
 	}
-	if arr, ok := v.(bson.A); ok {
-		for _, item := range arr {
-			collectFilterFields(item, fields)
+}
+
+// redactExplainLiterals modifies the decoded result after statistics have been
+// read. Both document layouts can occur in values decoded into an interface.
+func redactExplainLiterals(v any) {
+	const literal = "$literal"
+	const redacted = "[REDACTED]"
+	switch d := v.(type) {
+	case bson.M:
+		for k, value := range d {
+			if k == literal {
+				d[k] = redacted
+			} else {
+				redactExplainLiterals(value)
+			}
+		}
+	case bson.D:
+		for i, e := range d {
+			if e.Key == literal {
+				d[i].Value = redacted
+			} else {
+				redactExplainLiterals(e.Value)
+			}
+		}
+	case bson.A:
+		for _, item := range d {
+			redactExplainLiterals(item)
 		}
 	}
 }

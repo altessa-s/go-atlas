@@ -19,9 +19,10 @@ const (
 )
 
 type options struct {
-	// WithVerbosity sets the MongoDB explain verbosity mode.
-	verbosity Verbosity `optgen:"default=DefaultVerbosity,onfail=skip" optcheck:"oneof=[VerbosityQueryPlanner,VerbosityExecutionStats]"`
+	// WithVerbosity sets the MongoDB explain verbosity mode. Run rejects unknown modes
+	// before sending the command.
+	verbosity Verbosity `optgen:"default=DefaultVerbosity"`
 	// WithInsecureLogRawExplain logs the full MongoDB explain response at Debug level.
-	// Raw explain output includes parsedQuery and can expose sensitive filter values.
+	// Raw explain output can expose sensitive filter values. The contents of $literal are redacted.
 	insecureLogRawExplain bool
 }
