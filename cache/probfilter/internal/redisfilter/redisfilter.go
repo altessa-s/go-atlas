@@ -203,23 +203,21 @@ func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 		return c.mightExist(ctx, value)
 	}
 
-	pipe := c.client.Pipeline()
-	existsCmd := pipe.Do(ctx, c.cmds.Exists, c.filterKey, value)
-	keyCmd := pipe.Exists(ctx, c.filterKey)
-	readyCmd := pipe.Exists(ctx, c.readyKey)
-	_, _ = pipe.Exec(ctx) // each command reports its own error below
-	exists, err := c.boolReply(existsCmd.Result())
-	if err != nil {
-		return false, err
-	}
-	keyThere, err := keyCmd.Result()
+	// One script, so the answer and the existence checks describe the same
+	// state of the filter.
+	reply, err := mightExistScript.Run(ctx, c.client, []string{c.filterKey, c.readyKey}, c.cmds.Exists, value).Slice()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, c.opExists)
 	}
-	readyThere, err := readyCmd.Result()
+	if len(reply) != mightExistReplyLen {
+		return false, coreerrs.WrapOperation(fmt.Errorf("unexpected reply %v", reply), c.opExists)
+	}
+	exists, err := ToBool(reply[0])
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, c.opExists)
 	}
+	keyThere, _ := reply[1].(int64)
+	readyThere, _ := reply[2].(int64)
 	if keyThere == 1 {
 		c.seenKey.Store(true)
 	}
@@ -234,6 +232,17 @@ func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 	}
 	return false, nil
 }
+
+// mightExistReplyLen is the reply length of mightExistScript.
+const mightExistReplyLen = 3
+
+// mightExistScript runs the membership command and reports, in the same atomic
+// step, whether the filter key and the ready marker exist.
+// KEYS[1] filter key; KEYS[2] ready marker; ARGV[1] exists command; ARGV[2] value.
+var mightExistScript = redis.NewScript(`
+local r = redis.call(ARGV[1], KEYS[1], ARGV[2])
+return {r, redis.call('EXISTS', KEYS[1]), redis.call('EXISTS', KEYS[2])}
+`)
 
 // mightExist runs the exists command alone.
 func (c *Core) mightExist(ctx context.Context, value string) (bool, error) {
@@ -434,6 +443,9 @@ func (c *Core) RebuildCommitted(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "check Redis "+c.cmds.Label+" filter rebuild state")
 	}
+	if n == 1 {
+		c.markPublished()
+	}
 	return n == 1, nil
 }
 
@@ -483,6 +495,9 @@ func (c *Core) readyMarker(ctx context.Context) (committed time.Time, loaded int
 	committed, loaded, err = parseReadyMarker(value)
 	if err != nil {
 		return time.Time{}, -1, coreerrs.WrapOperation(err, op)
+	}
+	if !committed.IsZero() {
+		c.markPublished()
 	}
 	return committed, loaded, nil
 }
@@ -547,6 +562,7 @@ func (c *Core) RebuildCommitAge(ctx context.Context) (age time.Duration, committ
 	if committed.IsZero() {
 		return 0, time.Time{}, false, nil
 	}
+	c.markPublished()
 	now, err := parseTime(reply[1], reply[2])
 	if err != nil {
 		return 0, time.Time{}, false, coreerrs.WrapOperation(err, op)
