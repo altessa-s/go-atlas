@@ -11,5 +11,6 @@
 // to generated options.
 //
 // Key types: [TLS], [KeepAliveEnforcementPolicy], [KeepAlive], [Config],
-// [AuthInterceptor], [InterceptorFilter].
+// [AuthInterceptor], [CacheInterceptor], [InterceptorFilter]. The cache schema
+// lists the exact RPCs eligible for shared caching without authentication.
 package grpcconfig

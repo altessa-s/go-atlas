@@ -28,16 +28,13 @@ Allow-Credentials, Expose-Headers, and Max-Age. Supports preflight caching and p
 
 ## Credentials safety
 
-`New` panics on constructor when `WithAllowCredentials` is combined with a wildcard origin policy, because the handler echoes the request `Origin`
-(never a `*` wildcard) — so an over-broad policy plus credentials lets any site issue credentialed cross-origin requests and read the response. Two
-combinations are rejected:
+Credentialed responses echo the request `Origin`. With `WithAllowCredentials`, `New` panics for `WithAllowAllOrigins`, `*` in an exact origin,
+and regex patterns that match arbitrary origins or lack start and end anchors on any alternative. YAML `allowedOrigins` entries must be exact
+origins when `allowCredentials` is enabled.
 
-- `WithAllowAllOrigins` + `WithAllowCredentials`.
-- `WithAllowCredentials` + a `WithAllowedOriginPatterns` regex that matches arbitrary origins (e.g. `.*`, `^https?://.*$`, or an empty pattern) or is
-  not anchored at both start (`^`) and end (`$`) on every top-level alternative (`example\.com$` matches `https://evilexample.com`, and
-  `^https://.*\.example\.com` matches `https://x.example.com.evil.io`).
-
-Domain-anchored patterns such as `^https://[a-z0-9-]+\.example\.com$` are unaffected. Anchor your patterns to your own domains.
+In regex patterns, start each host wildcard immediately after a literal dot (`\.`) or the scheme separator (`://`). For example,
+`^https://[a-z0-9-]+\.example\.com$` and `^https://app\..*\.example\.com$` are accepted. `^https://app.*\.example\.com$` is rejected because
+its wildcard can extend the `app` label.
 
 ## Caching
 

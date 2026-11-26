@@ -227,6 +227,54 @@ func TestNew_StartUnanchoredOriginPatternWithCredentials_Panics(t *testing.T) {
 	})
 }
 
+func TestNew_CredentialedHostWildcardBoundaries(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		pattern string
+		allowed bool
+	}{
+		{`^https://app.*\.example\.com$`, false},
+		{`^https://app.+\.example\.com$`, false},
+		{`^https://app.\.example\.com$`, false},
+		{`^https://app[^.]*\.example\.com$`, false},
+		{`^https://(app\.|app).*\.example\.com$`, false},
+		{`^https://app(\.)?.*\.example\.com$`, false},
+		{`^https://.*\.example\.com$`, true},
+		{`^https://app\..*\.example\.com$`, true},
+		{`^https://(app\.|dev\.).*\.example\.com$`, true},
+		{`^https?://([a-z-]+\.)?example\.com(:[0-9]+)?$`, true},
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			t.Parallel()
+			options := WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern))
+			require.NotPanics(t, func() { New(options) })
+			construct := func() { New(options, WithAllowCredentials()) }
+			if tc.allowed {
+				require.NotPanics(t, construct)
+				return
+			}
+			require.Panics(t, construct)
+		})
+	}
+}
+
+func TestNew_CredentialedExactOriginsRejectStars(t *testing.T) {
+	t.Parallel()
+
+	for _, origin := range []string{"*", "https://app*.example.com"} {
+		t.Run(origin, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				err, ok := recover().(error)
+				require.True(t, ok, "expected an error panic")
+				require.ErrorIs(t, err, ErrCredentialedOriginWildcard)
+			}()
+			New(WithAllowedOrigins(origin), WithAllowCredentials())
+		})
+	}
+}
+
 // TestMiddleware_VaryOrigin pins that every response whose CORS headers depend
 // on the request Origin carries Vary: Origin, so a shared cache never serves
 // one origin's (or a no-Origin request's) response to another origin.

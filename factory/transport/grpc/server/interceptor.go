@@ -460,6 +460,7 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 		cache.WithKeysPrefix(c.KeysPrefix),
 		cache.WithCompressionPreset(convertCacheCompressionPreset(c.CompressionPreset)),
 		cache.WithIgnoreMethods(c.IgnoreMethods...),
+		cache.WithPublicMethods(c.PublicMethods...),
 	}
 
 	opts = slices.AppendIf(opts, len(c.KeyMetadata) > 0, cache.WithMetadataKeys(c.KeyMetadata...))

@@ -64,6 +64,10 @@ func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerIn
 	if opts.cacheDecision == nil {
 		opts.cacheDecision = DefaultSuccessOnlyDecision(opts.cacheTTL)
 	}
+	publicMethods := make(map[string]struct{}, len(opts.publicMethods))
+	for _, method := range opts.publicMethods {
+		publicMethods[method] = struct{}{}
+	}
 	i := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
 			interceptorName,
@@ -73,6 +77,7 @@ func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerIn
 		),
 		cacher:         cacher,
 		opts:           opts,
+		publicMethods:  publicMethods,
 		discriminators: newDiscriminators(opts.metadataKeys, opts.metadataProcessor, opts.readMaskHeader),
 	}
 	return interceptors.ServerDrivenInterceptor(i)
@@ -82,6 +87,7 @@ type interceptor struct {
 	interceptors.BaseInterceptor
 	cacher         cache.Cacher
 	opts           *options
+	publicMethods  map[string]struct{}
 	discriminators discriminators
 }
 
@@ -262,12 +268,13 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 	}
 
 	opts := d.interceptor.opts
-	namespace, ok := cacheNamespace(ctx, opts.identityFunc, opts.authRequired)
+	method := d.meta.FullyMethodName
+	_, public := d.interceptor.publicMethods[method]
+	namespace, ok := cacheNamespace(ctx, opts.identityFunc, opts.authRequired, public)
 	if !ok {
 		return nil, nil //nolint:nilnil
 	}
 
-	method := d.meta.FullyMethodName
 	input, err := d.interceptor.discriminators.keyInput(ctx, method, namespace, req)
 	if err == nil {
 		if opts.keyGenerator != nil {

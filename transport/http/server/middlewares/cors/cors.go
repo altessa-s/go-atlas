@@ -5,6 +5,8 @@
 package cors
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"regexp/syntax"
@@ -32,6 +34,9 @@ const (
 )
 
 const middlewareName = "cors"
+
+// ErrCredentialedOriginWildcard is raised when a credentialed origin has an unsafe wildcard.
+var ErrCredentialedOriginWildcard = errors.New("cors: insecure configuration: credentialed origin has an unsafe wildcard")
 
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
@@ -64,7 +69,8 @@ func (m *middleware) Dependencies() []string {
 	return nil
 }
 
-// New creates a new CORS middleware with the given options.
+// New creates a new CORS middleware with the given options. It panics if
+// credentials are enabled with an unsafe origin policy.
 //
 // Example:
 //
@@ -78,15 +84,22 @@ func New(opt ...Option) *middleware {
 			"— this allows any website to make credentialed requests on behalf of your users")
 	}
 
-	// A regex that matches arbitrary foreign origins is equivalent to AllowAllOrigins:
-	// combined with credentials it lets any site issue credentialed requests and read
-	// the response (the handler echoes the request Origin, not a wildcard). Reject the
-	// combination the same way. Narrow, app-specific patterns are unaffected.
 	if opts.allowCredentials {
+		for _, origin := range opts.allowedOrigins {
+			if strings.ContainsRune(origin, '*') {
+				panic(fmt.Errorf("%w in exact origin %q", ErrCredentialedOriginWildcard, origin))
+			}
+		}
 		if p := firstBroadOriginPattern(opts.allowedOriginPatterns); p != nil {
 			panic("cors: insecure configuration: AllowCredentials with an origin pattern that matches arbitrary origins (`" +
 				p.String() + "`) — this allows any website to make credentialed requests on behalf of your users; " +
 				"anchor the pattern to your own domains")
+		}
+		for _, p := range opts.allowedOriginPatterns {
+			if p != nil && !hostWildcardsBounded(p) {
+				panic(fmt.Errorf("%w in pattern %q: place host wildcards after a literal dot or ://",
+					ErrCredentialedOriginWildcard, p.String()))
+			}
 		}
 	}
 

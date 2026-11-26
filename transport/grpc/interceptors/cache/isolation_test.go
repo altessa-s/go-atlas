@@ -30,6 +30,21 @@ import (
 
 const readMethod = "/test.Resources/GetResource"
 
+func TestCacheSkipsUnmarkedAnonymousMethod(t *testing.T) {
+	t.Parallel()
+
+	cacher := newMapCacher()
+	unary := cache.ServerInterceptor(cacher, cache.WithMethod(echoMethod, &wrapperspb.StringValue{})).ServerUnaryInterceptor()
+	for _, want := range []string{"first", "second"} {
+		got, err := unary(t.Context(), wrapperspb.String("same"), &grpc.UnaryServerInfo{FullMethod: echoMethod},
+			func(context.Context, any) (any, error) { return wrapperspb.String(want), nil })
+		require.NoError(t, err)
+		require.Equal(t, want, got.(*wrapperspb.StringValue).GetValue())
+	}
+	require.Zero(t, cacher.gets)
+	require.Zero(t, cacher.saves)
+}
+
 func TestCachePartitionsVerifiedPrincipals(t *testing.T) {
 	t.Parallel()
 
@@ -99,7 +114,8 @@ func TestCachePartitionsDefaultReadMasks(t *testing.T) {
 	t.Parallel()
 
 	cacher := newMapCacher()
-	unary := cache.ServerInterceptor(cacher, cache.WithMethod(readMethod, &pb.Resource{})).ServerUnaryInterceptor()
+	unary := cache.ServerInterceptor(cacher,
+		cache.WithMethod(readMethod, &pb.Resource{}), cache.WithPublicMethods(readMethod)).ServerUnaryInterceptor()
 	mask := fieldmask.ServerInterceptor().ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: readMethod}
 	for _, path := range []string{"name", "description", "name"} {
@@ -128,6 +144,7 @@ func TestCachePreservesStatusDetails(t *testing.T) {
 	require.NoError(t, err)
 	si := cache.ServerInterceptor(newMapCacher(),
 		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		cache.WithPublicMethods(echoMethod),
 		cache.WithCacheDecision(cache.DefaultSuccessAndErrorDecision(time.Minute, time.Minute)))
 	es := startEcho(t, si.ServerUnaryInterceptor(), func(context.Context, *wrapperspb.StringValue) (any, error) {
 		return nil, notFound.Err()
@@ -149,7 +166,7 @@ func TestCacheBypassesUnidentifiedCalls(t *testing.T) {
 			cacher := newMapCacher()
 			info := &grpc.UnaryServerInfo{FullMethod: echoMethod}
 			ctx := t.Context()
-			opts := []cache.Option{cache.WithMethod(echoMethod, &wrapperspb.StringValue{})}
+			opts := []cache.Option{cache.WithMethod(echoMethod, &wrapperspb.StringValue{}), cache.WithPublicMethods(echoMethod)}
 			switch name {
 			case "empty subject":
 				ctx = principal.NewContext(ctx, principal.Principal{Tenant: "tenant"})

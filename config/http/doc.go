@@ -12,5 +12,6 @@
 //
 // Key types: [Config], [ClientSSRF], [ACLMiddleware],
 // [MiddlewareFilter], [BaseMiddleware],
-// [BodyLimitMiddleware].
+// [BodyLimitMiddleware], [CORSMiddleware]. Credentialed CORS requires exact
+// origins in the YAML schema.
 package httpconfig

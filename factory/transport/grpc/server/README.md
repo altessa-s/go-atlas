@@ -115,6 +115,9 @@ safe when the client IP source is trustworthy (`realIP` with `trustedPeers` or `
 |--------|-------------|
 | `Build` | Assembles and returns the gRPC server with all registered interceptors |
 
+For a server without auth, configure `interceptors.cache.publicMethods` with the exact full RPC names that can share cached responses.
+Register their response policies with `UseCacheMethodPolicies`. When an auth interceptor is registered, cache requests require verified identity.
+
 `Build` resolves the interceptor dependency order the way the server does when it starts, so a chain that cannot start — an interceptor whose
 required dependency is absent (the limiter needs `realIP`), a duplicate, a cycle — fails `Build` instead of `Start`.
 

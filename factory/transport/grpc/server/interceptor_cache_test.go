@@ -113,6 +113,37 @@ func TestFactoryCacheRunsAfterAuthenticationAndAuthorization(t *testing.T) {
 	}
 }
 
+func TestFactoryCachePublicMethods(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		public    []string
+		wantCalls int
+	}{
+		{name: "unmarked", wantCalls: 3},
+		{name: "marked", public: []string{cacheReadMethod}, wantCalls: 1},
+		{name: "case mismatch", public: []string{"/test.Resources/getResource"}, wantCalls: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := cacheTestBuilder()
+			b.cfg.Interceptors.Cache.PublicMethods = tc.public
+			call := callCacheChain(t, b.WithCacheInterceptor())
+			calls := 0
+			for _, user := range []string{"alice", "bob", "alice"} {
+				ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-user-id", user))
+				_, err := call(ctx, func(context.Context, any) (any, error) {
+					calls++
+					return &pb.Resource{Name: "n"}, nil
+				})
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.wantCalls, calls)
+		})
+	}
+}
+
 func TestFactoryCachePartitionsReadMasks(t *testing.T) {
 	t.Parallel()
 
@@ -127,6 +158,7 @@ func TestFactoryCachePartitionsReadMasks(t *testing.T) {
 			t.Parallel()
 			b := cacheTestBuilder()
 			b.cfg.Interceptors.FieldMask = &grpcconfig.FieldMaskInterceptor{BaseInterceptor: enabled}
+			b.cfg.Interceptors.Cache.PublicMethods = []string{cacheReadMethod}
 			b.cfg.Interceptors.Cache.KeyMetadata = []string{"x-api-version"}
 			b.cfg.Interceptors.FieldMask.MetadataReadMaskHeader = tc.header
 			header := tc.header
@@ -162,6 +194,7 @@ func TestFactoryCacheRequiresIdentityWhenAuthIsRegistered(t *testing.T) {
 			t.Parallel()
 			b := cacheTestBuilder()
 			ignored := enabled
+			b.cfg.Interceptors.Cache.PublicMethods = []string{cacheReadMethod}
 			ignored.IgnoreMethods = []string{cacheReadMethod}
 			b.cfg.Interceptors.Auth = &grpcconfig.AuthInterceptor{BaseInterceptor: ignored}
 			b.UseAuth(auth.AuthFunc(func(context.Context, auth.Request) (any, error) {
@@ -196,6 +229,7 @@ func TestFactoryCacheRequiresIdentityWithPrebuiltAuth(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			b := cacheTestBuilder()
+			b.cfg.Interceptors.Cache.PublicMethods = []string{cacheReadMethod}
 			prebuilt := auth.ServerInterceptor(auth.WithIgnoreMethods(cacheReadMethod))
 			if name == "cache first" {
 				b.WithCacheInterceptor().WithInterceptor(prebuilt)

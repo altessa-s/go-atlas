@@ -428,6 +428,15 @@ reconnects after an outage. See [ADR 0002](adr/0002-grpc-client-dns-resolver.md)
 
 ---
 
+## Transport policies
+
+For a gRPC server without authentication, set `grpc.interceptors.cache.publicMethods` to the exact full RPC names eligible for shared caching.
+Register a response policy for each method with `UseCacheMethodPolicies` in the gRPC server factory. Default cache metadata keys cover API version,
+feature flags, and the read mask. Caller identity comes from verified context. [gRPC cache](../transport/grpc/interceptors/cache/README.md)
+
+When `http.middlewares.cors.allowCredentials` is enabled, list exact URLs in `allowedOrigins`. Code that uses `WithAllowedOriginPatterns` must
+anchor each alternative and place each host wildcard immediately after a literal dot or `://`. [CORS middleware](../transport/http/server/middlewares/cors/README.md)
+
 ## Configuration templates
 
 The `config/templates` package provides 30+ pre-built YAML templates for common components:

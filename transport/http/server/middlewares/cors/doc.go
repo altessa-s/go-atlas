@@ -42,10 +42,11 @@
 //	    cors.WithMaxAge(86400),
 //	)
 //
-// Security considerations:
-//   - Avoid using AllowAllOrigins with AllowCredentials as this is insecure
-//   - Be specific about allowed origins in production environments
-//   - Consider limiting exposed headers to only what's necessary
+// # Credentialed origins
+//
+// [New] rejects allow-all origins and wildcard entries in exact origins when
+// credentials are enabled. Regular expressions must be anchored on every
+// alternative, and host wildcards must follow a literal dot or ://.
 //
 // References:
 //   - https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS

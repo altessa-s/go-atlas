@@ -23,11 +23,13 @@
 // issuer when available. Use [WithIdentityFunc] for custom credentials or
 // other verified attributes that affect the response. Authenticated calls
 // without an identifiable principal and auth-ignored calls under
-// [WithAuthRequired] bypass caching.
+// [WithAuthRequired] bypass caching. On a server without auth, only methods
+// explicitly listed with [WithPublicMethods] can share cached responses.
 //
 // Cache keys and their independent verifiers cover the method, identity,
-// serialized request, and response discriminators, including the read-mask
-// header. [WithReadMaskHeader] adds a custom header. [Serializer] handles
+// serialized request, and response discriminators. The default metadata
+// discriminators are API version, feature flags, and the read-mask header.
+// [WithReadMaskHeader] adds a custom header. [Serializer] handles
 // responses with optional gzip compression, and cached gRPC errors preserve
 // their status details.
 //
@@ -36,10 +38,11 @@
 //	interceptor := cache.ServerInterceptor(memCache,
 //	    cache.WithMethodPolicy(
 //	        cache.MethodPolicy{
-//	            Name:          "/api.UserService/GetUser",
-//	            ResponseProto: &pb.User{},
+//	            Name:          "/api.Catalog/GetProduct",
+//	            ResponseProto: &pb.Product{},
 //	        },
 //	    ),
+//	    cache.WithPublicMethods("/api.Catalog/GetProduct"),
 //	    cache.WithCompressionPreset(compression.PresetBalanced),
 //	)
 //

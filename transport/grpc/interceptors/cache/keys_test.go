@@ -6,12 +6,27 @@ package cache
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
+
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
+
+func TestPublicCacheDoesNotReuseLegacyAnonymousEntries(t *testing.T) {
+	t.Parallel()
+
+	input := keyInput{method: testMethod, request: []byte(`"request"`)}
+	legacyDigest := func(domain string) []byte {
+		return keys.Digest([]byte(domain), []byte(input.method), nil, input.request, nil)
+	}
+	require.NotEqual(t, hex.EncodeToString(legacyDigest("grpc-cache/key")[:storageKeyBytes]), input.storageKey())
+	// A custom key generator can keep the same storage key, so the verifier must also change.
+	require.NotEqual(t, legacyDigest("grpc-cache/verifier"), input.verifier())
+}
 
 func TestDefaultKeyGenerator(t *testing.T) {
 	t.Parallel()
@@ -37,7 +52,7 @@ func TestKeyGenerator_FramingPreventsConcatenationCollisions(t *testing.T) {
 		}
 		return extra
 	}
-	gen := NewKeyGenerator(nil, processor)
+	gen := NewKeyGenerator([]string{"tenant-id", "user-id"}, processor)
 
 	for _, tc := range []struct {
 		name string

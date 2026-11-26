@@ -5,12 +5,15 @@
 package grpcconfig
 
 import (
+	"regexp"
 	"time"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
+
+var fullRPCMethodName = regexp.MustCompile(`^/[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Default values for CacheInterceptor.
 const (
@@ -70,8 +73,12 @@ type CacheInterceptor struct {
 	KeysPrefix string `yaml:"keysPrefix"`
 
 	// KeyMetadata is a list of gRPC metadata keys (headers) to include in the cache key hash.
-	// If empty, a standard set of security and identity headers is used.
+	// If empty, API version, feature flags, and the read-mask header are used.
 	KeyMetadata []string `yaml:"keyMetadata"`
+
+	// PublicMethods lists exact full RPC names eligible for shared caching without auth.
+	// Each method still needs a response policy registered in the server factory.
+	PublicMethods []string `yaml:"publicMethods"`
 }
 
 // IsEnabled returns true if response caching is enabled.
@@ -89,6 +96,7 @@ func (c *CacheInterceptor) IsEnabled() bool {
 //   - CompressionPreset: must be one of the defined preset values
 //   - IgnoreMethods: each method name must be non-empty when specified
 //   - IgnorePatterns: each pattern must be non-empty when specified
+//   - PublicMethods: each entry must be a full gRPC method name
 //
 // Returns an error if validation fails, nil otherwise.
 func (c *CacheInterceptor) Validate() error {
@@ -99,6 +107,8 @@ func (c *CacheInterceptor) Validate() error {
 			validation.Field(&c.CompressionPreset, validation.Required,
 				ozzo_rules.OneOf(CacheCompressionPresetNone, CacheCompressionPresetFast,
 					CacheCompressionPresetBalanced, CacheCompressionPresetBest)),
+			validation.Field(&c.PublicMethods, validation.Each(validation.Required,
+				validation.Match(fullRPCMethodName).Error("must be a full gRPC method name such as /service.Service/Method"))),
 		)
 	})
 }

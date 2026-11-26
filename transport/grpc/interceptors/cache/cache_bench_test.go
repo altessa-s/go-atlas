@@ -64,6 +64,7 @@ func BenchmarkServerInterceptor_CacheHit(b *testing.B) {
 	cacher := datacache.New(&benchMemoryProvider{store: make(map[string][]byte)})
 	si := ServerInterceptor(cacher,
 		WithMethod("/bench.Service/Get", &wrapperspb.StringValue{}),
+		WithPublicMethods("/bench.Service/Get"),
 		WithCacheHeaders(false),
 	)
 	unary := si.ServerUnaryInterceptor()

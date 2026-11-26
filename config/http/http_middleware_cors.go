@@ -5,9 +5,15 @@
 package httpconfig
 
 import (
+	"errors"
+	"strings"
+
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
+
+// ErrCredentialedWildcardOrigin indicates that credentialed CORS requires exact origins.
+var ErrCredentialedWildcardOrigin = errors.New("credentialed CORS requires exact origins without wildcards")
 
 // CORS configuration defaults.
 const (
@@ -24,7 +30,7 @@ type CORSMiddleware struct {
 	BaseMiddleware `yaml:",inline"`
 
 	// AllowedOrigins is a list of origins that are allowed to access the resource.
-	// Use ["*"] to allow all origins.
+	// Credentialed CORS requires exact origins without wildcards.
 	AllowedOrigins []string `yaml:"allowedOrigins"`
 
 	// AllowedMethods is a list of HTTP methods allowed when accessing the resource.
@@ -58,7 +64,14 @@ type CORSMiddleware struct {
 func (c *CORSMiddleware) Validate() error {
 	return c.ValidateBase(func() error {
 		return validationconfig.ValidateStruct(c,
-			validation.Field(&c.AllowedOrigins, validation.Each(validation.Required)),
+			validation.Field(&c.AllowedOrigins, validation.Each(validation.Required, validation.When(c.AllowCredentials,
+				validation.By(func(value any) error {
+					origin, _ := value.(string)
+					if strings.ContainsRune(origin, '*') {
+						return ErrCredentialedWildcardOrigin
+					}
+					return nil
+				})))),
 			validation.Field(&c.MaxAge, validation.Min(0)),
 			validation.Field(&c.OptionsSuccessStatus, validation.Min(httpStatusMin), validation.Max(httpStatusMax)),
 		)

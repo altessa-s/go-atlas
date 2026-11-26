@@ -22,6 +22,12 @@
 #  ignorePatterns:
 #    - "^(?i)/grpc.health.*"
 #
+#  # <list[string]> Exact full RPC names allowed to share cached responses when no auth is registered.
+#  # Names are case-sensitive. Register a response policy for each method in the server factory.
+#  # Default value: not set
+#  publicMethods:
+#    - "/api.Catalog/GetProduct"
+#
 #  # <duration> Default TTL for successful responses.
 #  # How long successful responses are cached.
 #  # Default value: 24h
@@ -49,8 +55,8 @@
 #  keysPrefix:
 #
 #  # <list[string]> gRPC metadata keys (headers) to include in the cache key hash.
-#  # If empty, a standard set of security and identity headers is used.
+#  # If empty, API version, feature flags, and the read-mask header are used.
 #  # Default value: not set
 #  keyMetadata:
-#    - "x-user-id"
-#    - "x-tenant-id"
+#    - "x-api-version"
+#    - "x-feature-flags"
