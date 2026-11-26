@@ -130,8 +130,8 @@ func (f *Filter) Close(ctx context.Context) error {
 // replayed onto the replacement; deletes are not (see [Filter.Delete]). A
 // shared Redis filter journals, in Redis, the adds of every process made under
 // the rebuild lease, and the commit replays them once, so they survive too.
-// A rebuild whose in-process journal overflows restarts, and fails with
-// [probfilter.ErrRebuildJournalOverflow] after three attempts.
+// A rebuild whose in-process journal overflows fails with
+// [probfilter.ErrRebuildJournalOverflow] and leaves the previous contents.
 //
 // A Redis commit whose outcome cannot be established returns an error wrapping
 // [probfilter.ErrCommitIndeterminate] and, if the replacement cannot be

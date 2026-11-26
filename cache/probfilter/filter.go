@@ -32,8 +32,10 @@ var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
 var ErrFilterLost = errors.New("filter lost")
 
 // ErrRebuildJournalOverflow is wrapped by a Rebuild error when so many adds
-// arrived during the rebuild that its journal overflowed on every attempt.
-// The previous contents stay; retry when the add rate is lower.
+// arrived during the rebuild that its in-process journal overflowed, so the
+// replacement could not be completed from it. A data loader need not return
+// the adds again, hence the rebuild fails and the previous contents stay;
+// retry when the add rate is lower.
 var ErrRebuildJournalOverflow = errors.New("filter rebuild journal overflowed")
 
 // ErrUnsafeEvictionPolicy is wrapped by the error of a Redis eviction-policy

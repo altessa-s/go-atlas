@@ -48,12 +48,8 @@ type StageFunc func(ctx context.Context, expectedItems int64) (Staging, error)
 type BeginFunc func(ctx context.Context) (stage StageFunc, release func(context.Context) error, err error)
 
 // DefaultJournalLimit is the default number of adds a rebuild journals before
-// the journal overflows and the rebuild restarts.
+// the journal overflows and the rebuild fails.
 const DefaultJournalLimit = 1 << 20
-
-// maxRebuildAttempts bounds how often a rebuild restarts after a journal
-// overflow before it fails with [probfilter.ErrRebuildJournalOverflow].
-const maxRebuildAttempts = 3
 
 // Coordinator makes a filter rebuild atomic with respect to concurrent adds.
 // Adds routed through [Coordinator.Add] and [Coordinator.AddBatch] while a
@@ -97,7 +93,7 @@ type Coordinator struct {
 	journalMu sync.Mutex
 	journal   []string
 	// dirty reports that the journal overflowed and dropped values; the
-	// rebuild restarts instead of committing an incomplete replacement.
+	// rebuild fails instead of committing an incomplete replacement.
 	dirty bool
 	// journalLimit bounds len(journal); zero means [DefaultJournalLimit].
 	journalLimit int
@@ -396,38 +392,34 @@ func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader,
 		defer func() { _ = release(context.WithoutCancel(ctx)) }()
 	}
 
-	for attempt := 1; ; attempt++ {
-		st, loaded, err := c.load(ctx, loader, stage)
-		if err != nil {
-			return err
-		}
-		if recorder, ok := st.(LoadRecorder); ok {
-			recorder.SetLoaded(loaded)
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return abort(ctx, st, coreerrs.WrapOperation(ctxErr, "load values during rebuild"))
-		}
-
-		done, err := c.settle(ctx, st, loaded)
-		if err != nil {
-			return err
-		}
-		if done {
-			committed = true
-			return nil
-		}
-		// The journal overflowed and the replacement was discarded: load
-		// again. Adds acknowledged before this point are in the data source.
-		if attempt == maxRebuildAttempts {
-			return coreerrs.WrapOperation(probfilter.ErrRebuildJournalOverflow, "rebuild filter")
-		}
-		c.setActive(true)
+	st, loaded, err := c.load(ctx, loader, stage)
+	if err != nil {
+		return err
 	}
+	if recorder, ok := st.(LoadRecorder); ok {
+		recorder.SetLoaded(loaded)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return abort(ctx, st, coreerrs.WrapOperation(ctxErr, "load values during rebuild"))
+	}
+
+	done, err := c.settle(ctx, st, loaded)
+	if err != nil {
+		return err
+	}
+	if !done {
+		// The journal overflowed, so the replacement may miss adds
+		// acknowledged during the load. A loader is not required to return
+		// them (it may be a fixed snapshot or a consumed iterator), so the
+		// rebuild fails and the live filter stays as it is.
+		return coreerrs.WrapOperation(probfilter.ErrRebuildJournalOverflow, "rebuild filter")
+	}
+	committed = true
+	return nil
 }
 
 // settle replays the journal onto st and commits it. It reports done=false
-// with a nil error when the journal overflowed: st is discarded and the
-// rebuild must load again. The caller holds rebuildMu.
+// with a nil error when the journal overflowed: st is discarded. The caller holds rebuildMu.
 func (c *Coordinator) settle(ctx context.Context, st Staging, loaded int64) (done bool, err error) {
 	// Replay what accumulated during the load without blocking writers, so
 	// the exclusive section below only replays the short tail.

@@ -57,8 +57,8 @@ observer. `Close` closes filters implementing `io.Closer` or `Close(context.Cont
 Rebuilds are atomic: lookups see the previous contents until the replacement takes over in one step, a failed or canceled rebuild leaves them
 unchanged
 (except an error wrapping `ErrCommitIndeterminate`, after which either the previous or the rebuilt contents are in place), and values added through
-the filter during the rebuild are kept. A rebuild whose in-process journal overflows (more than about a million adds during one attempt) restarts and
-fails with `ErrRebuildJournalOverflow` after three attempts.
+the filter during the rebuild are kept. A rebuild whose in-process journal overflows (more than about a million adds during the rebuild) fails with
+`ErrRebuildJournalOverflow` and leaves the previous contents in place.
 
 A lookup of a Redis filter this process has already seen, whose key has since vanished (a flush, an eviction, a manual delete) or whose rebuilt
 contents were replaced by an empty recreated filter, fails closed with `ErrFilterLost` instead of answering "absent" for every value. Callers fall

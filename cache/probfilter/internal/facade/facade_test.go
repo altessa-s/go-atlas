@@ -480,93 +480,75 @@ func TestObserverSlot(t *testing.T) {
 	require.Equal(t, 2, o.adds, "a removed observer receives nothing")
 }
 
-// passLoader yields a different list on every pass and runs hook after the
-// first value of a pass.
-type passLoader struct {
-	passes [][]string
-	hook   func(pass int)
-	pass   int
+// TestCoordinator_JournalOverflowFailsTheRebuild checks that a journal that
+// overflows is bounded and fails the rebuild without committing, whatever the
+// loader returns: a fixed snapshot that lacks the concurrent adds, and an
+// iterator that is consumed after the first pass.
+func TestCoordinator_JournalOverflowFailsTheRebuild(t *testing.T) {
+	t.Parallel()
+
+	snapshot := []string{"src"}
+	loaders := map[string]func(hook func()) probfilter.DataLoader{
+		"fixed snapshot": func(hook func()) probfilter.DataLoader {
+			return &hookLoader{values: snapshot, count: -1, hookAt: 0, hook: hook}
+		},
+		"consumed iterator": func(hook func()) probfilter.DataLoader {
+			return &onceLoader{values: snapshot, hook: hook}
+		},
+	}
+	for name, mk := range loaders {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var c facade.Coordinator
+			c.SetJournalLimit(4)
+
+			var stagings []*fakeStaging
+			stage := func(_ context.Context, _ int64) (facade.Staging, error) {
+				st := &fakeStaging{}
+				stagings = append(stagings, st)
+				return st, nil
+			}
+			flood := func() {
+				for _, v := range keys("flood", 10) {
+					require.NoError(t, c.Add(t.Context(), v, func() error { return nil }))
+				}
+			}
+
+			err := c.Rebuild(t.Context(), mk(flood), stage)
+			require.ErrorIs(t, err, probfilter.ErrRebuildJournalOverflow)
+			require.Len(t, stagings, 1, "the rebuild must not retry on a loader that cannot be trusted to repeat")
+			require.False(t, stagings[0].committed)
+			require.True(t, stagings[0].aborted)
+
+			// The overflow leaves no state behind: a quiet rebuild succeeds.
+			require.NoError(t, c.Rebuild(t.Context(), mk(func() {}), stage))
+		})
+	}
 }
 
-func (l *passLoader) Count(context.Context) (int64, error) { return -1, nil }
+// onceLoader yields its values on the first pass only and runs hook after the
+// first value; later passes are empty, like a consumed cursor.
+type onceLoader struct {
+	values []string
+	hook   func()
+	used   bool
+}
 
-func (l *passLoader) StreamValues(context.Context) iter.Seq2[string, error] {
-	pass := l.pass
-	l.pass++
+func (l *onceLoader) Count(context.Context) (int64, error) { return -1, nil }
+
+func (l *onceLoader) StreamValues(context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		for i, v := range l.passes[min(pass, len(l.passes)-1)] {
+		if l.used {
+			return
+		}
+		l.used = true
+		for i, v := range l.values {
 			if !yield(v, nil) {
 				return
 			}
-			if i == 0 && l.hook != nil {
-				l.hook(pass)
+			if i == 0 {
+				l.hook()
 			}
 		}
-	}
-}
-
-// TestCoordinator_JournalOverflowRestartsRebuild checks that a journal that
-// overflows is bounded, that the incomplete replacement is discarded, and that
-// the restarted rebuild commits a replacement holding every value.
-func TestCoordinator_JournalOverflowRestartsRebuild(t *testing.T) {
-	t.Parallel()
-	var c facade.Coordinator
-	c.SetJournalLimit(4)
-
-	var stagings []*fakeStaging
-	stage := func(_ context.Context, _ int64) (facade.Staging, error) {
-		st := &fakeStaging{}
-		stagings = append(stagings, st)
-		return st, nil
-	}
-
-	added := keys("added", 10)
-	loader := &passLoader{
-		passes: [][]string{{"src"}, append([]string{"src"}, added...)},
-		hook: func(pass int) {
-			if pass != 0 {
-				return
-			}
-			for _, v := range added {
-				require.NoError(t, c.Add(t.Context(), v, func() error { return nil }))
-			}
-		},
-	}
-
-	require.NoError(t, c.Rebuild(t.Context(), loader, stage))
-	require.Len(t, stagings, 2)
-	require.True(t, stagings[0].aborted)
-	require.False(t, stagings[0].committed)
-	require.True(t, stagings[1].committed)
-	require.ElementsMatch(t, append([]string{"src"}, added...), stagings[1].snapshot())
-}
-
-// TestCoordinator_JournalOverflowEveryAttemptFails checks that a rebuild that
-// overflows on every attempt fails closed and leaves nothing committed.
-func TestCoordinator_JournalOverflowEveryAttemptFails(t *testing.T) {
-	t.Parallel()
-	var c facade.Coordinator
-	c.SetJournalLimit(2)
-
-	var stagings []*fakeStaging
-	stage := func(_ context.Context, _ int64) (facade.Staging, error) {
-		st := &fakeStaging{}
-		stagings = append(stagings, st)
-		return st, nil
-	}
-	loader := &passLoader{
-		passes: [][]string{{"src"}},
-		hook: func(int) {
-			for _, v := range keys("flood", 10) {
-				require.NoError(t, c.Add(t.Context(), v, func() error { return nil }))
-			}
-		},
-	}
-
-	err := c.Rebuild(t.Context(), loader, stage)
-	require.ErrorIs(t, err, probfilter.ErrRebuildJournalOverflow)
-	for _, st := range stagings {
-		require.False(t, st.committed)
-		require.True(t, st.aborted)
 	}
 }
