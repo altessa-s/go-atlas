@@ -123,7 +123,8 @@ func (h *testSubscriberHandler) Handle(ctx context.Context, m *msg.Message) {
 
 func newTestKeeper(t testing.TB) (*idempotency.Keeper, *memorystorage.Storage) {
 	t.Helper()
-	store := memorystorage.New()
+	store, err := memorystorage.New()
+	require.NoError(t, err)
 	keeper := idempotency.New(store, idempotency.WithMaxLockDuration(time.Minute))
 	return keeper, store
 }

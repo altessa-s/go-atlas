@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/factory/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
@@ -81,6 +82,22 @@ func TestBuild_MemoryStorageDeduplicates(t *testing.T) {
 	require.InDelta(t, 1, metricstest.GetCounterValue(t, tc, "test_idempotency_locks_acquired_total"), 0)
 }
 
+func TestBuild_MemoryCleanupRegistrationFailure(t *testing.T) {
+	t.Parallel()
+	rejected := errors.New("cleanup registration rejected")
+	scheduler := &testhelpers.MockTaskRegistrar{Err: rejected}
+	cfg := storageCfg(&idempotencyconfig.StorageConfig{
+		Type:   idempotencyconfig.StorageTypeMemory,
+		Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 1m"},
+	})
+
+	keeper, err := factory.New(cfg).UseScheduler(scheduler).Build(t.Context())
+
+	require.Equal(t, 1, scheduler.Count())
+	require.ErrorIs(t, err, rejected)
+	require.Nil(t, keeper)
+}
+
 func TestBuild_ConfigErrors(t *testing.T) {
 	t.Parallel()
 
@@ -125,7 +142,8 @@ func TestUseStorage(t *testing.T) {
 	_, err = factory.New(cfg).UseStorage(idempotencyconfig.StorageTypeRedis, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
-	want := memorystorage.New()
+	want, err := memorystorage.New()
+	require.NoError(t, err)
 	var called bool
 	registered := func(got *idempotencyconfig.Config) (storages.Storage, error) {
 		require.Same(t, cfg, got)
@@ -152,7 +170,7 @@ func TestBuildCustomBackend(t *testing.T) {
 	t.Parallel()
 	cfg := storageCfg(&idempotencyconfig.StorageConfig{Type: "custom"})
 
-	build := func(*idempotencyconfig.Config) (storages.Storage, error) { return memorystorage.New(), nil }
+	build := func(*idempotencyconfig.Config) (storages.Storage, error) { return memorystorage.New() }
 	b := factory.New(cfg).UseStorage("custom", build)
 	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
 	require.NoError(t, cfg.Validate())

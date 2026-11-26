@@ -33,7 +33,8 @@ SQL (`database/sql`), where the MongoDB and SQL backends can join the caller's t
 ### Memory (tests, single-process)
 
 ```go
-storage := memorystorage.New(memorystorage.WithTTL(time.Hour))
+storage, err := memorystorage.New(memorystorage.WithTTL(time.Hour))
+if err != nil { return err }
 keeper := idempotency.New(storage)
 
 ok, state, err := keeper.AttemptLock(ctx, "request-id-42")

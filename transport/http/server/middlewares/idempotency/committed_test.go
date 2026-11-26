@@ -149,7 +149,7 @@ func TestImplicitOKCompletesKey(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	h := Middleware(newOwnedKeeper(t))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
 
 	post(t, h, t.Context(), "/orders", "a")
 	post(t, h, t.Context(), "/orders", "a")
@@ -167,7 +167,7 @@ func TestFailedFlushCommitsAndIsNotReplayed(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newOwnedKeeper(), WithResponseReplay())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := Middleware(newOwnedKeeper(t), WithResponseReplay())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusCreated)
 		_, _ = io.WriteString(w, "created")
@@ -197,7 +197,7 @@ func TestHijackCompletesKey(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newOwnedKeeper())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := Middleware(newOwnedKeeper(t))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		_, _, err := http.NewResponseController(w).Hijack()
 		require.NoError(t, err)

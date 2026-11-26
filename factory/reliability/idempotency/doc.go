@@ -20,6 +20,7 @@
 // # Storages
 //
 // The builder builds memory and SQL storage (with [KeeperBuilder.UseSQLDB]).
+// [KeeperBuilder.Build] returns an error if the scheduler rejects the memory cleanup task.
 // SQL cleanup starts lazily and is closed through UseShutdownHooks or the process
 // shutdown registry; the caller closes the database after the hooks run.
 // SQL schema creation is optional and bounded by ctx and a 30-second timeout. Redis, NATS and MongoDB

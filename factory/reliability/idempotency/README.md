@@ -23,6 +23,7 @@ Register a custom backend name with `UseStorage`. Before standalone validation o
 
 The builder builds `memory` and `sqldb` storage. `redis`, `nats` and `mongo` use the function registered with `UseStorage`; without one `Build` fails
 naming the package to add. An unregistered custom type fails with `ErrUnsupported`.
+For memory storage, `Build` returns an error if the scheduler rejects the cleanup task.
 
 | Type     | Backend                                            | Requires                                                                                                             |
 |------------|------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|

@@ -177,5 +177,5 @@ func (b *KeeperBuilder) createMemoryStorage() (*memorystorage.Storage, error) {
 	return memorystorage.New(memorystorage.WithTTL(b.cfg.TTL),
 		memorystorage.WithCleanupSchedule(b.cfg.Storage.Memory.CleanupSchedule),
 		memorystorage.WithScheduler(b.scheduler),
-	), nil
+	)
 }
