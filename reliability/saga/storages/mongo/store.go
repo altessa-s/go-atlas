@@ -21,6 +21,9 @@ import (
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// opIn is the MongoDB set-membership operator.
+const opIn = "$in"
+
 // MongoDB field names for the saga instances collection.
 const (
 	collectionFieldId         = "_id"
@@ -29,6 +32,7 @@ const (
 	collectionFieldDeadline   = "deadline"
 	collectionFieldVersion    = "version"
 	collectionFieldLeaseUntil = "lease_until"
+	collectionFieldUpdatedAt  = "updated_at"
 )
 
 // Store is a durable [saga.Storage] backed by a MongoDB collection. Each saga
@@ -155,7 +159,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 // non-empty. A non-positive limit means no cap.
 func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	filter := bson.M{
-		collectionFieldStatus: bson.M{"$in": bson.A{string(saga.StatusRunning), string(saga.StatusCompensating)}},
+		collectionFieldStatus: bson.M{opIn: bson.A{string(saga.StatusRunning), string(saga.StatusCompensating)}},
 		"$and": bson.A{
 			bson.M{"$or": bson.A{
 				bson.M{collectionFieldStatus: string(saga.StatusCompensating)},
@@ -192,6 +196,67 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 		out[i] = fromDocument(&docs[i])
 	}
 	return out, nil
+}
+
+// terminalStatuses lists the terminal instance statuses as BSON values.
+func terminalStatuses() bson.A {
+	return bson.A{string(saga.StatusCompleted), string(saga.StatusCompensated), string(saga.StatusFailed)}
+}
+
+// deleteTerminalBatch bounds the ids selected and deleted per round trip.
+const deleteTerminalBatch = 500
+
+// DeleteTerminal removes up to limit terminal instances last updated before
+// olderThan, restricted to definition when it is non-empty, and returns how
+// many it removed. A non-positive limit means no cap. updated_at is stored as
+// Unix seconds, so olderThan is compared at that granularity.
+func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error) {
+	filter := bson.M{
+		collectionFieldStatus:    bson.M{opIn: terminalStatuses()},
+		collectionFieldUpdatedAt: bson.M{"$lt": olderThan.Unix()},
+	}
+	if definition != "" {
+		filter[collectionFieldDefinition] = definition
+	}
+
+	deleted := 0
+	for limit <= 0 || deleted < limit {
+		batch := deleteTerminalBatch
+		if limit > 0 {
+			batch = min(batch, limit-deleted)
+		}
+		cursor, err := s.collection.Find(ctx, filter,
+			mongoOptions.Find().SetProjection(bson.M{collectionFieldId: 1}).SetLimit(int64(batch)))
+		if err != nil {
+			return deleted, coreerrs.WrapOperation(err, "find terminal saga instances in MongoDB")
+		}
+		var docs []struct {
+			ID string `bson:"_id"`
+		}
+		err = cursor.All(ctx, &docs)
+		if err != nil {
+			return deleted, coreerrs.WrapOperation(err, "decode terminal saga instances from MongoDB")
+		}
+		if len(docs) == 0 {
+			break
+		}
+		ids := make(bson.A, len(docs))
+		for i, d := range docs {
+			ids[i] = d.ID
+		}
+		res, err := s.collection.DeleteMany(ctx, bson.M{
+			collectionFieldId:     bson.M{opIn: ids},
+			collectionFieldStatus: bson.M{opIn: terminalStatuses()},
+		})
+		if err != nil {
+			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instances from MongoDB")
+		}
+		deleted += int(res.DeletedCount)
+		if len(docs) < batch {
+			break
+		}
+	}
+	return deleted, nil
 }
 
 // Delete removes an instance. Deleting a missing instance is not an error.

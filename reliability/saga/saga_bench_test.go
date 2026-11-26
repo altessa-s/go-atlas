@@ -25,6 +25,9 @@ func (noopStore) FetchRecoverable(context.Context, string, time.Time, int) ([]*s
 	return nil, nil
 }
 func (noopStore) Delete(context.Context, string) error { return nil }
+func (noopStore) DeleteTerminal(context.Context, string, time.Time, int) (int, error) {
+	return 0, nil
+}
 
 func noop(_ context.Context, _ *order) error { return nil }
 

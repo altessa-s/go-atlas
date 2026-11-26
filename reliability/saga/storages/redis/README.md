@@ -19,13 +19,19 @@ field used as the optimistic-concurrency token: `Update` is a Lua compare-and-se
 | Option           | Default  | Description                                                       |
 |------------------|----------|-------------------------------------------------------------------|
 | `WithKeyPrefix`  | `saga:`  | Prefix applied to all keys.                                       |
-| `WithTTL`        | 0        | Per-key expiry applied on every write; `0` persists indefinitely. |
+| `WithTTL`        | 0        | Expiry of a terminal instance, set on its terminal write; a live instance never expires. `0` persists indefinitely. |
+| `WithLogger`     | discard  | Logger for skipped undecodable records (class and size only).     |
+
+`New` returns `(*Store, error)`. On Redis Cluster the key prefix must contain a hash tag (`WithKeyPrefix("{saga}:")`) so an instance and its indexes
+share a slot; a cluster client with an untagged prefix fails with an error matching `ErrInvalidArgument`. An instance ID that is not valid UTF-8 is
+rejected with `ErrInvalidStorageKey` (it wraps `ErrInvalidID`), because JSON would rewrite it.
 
 ## Recovery index
 
 Redis is not query-capable, so recoverable instances are tracked in a sorted set scored by recover-eligibility time. `FetchRecoverable` reads the due
-ids with one `ZRANGEBYSCORE` from `-inf` to the current time and loads their instances page by page, counting an entry toward the limit only once it
-matches the requested definition and is recoverable (its lease is not active). All writes keep the index consistent with the instance hash atomically
+ids page by page after a cursor (`ZRANGEBYSCORE ... LIMIT` inside a script), so the transfer is bounded by the pages needed to fill the limit, and
+counts an entry toward the limit only once it matches the requested definition and is recoverable (its lease is not active). An undecodable record is
+skipped and logged by class. All writes keep the index consistent with the instance hash atomically
 (inside the same Lua script):
 
 | Instance state               | Index score      |
@@ -42,12 +48,13 @@ matches the requested definition and is recoverable (its lease is not active). A
 |-----------------------------|------|-----------------------------------------|
 | `<prefix>i:<id>`            | Hash | `d` = instance JSON, `v` = version      |
 | `<prefix>index:recoverable` | ZSet | member = instance ID, score = see above |
+| `<prefix>index:terminal`    | ZSet | member = instance ID, score = last update (Unix ms) |
 
 ## Retention
 
-Terminal instances are **not** deleted automatically — the orchestrator keeps them for inspection and leaves disposal to the caller. With the default
-`WithTTL(0)` (persist forever) completed and failed instances accumulate until you call `Store.Delete`; set a positive `WithTTL` to have every write
-apply a `PEXPIRE` so instances self-expire. (The NATS backend differs: its bucket carries a long backstop TTL by default.) The recoverable index scores
+Terminal instances are removed by the orchestrator's retention cycle (`saga.WithRetention`), which calls `DeleteTerminal` (paged over the terminal
+index), or by `Store.Delete`. With the default `WithTTL(0)` they otherwise persist; a positive `WithTTL` makes a terminal instance expire on its
+terminal write while a live instance never expires. (The NATS backend differs: its bucket carries a long backstop TTL by default.) The recoverable index scores
 deadlines in Unix seconds, so recovery eligibility is evaluated at one-second granularity.
 
 ## See also

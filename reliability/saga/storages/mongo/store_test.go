@@ -88,7 +88,7 @@ func TestDocumentZeroDeadlineMapsToUnset(t *testing.T) {
 
 func TestInstanceIndexesCoverStatusDeadline(t *testing.T) {
 	t.Parallel()
-	require.Len(t, instanceIndexes, 2)
+	require.Len(t, instanceIndexes, 3)
 
 	keys, ok := instanceIndexes[0].Keys.(bson.D)
 	require.True(t, ok)

@@ -7,6 +7,7 @@ package redis
 //go:generate go tool optgen generate
 
 import (
+	"log/slog"
 	"time"
 )
 
@@ -16,5 +17,6 @@ const DefaultKeyPrefix = "saga:"
 // options contains Redis saga storage configuration.
 type options struct {
 	keyPrefix string        `optgen:"default=DefaultKeyPrefix"`
-	ttl       time.Duration // 0 → persist (no expiry); >0 → PEXPIRE applied on every write
+	ttl       time.Duration // 0 → persist (no expiry); >0 → a terminal instance expires after ttl, a live one never does
+	logger    *slog.Logger  `optgen:"notnil,default=slog.New(slog.DiscardHandler)"`
 }

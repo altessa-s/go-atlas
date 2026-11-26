@@ -183,6 +183,15 @@ type Storage interface {
 	// Delete removes a (typically terminal) instance for retention. Deleting a
 	// missing instance is not an error.
 	Delete(ctx context.Context, id string) error
+
+	// DeleteTerminal removes up to limit terminal instances (Completed,
+	// Compensated or Failed) whose UpdatedAt is before olderThan, restricted to
+	// definition when it is non-empty, and returns how many it removed. A
+	// non-positive limit means no cap. Non-terminal instances are never
+	// removed. Durable backends compare UpdatedAt at their stored granularity
+	// (the Mongo backend keeps whole seconds, the Redis backend milliseconds);
+	// an instance within one granule of olderThan may stay for the next call.
+	DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error)
 }
 
 // Recoverable reports whether an instance is eligible for a recovery scan.

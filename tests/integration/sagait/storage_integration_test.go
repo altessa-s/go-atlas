@@ -141,7 +141,9 @@ func newRedisStore(tb testing.TB) saga.Storage {
 		}
 		_ = client.Close()
 	})
-	return redisstore.New(client, redisstore.WithKeyPrefix(prefix))
+	store, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))
+	require.NoError(tb, err)
+	return store
 }
 
 // TestStorageContract runs the saga storage contract suite on every live

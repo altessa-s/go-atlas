@@ -42,6 +42,6 @@ func Builder(client redis.UniversalClient) sagafactory.StorageFunc {
 		return redisstore.New(client,
 			redisstore.WithKeyPrefix(cfg.Redis.KeysPrefix),
 			redisstore.WithTTL(cfg.Redis.TTL),
-		), nil
+		)
 	}
 }

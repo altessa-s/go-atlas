@@ -172,6 +172,11 @@ func (s boundedStorage) Update(ctx context.Context, inst *Instance) error {
 	}
 	return s.Storage.Update(ctx, inst)
 }
+func (s boundedStorage) DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error) {
+	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
+	defer cancel()
+	return s.Storage.DeleteTerminal(ctx, definition, olderThan, limit)
+}
 func (s boundedStorage) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*Instance, error) {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()

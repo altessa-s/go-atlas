@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -41,6 +42,17 @@ var ErrKeyTooLong = natskey.ErrKeyTooLong
 // ID, so it could not be found again under the ID it was created with.
 var ErrInvalidID = errors.New("saga instance id is not valid UTF-8")
 
+// indexPrefix marks the keys of the recoverable index, one per live instance:
+// "=rec." followed by the instance's physical key. natskey.Encode writes '='
+// only before two hex digits, so no instance key starts with "=r" and the index
+// namespace cannot collide with an instance ID.
+const indexPrefix = "=rec."
+
+// indexGrace is how old a recoverable-index key must be before the scan drops
+// it for a missing instance, which covers the window between Create writing
+// the index key and the instance record.
+const indexGrace = 5 * time.Minute
+
 // Store is a durable [saga.Storage] backed by a NATS JetStream KeyValue bucket.
 // Each saga instance is stored as a JSON document under its ID. The bucket's
 // monotonically increasing revision is used directly as the optimistic-
@@ -51,6 +63,14 @@ var ErrInvalidID = errors.New("saga instance id is not valid UTF-8")
 // Instance IDs are escaped into valid NATS KV keys, so any valid UTF-8 ID works;
 // an ID that already is a valid key without '=' (ULIDs and UUIDs) is stored
 // verbatim. An ID that is not valid UTF-8 is rejected with [ErrInvalidID].
+//
+// Live (non-terminal) instances are also listed in a recoverable index kept in
+// the same bucket, one "=rec.<key>" entry each, so FetchRecoverable reads only
+// live instances and never walks terminal ones. The index key is written before
+// the instance record on Create and on every non-terminal Update, and removed
+// after the terminal write; a crash between the two writes leaves at worst a
+// dangling index key, which the scan removes, never a live instance without an
+// index key. DeleteTerminal has no index to read and walks the whole bucket.
 type Store struct {
 	natsbase.Base
 	opts *options
@@ -103,6 +123,11 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 		return err
 	}
 
+	if !inst.Status.IsTerminal() {
+		if err = s.putIndex(ctx, key); err != nil {
+			return err
+		}
+	}
 	rev, err := s.KV().Create(ctx, key, data)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
@@ -161,6 +186,12 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		return saga.ErrVersionConflict
 	}
 
+	terminal := inst.Status.IsTerminal()
+	if !terminal {
+		if err = s.putIndex(ctx, key); err != nil {
+			return err
+		}
+	}
 	rev, err := s.KV().Update(ctx, key, data, versionToRev(inst.Version))
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -180,39 +211,64 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	}
 
 	inst.Version = revToVersion(rev)
+	if terminal {
+		_ = s.KV().Delete(ctx, indexPrefix+key) // Best effort: a dangling index key is dropped by the scan.
+	}
 	return nil
 }
 
-// FetchRecoverable scans the bucket and returns up to limit non-terminal
-// instances that are mid-compensation or past their deadline, restricted to
-// definition when it is non-empty. NATS KV has no query support, so this lists
-// every key and reads each one; durable deployments with very large instance
-// counts should prefer a query-capable backend. A non-positive limit means no
-// cap.
+// putIndex records the instance with physical key key in the recoverable index.
+func (s *Store) putIndex(ctx context.Context, key string) error {
+	if _, err := s.KV().Put(ctx, indexPrefix+key, []byte{'1'}); err != nil {
+		return coreerrs.WrapOperation(classifyKeyError(err), "index saga instance in NATS")
+	}
+	return nil
+}
+
+// FetchRecoverable scans the recoverable index and returns up to limit
+// non-terminal instances that are mid-compensation or past their deadline,
+// restricted to definition when it is non-empty. Only live instances are read:
+// the index key of a terminal instance, or of one that never materialized, is
+// dropped as the scan meets it. An undecodable record is skipped. A
+// non-positive limit means no cap.
 func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
-	lister, err := s.KV().ListKeys(ctx)
+	lister, err := s.KV().ListKeysFiltered(ctx, indexPrefix+">")
 	if err != nil {
 		if errors.Is(err, jetstream.ErrNoKeysFound) {
 			return nil, nil
 		}
-		return nil, coreerrs.WrapOperation(err, "list saga keys in NATS")
+		return nil, coreerrs.WrapOperation(err, "list saga index in NATS")
 	}
 	defer func() { _ = lister.Stop() }()
 
 	var out []*saga.Instance
-	// Listed keys are physical: read them back as they are.
-	for key := range lister.Keys() {
-		entry, err := s.KV().Get(ctx, key)
+	for indexKey := range lister.Keys() {
+		// The index entry is read first: its revision guards the delete below.
+		idx, err := s.KV().Get(ctx, indexKey)
 		if err != nil {
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				continue // Deleted between listing and reading.
+				continue
+			}
+			return nil, coreerrs.WrapOperation(err, "get saga index key during scan")
+		}
+		entry, err := s.KV().Get(ctx, strings.TrimPrefix(indexKey, indexPrefix))
+		if err != nil {
+			if errors.Is(err, jetstream.ErrKeyNotFound) {
+				if time.Since(idx.Created()) >= indexGrace {
+					s.dropIndex(ctx, idx)
+				}
+				continue
 			}
 			return nil, coreerrs.WrapOperation(err, "get saga instance during scan")
 		}
 
 		inst, err := decodeEntry(entry)
 		if err != nil {
-			return nil, err
+			continue // Skipped: one corrupt record must not stop the scan.
+		}
+		if inst.Status.IsTerminal() {
+			s.dropIndex(ctx, idx)
+			continue
 		}
 		if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
 			continue
@@ -224,6 +280,61 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 		}
 	}
 	return out, nil
+}
+
+// dropIndex deletes a recoverable-index key only if it is unchanged since it
+// was read, so a concurrent re-index of the instance wins.
+func (s *Store) dropIndex(ctx context.Context, idx jetstream.KeyValueEntry) {
+	_ = s.KV().Delete(ctx, idx.Key(), jetstream.LastRevision(idx.Revision())) // Best effort.
+}
+
+// DeleteTerminal removes up to limit terminal instances last updated before
+// olderThan, restricted to definition when it is non-empty, and returns how
+// many it removed. A non-positive limit means no cap. NATS KV has no query, so
+// this walks every key of the bucket; the live-instance index is not used.
+// Each delete is revision-checked, so an instance changed since it was read is
+// kept.
+func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error) {
+	lister, err := s.KV().ListKeys(ctx)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrNoKeysFound) {
+			return 0, nil
+		}
+		return 0, coreerrs.WrapOperation(err, "list saga keys in NATS")
+	}
+	defer func() { _ = lister.Stop() }()
+
+	deleted := 0
+	for key := range lister.Keys() {
+		if strings.HasPrefix(key, indexPrefix) {
+			continue
+		}
+		entry, err := s.KV().Get(ctx, key)
+		if err != nil {
+			if errors.Is(err, jetstream.ErrKeyNotFound) {
+				continue
+			}
+			return deleted, coreerrs.WrapOperation(err, "get saga instance during retention")
+		}
+		inst, err := decodeEntry(entry)
+		if err != nil {
+			continue
+		}
+		if !inst.Status.IsTerminal() || !inst.UpdatedAt.Before(olderThan) || (definition != "" && inst.Definition != definition) {
+			continue
+		}
+		if err := s.KV().Delete(ctx, key, jetstream.LastRevision(entry.Revision())); err != nil {
+			if errors.Is(err, jetstream.ErrKeyExists) {
+				continue // Changed since it was read.
+			}
+			return deleted, coreerrs.WrapOperation(err, "delete terminal saga instance from NATS")
+		}
+		deleted++
+		if limit > 0 && deleted >= limit {
+			break
+		}
+	}
+	return deleted, nil
 }
 
 // Delete removes an instance. NATS KV deletes are idempotent, so removing a
@@ -239,6 +350,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 			return nil
 		}
 		return coreerrs.WrapOperation(classifyKeyError(err), "delete saga instance from NATS")
+	}
+	if err := s.KV().Delete(ctx, indexPrefix+key); err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
+		return coreerrs.WrapOperation(classifyKeyError(err), "delete saga index key from NATS")
 	}
 	return nil
 }

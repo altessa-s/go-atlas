@@ -29,7 +29,8 @@ instance is gone and `errs.ErrVersionConflict` otherwise.
 
 `New` creates a compound index on `(status, deadline)` that backs `FetchRecoverable`: the recovery scan filters by `status`, and by `deadline` for the
 timed-out `RUNNING` branch. The `status` prefix also serves the status-only `COMPENSATING` branch. A second index on `(status, lease_until)` serves the
-execution-lease check. Index creation is idempotent.
+execution-lease check. A third index on `(status, updated_at)` serves `DeleteTerminal`, which compares `updated_at` at one-second granularity. Index
+creation is idempotent.
 
 ## Document shape
 

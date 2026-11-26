@@ -23,6 +23,8 @@ var instanceIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
 		{Key: collectionFieldDeadline, Value: 1},
 	}},
 	{Keys: bson.D{{Key: collectionFieldStatus, Value: 1}, {Key: collectionFieldLeaseUntil, Value: 1}}},
+	// Backs DeleteTerminal: terminal statuses by last update.
+	{Keys: bson.D{{Key: collectionFieldStatus, Value: 1}, {Key: collectionFieldUpdatedAt, Value: 1}}},
 }
 
 // createIndexes creates the required MongoDB indexes on the instances collection.
