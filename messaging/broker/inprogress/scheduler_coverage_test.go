@@ -140,16 +140,25 @@ func TestNew_FailedRegistrationIsAnError(t *testing.T) {
 	require.Nil(t, mgr)
 }
 
-func TestNew_TickTaskID(t *testing.T) {
+func TestNew_DefaultTickTaskIDsAreUnique(t *testing.T) {
 	t.Parallel()
 
 	reg := &captureRegistrar{}
 	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"))
 	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"))
+
+	cfgs := reg.registered()
+	require.Len(t, cfgs, 2)
+	require.NotEqual(t, cfgs[0].ID, cfgs[1].ID, "managers with default IDs must not share a scheduler task")
+}
+
+func TestNew_ExplicitTickTaskID(t *testing.T) {
+	t.Parallel()
+
+	reg := &captureRegistrar{}
 	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"), inprogress.WithTickTaskID("orders-heartbeat"))
 
 	cfgs := reg.registered()
-	require.Len(t, cfgs, 3)
-	require.NotEqual(t, cfgs[0].ID, cfgs[1].ID, "managers with default IDs must not share a scheduler task")
-	require.Equal(t, "orders-heartbeat", cfgs[2].ID)
+	require.Len(t, cfgs, 1)
+	require.Equal(t, "orders-heartbeat", cfgs[0].ID)
 }

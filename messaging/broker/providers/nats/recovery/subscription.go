@@ -131,13 +131,14 @@ func (s *ManagedSubscription) resubscribe(parent, recoveryCtx context.Context) e
 		return err
 	}
 
-	previous := s.subscriber
-	s.subscriber = next
-	s.cancelSubscription()
-	s.subCancel = cancel
-	if previous != nil {
-		previous.Unsubscribe()
+	// Stop the previous subscriber first so its in-flight handlers drain with
+	// a live context, then cancel that context.
+	if s.subscriber != nil {
+		s.subscriber.Unsubscribe()
 	}
+	s.cancelSubscription()
+	s.subscriber = next
+	s.subCancel = cancel
 
 	// An ephemeral replacement has a new server-assigned name: retire the old
 	// registry key and register the new one.

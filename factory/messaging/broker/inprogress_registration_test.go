@@ -36,3 +36,20 @@ func TestCreateInProgressManager_PropagatesRegistrationFailure(t *testing.T) {
 	require.ErrorIs(t, err, errRegistrationRejected)
 	require.Nil(t, mgr)
 }
+
+// TestCreateInProgressManager_DefaultTaskIDsAreUnique pins that two managers
+// built by the factory register distinct scheduler tasks, since the scheduler
+// keys tasks by ID.
+func TestCreateInProgressManager_DefaultTaskIDsAreUnique(t *testing.T) {
+	t.Parallel()
+
+	reg := &capturingRegistrar{}
+	cfg := &brokerconfig.Config{InProgress: brokerconfig.InProgress{Enabled: true, TickSchedule: "@every 1s"}}
+	for range 2 {
+		_, err := factory.New(cfg).UseScheduler(reg).CreateInProgressManager()
+		require.NoError(t, err)
+	}
+	ids := reg.ids()
+	require.Len(t, ids, 2)
+	require.NotEqual(t, ids[0], ids[1])
+}

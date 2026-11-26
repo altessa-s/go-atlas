@@ -6,6 +6,7 @@ package recovery_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -167,4 +168,91 @@ func TestSupervisor_CloseRacesRecover(t *testing.T) {
 		wg.Wait()
 		sup.Close()
 	}
+}
+
+// trackedSubscriber wraps a real subscriber to observe Unsubscribe and to
+// fail a chosen Subscribe.
+type trackedSubscriber struct {
+	broker.Subscriber
+	unsubscribed atomic.Bool
+	failWith     error
+}
+
+func (s *trackedSubscriber) Subscribe(ctx context.Context, h broker.SubscriberHandler) error {
+	if s.failWith != nil {
+		return s.failWith
+	}
+	return s.Subscriber.Subscribe(ctx, h)
+}
+
+func (s *trackedSubscriber) Unsubscribe() {
+	s.unsubscribed.Store(true)
+	s.Subscriber.Unsubscribe()
+}
+
+func (s *trackedSubscriber) ActiveConsumerName() string {
+	if namer, ok := s.Subscriber.(interface{ ActiveConsumerName() string }); ok {
+		return namer.ActiveConsumerName()
+	}
+	return ""
+}
+
+var errReplacementFailed = errors.New("replacement failed")
+
+// TestManagedSubscription_FailedReplacementKeepsHealthyOriginal verifies that
+// a replacement that fails to subscribe leaves the working subscriber running
+// and the registry key unchanged.
+func TestManagedSubscription_FailedReplacementKeepsHealthyOriginal(t *testing.T) {
+	t.Parallel()
+
+	f := newEphemeralFixture(t)
+	var subs []*trackedSubscriber
+	factory := func(p *natsprovider.NATS) broker.Subscriber {
+		ts := &trackedSubscriber{Subscriber: natsprovider.SubscriberWithEphemeralConsumer()(p)}
+		if len(subs) > 0 {
+			ts.failWith = errReplacementFailed
+		}
+		subs = append(subs, ts)
+		return ts
+	}
+	_, err := f.manager.Subscribe(t.Context(), "ORDERS", "label", nopHandler{topic: "orders.created"}, factory)
+	require.NoError(t, err)
+	key := f.registered()
+	require.Len(t, key, 1)
+
+	handler, ok := f.manager.GetRegistry().GetResubscribeHandler("ORDERS", key[0])
+	require.True(t, ok)
+	require.ErrorIs(t, handler(t.Context()), errReplacementFailed)
+
+	require.Len(t, subs, 2)
+	require.False(t, subs[0].unsubscribed.Load(), "the healthy original must keep running")
+	require.Equal(t, key, f.registered())
+	require.Equal(t, key, f.serverConsumers(t))
+}
+
+// TestManager_SharedDurableHasOneOwner verifies that a second managed
+// subscription on a consumer another one owns is refused and does not erase
+// the owner's recovery state.
+func TestManager_SharedDurableHasOneOwner(t *testing.T) {
+	t.Parallel()
+
+	f := newEphemeralFixture(t)
+	durable := func(p *natsprovider.NATS) broker.Subscriber {
+		return natsprovider.SubscriberWithConsumer(&jetstream.ConsumerConfig{
+			Durable: "shared", FilterSubject: "orders.created", AckPolicy: jetstream.AckExplicitPolicy,
+		})(p)
+	}
+	first, err := f.manager.Subscribe(t.Context(), "ORDERS", "a", nopHandler{topic: "orders.created"}, durable)
+	require.NoError(t, err)
+
+	_, err = f.manager.Subscribe(t.Context(), "ORDERS", "b", nopHandler{topic: "orders.created"}, durable)
+	require.ErrorIs(t, err, recovery.ErrConsumerAlreadyManaged)
+
+	registry := f.manager.GetRegistry()
+	require.True(t, registry.HasConsumer("ORDERS", "shared"))
+	_, ok := registry.GetResubscribeHandler("ORDERS", "shared")
+	require.True(t, ok, "the owner must keep its recovery handler")
+
+	first.Unsubscribe()
+	require.False(t, registry.HasConsumer("ORDERS", "shared"))
 }

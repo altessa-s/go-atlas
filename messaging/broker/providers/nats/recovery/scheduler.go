@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -33,7 +34,14 @@ func (m *Manager) registerTasks(opts *options) error {
 	healthID := cmp.Or(opts.healthCheckTaskID, fmt.Sprintf("broker-recovery-health-check-%d", instance))
 	staleID := cmp.Or(opts.staleCleanupTaskID, fmt.Sprintf("broker-recovery-stale-cleanup-%d", instance))
 
+	// The scheduler keys tasks by ID, so equal IDs would let the second
+	// registration silently replace the first.
+	if opts.healthCheckSchedule != "" && opts.staleRecoveryCleanupSchedule != "" && healthID == staleID {
+		return coreerrs.Wrapf(ErrDuplicateTaskID, "health check and stale cleanup both use %q", healthID)
+	}
+
 	// Register health check task
+	registeredHealth := false
 	if opts.healthCheckSchedule != "" {
 		taskCfg := schedtask.Config{
 			ID:          healthID,
@@ -45,6 +53,7 @@ func (m *Manager) registerTasks(opts *options) error {
 		if err := m.scheduler.Register(ctx, taskCfg); err != nil {
 			return coreerrs.WrapOperation(err, "register health check task")
 		}
+		registeredHealth = true
 	}
 
 	// Register stale recovery cleanup task
@@ -57,11 +66,33 @@ func (m *Manager) registerTasks(opts *options) error {
 			Priority:    schedtask.PriorityNormal,
 		}
 		if err := m.scheduler.Register(ctx, taskCfg); err != nil {
+			m.abandonRegistration(ctx, healthID, registeredHealth)
 			return coreerrs.WrapOperation(err, "register stale cleanup task")
 		}
 	}
 
 	return nil
+}
+
+// taskUnregistrar is implemented by schedulers that can remove a task.
+type taskUnregistrar interface {
+	Unregister(ctx context.Context, id string) error
+}
+
+// abandonRegistration undoes the health check registration of a manager whose
+// construction failed. The task is unregistered when the scheduler supports it;
+// either way the manager is closed, which makes a task that stays registered
+// inert instead of running a discarded manager.
+func (m *Manager) abandonRegistration(ctx context.Context, healthID string, registered bool) {
+	m.closed.Store(true)
+	if !registered {
+		return
+	}
+	if u, ok := m.scheduler.(taskUnregistrar); ok {
+		if err := u.Unregister(ctx, healthID); err != nil {
+			m.logger.Warn("failed to unregister health check task", slog.String("task", healthID), slog.Any("error", err))
+		}
+	}
 }
 
 // RegisterHealthCheckSchedulerFunc returns a function for use by a scheduler and marks
