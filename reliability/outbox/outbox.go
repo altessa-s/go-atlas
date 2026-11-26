@@ -328,6 +328,11 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 // It reports whether the store recorded at least one event as advanced past a
 // retry: sent, skipped or dead-lettered rather than failed again.
 func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error) {
+	handleCtx, cancelHandle := corectx.WithMaxTimeout(ctx, o.handleTimeout)
+	defer cancelHandle()
+
+	o.logger.DebugContext(handleCtx, "fetched unprocessed events", slog.Int("count", len(events)))
+
 	// Apply key compaction if enabled.
 	// Events to skip are marked as skipped without dispatching.
 	var skippedEvents []Event
@@ -352,7 +357,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error
 		events = toPublish
 	}
 
-	updates := o.dispatchBatch(ctx, events)
+	updates := o.dispatchBatch(ctx, handleCtx, events)
 	updates = append(updates, skippedEvents...)
 	if len(updates) == 0 {
 		return false, nil
@@ -374,10 +379,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error
 	}), nil
 }
 
-func (o *Outbox) dispatchBatch(ctx context.Context, events []Event) []Event {
-	handleCtx, cancelHandle := corectx.WithMaxTimeout(ctx, o.handleTimeout)
-	defer cancelHandle()
-
+func (o *Outbox) dispatchBatch(ctx, handleCtx context.Context, events []Event) []Event {
 	// A downstream interruption stops new admissions while in-flight sends
 	// retain their original deadline and can still confirm delivery.
 	workCtx, stopWork := context.WithCancel(handleCtx)

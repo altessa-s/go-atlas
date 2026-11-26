@@ -40,6 +40,9 @@
 // releases the next event. MongoDB stores only Event.Key. Direct claims on
 // either backend require a positive batch size.
 //
+// With compaction enabled, the latest [Event.CreatedAt] wins for each key
+// within the batch. Broker events use their outbox save time.
+//
 // # Dispatch latency
 //
 // [Outbox.StartWatch] runs the watcher in the background. [Outbox.StopWatch] cancels it
@@ -56,7 +59,8 @@
 //
 // # Retries and dead-lettering
 //
-// A cycle gives its handlers at most [WithHandleTimeout]. Failed attempts,
+// Compaction and handlers share [WithHandleTimeout], capped by the caller's
+// deadline. Failed attempts,
 // including handler panics and handling timeouts, follow the retry budget.
 // [WithShouldRetry] classifies a permanent failure as [StatusRejected]; an
 // event that exhausts [WithRetryMaxAttempts] becomes [StatusMaxAttemptReached].

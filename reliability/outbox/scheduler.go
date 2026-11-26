@@ -205,8 +205,6 @@ func (o *Outbox) dispatchOnce(ctx context.Context) (fetched int, advanced bool, 
 		return 0, false, nil // No events fetched
 	}
 
-	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
-
 	advanced, err = o.handleEvents(ctx, events...)
 	return len(events), advanced, err
 }

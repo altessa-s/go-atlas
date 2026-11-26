@@ -130,6 +130,27 @@ func TestDispatchCycleParentDeadlineConsumesAttempts(t *testing.T) {
 	})
 }
 
+func TestDispatchCycleCompactionConsumesHandlingBudget(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		store := &batchStore{batch: []outbox.Event{{Id: "slow-filter", Key: "test"}}}
+		const handleTimeout = time.Second
+		out := outbox.New(store, func(context.Context, outbox.Event) error {
+			return nil
+		}, outbox.WithHandleTimeout(handleTimeout), outbox.WithCompaction(),
+			outbox.WithCompactionFilter(func(string) bool {
+				time.Sleep(2 * handleTimeout)
+				return true
+			}))
+
+		require.NoError(t, out.RunDispatchCycle(t.Context()))
+		require.Len(t, store.updated, 1)
+		require.Equal(t, outbox.StatusPending, store.updated[0].Status)
+		require.Zero(t, store.updated[0].Attempts)
+	})
+}
+
 func TestDispatchCycleBoundsHandlerDeadline(t *testing.T) {
 	t.Parallel()
 
