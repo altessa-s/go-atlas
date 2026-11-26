@@ -24,11 +24,11 @@ const (
 	DefaultExportTimeout      = 10 * time.Second
 )
 
-// Default span limit settings (0 means unlimited).
+// Default span limit settings matching the OpenTelemetry specification (0 means unlimited).
 const (
-	DefaultMaxAttributes = 0
-	DefaultMaxEvents     = 0
-	DefaultMaxLinks      = 0
+	DefaultMaxAttributes = 128
+	DefaultMaxEvents     = 128
+	DefaultMaxLinks      = 128
 )
 
 // options contains configuration for Tracer.

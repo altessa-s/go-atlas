@@ -98,4 +98,12 @@
 //	    return err
 //	}
 //	span.SetStatus(tracing.StatusOK, "")
+//
+// # Span Limits
+//
+// Recording spans cap retained attributes, events, and links at 128 each by
+// default ([DefaultMaxAttributes], [DefaultMaxEvents], [DefaultMaxLinks]),
+// matching the OpenTelemetry specification. Override them with
+// [WithMaxAttributes], [WithMaxEvents], and [WithMaxLinks]; passing 0 disables
+// the corresponding cap.
 package tracing

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
@@ -21,7 +21,7 @@ func TestTracingOTLP_Validate_NoProxy(t *testing.T) {
 		Endpoint: "localhost:4317",
 		Protocol: OTLPProtocolGRPC,
 	}
-	assert.NoError(t, cfg.Validate())
+	require.NoError(t, cfg.Validate())
 }
 
 func TestTracingOTLP_Validate_ValidProxy(t *testing.T) {
@@ -35,7 +35,7 @@ func TestTracingOTLP_Validate_ValidProxy(t *testing.T) {
 			URL:  "http://proxy.corp:3128",
 		},
 	}
-	assert.NoError(t, cfg.Validate())
+	require.NoError(t, cfg.Validate())
 }
 
 func TestTracingOTLP_Validate_InvalidProxyPropagates(t *testing.T) {
@@ -49,7 +49,7 @@ func TestTracingOTLP_Validate_InvalidProxyPropagates(t *testing.T) {
 			// URL missing — Mode=url requires URL.
 		},
 	}
-	assert.Error(t, cfg.Validate())
+	require.Error(t, cfg.Validate())
 }
 
 func TestTracingOTLP_Validate_AcceptsProxyWithHTTPProtocol(t *testing.T) {
@@ -73,12 +73,14 @@ func TestTracingOTLP_Validate_AcceptsProxyWithHTTPProtocol(t *testing.T) {
 				Protocol: OTLPProtocolHTTP,
 				Proxy:    &tc.proxy,
 			}
-			assert.NoError(t, cfg.Validate())
+			require.NoError(t, cfg.Validate())
 		})
 	}
 }
 
 func TestTracingBatchValidation(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name  string
 		batch TracingBatch
@@ -95,11 +97,41 @@ func TestTracingBatchValidation(t *testing.T) {
 		{"zero timeout", TracingBatch{ExportTimeout: new(time.Duration(0))}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := Tracing{Enabled: true, Type: TracingTypeNoop, ServiceName: "test", Batch: tc.batch}
 			if tc.valid {
-				assert.NoError(t, cfg.Validate())
+				require.NoError(t, cfg.Validate())
 			} else {
-				assert.Error(t, cfg.Validate())
+				require.Error(t, cfg.Validate())
+			}
+		})
+	}
+}
+
+func TestTracingSpanLimitsValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		limits TracingSpanLimits
+		valid  bool
+	}{
+		{"defaults", TracingSpanLimits{}, true},
+		{"explicit 128", TracingSpanLimits{MaxAttributes: new(128), MaxEvents: new(128), MaxLinks: new(128)}, true},
+		{"explicit zero unlimited", TracingSpanLimits{MaxAttributes: new(0), MaxEvents: new(0), MaxLinks: new(0)}, true},
+		{"negative attributes", TracingSpanLimits{MaxAttributes: new(-1)}, false},
+		{"negative events", TracingSpanLimits{MaxEvents: new(-1)}, false},
+		{"negative links", TracingSpanLimits{MaxLinks: new(-1)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := Tracing{Enabled: true, Type: TracingTypeNoop, ServiceName: "test", SpanLimits: tc.limits}
+			if tc.valid {
+				require.NoError(t, cfg.Validate())
+			} else {
+				require.Error(t, cfg.Validate())
 			}
 		})
 	}

@@ -28,6 +28,8 @@ options; runtime packages never import them.
 | `SamplerType`         | Represents the type of trace sampler.                                                            |
 | `OTLPProtocol`        | Represents the OTLP transport protocol.                                                          |
 | `Tracing`             | Represents the configuration for the tracing system.                                             |
+| `TracingBatch`        | Configures the bounded span queue and batch export worker.                                       |
+| `TracingSpanLimits`   | Bounds per-span attributes, events, and links (defaults to 128; 0 means unlimited).              |
 | `TracingAdapters`     | Contains configurations for different tracing adapters.                                          |
 | `TracingSampler`      | Contains sampling configuration.                                                                 |
 | `TracingOTLP`         | Contains OTLP-specific configuration.                                                            |

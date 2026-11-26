@@ -7,8 +7,10 @@ package factory_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -186,6 +188,8 @@ func TestBuild_NilAdapterBuilderFails(t *testing.T) {
 }
 
 func TestBuildBatchExport(t *testing.T) {
+	t.Parallel()
+
 	cfg := stubTracing()
 	cfg.Batch.MaxQueueSize = new(2)
 	cfg.Batch.MaxExportBatchSize = new(3)
@@ -200,4 +204,145 @@ func TestBuildBatchExport(t *testing.T) {
 	span.End()
 	require.NoError(t, tr.Shutdown(t.Context()))
 	require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
+}
+
+type spanCaptureAdapter struct {
+	*adapters.MultiAdapter
+	mu    sync.Mutex
+	spans []adapters.SpanData
+}
+
+func (a *spanCaptureAdapter) ExportSpans(_ context.Context, spans []adapters.SpanData) (adapters.ExportResult, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.spans = append(a.spans, spans...)
+	return adapters.ExportResult{Accepted: len(spans)}, nil
+}
+
+func TestBuildSpanLimits(t *testing.T) {
+	t.Parallel()
+
+	refCfg := stubTracing()
+	refTr, err := factory.New(refCfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, refTr.Shutdown(t.Context())) }()
+
+	const total = 135
+	links := make([]tracing.Link, 0, total)
+	attrs := make([]tracing.Attribute, 0, total)
+	for i := range total {
+		_, l := refTr.Recorder("ref").Start(t.Context(), "linked")
+		l.End()
+		links = append(links, tracing.Link{SpanContext: l.SpanContext()})
+		attrs = append(attrs, tracing.Int(fmt.Sprintf("k.%d", i), i))
+	}
+
+	t.Run("omitted_uses_default_128", func(t *testing.T) {
+		t.Parallel()
+
+		captured := &spanCaptureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		cfg := stubTracing()
+		tr, err := factory.New(cfg).UseAdapter(stubType, func(context.Context, *observabilityconfig.TracingAdapters) (adapters.Adapter, error) {
+			return captured, nil
+		}).Build(t.Context())
+		require.NoError(t, err)
+
+		_, span := tr.Recorder("test").Start(t.Context(), "op",
+			tracing.WithAttributes(attrs...),
+			tracing.WithLinks(links...),
+		)
+		for i := range total {
+			span.AddEvent(fmt.Sprintf("ev.%d", i))
+		}
+		span.End()
+		require.NoError(t, tr.Shutdown(t.Context()))
+
+		require.Len(t, captured.spans, 1)
+		got := captured.spans[0]
+		require.Len(t, got.Attributes, 128)
+		require.Equal(t, total-128, got.DroppedAttributeCount)
+		require.Len(t, got.Events, 128)
+		require.Equal(t, total-128, got.DroppedEventCount)
+		require.Len(t, got.Links, 128)
+		require.Equal(t, total-128, got.DroppedLinkCount)
+	})
+
+	t.Run("custom_limits_wired", func(t *testing.T) {
+		t.Parallel()
+
+		captured := &spanCaptureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		cfg := stubTracing()
+		cfg.SpanLimits = observabilityconfig.TracingSpanLimits{
+			MaxAttributes: new(3),
+			MaxEvents:     new(2),
+			MaxLinks:      new(1),
+		}
+		tr, err := factory.New(cfg).UseAdapter(stubType, func(context.Context, *observabilityconfig.TracingAdapters) (adapters.Adapter, error) {
+			return captured, nil
+		}).Build(t.Context())
+		require.NoError(t, err)
+
+		_, span := tr.Recorder("test").Start(t.Context(), "op",
+			tracing.WithAttributes(attrs[:5]...),
+			tracing.WithLinks(links[:4]...),
+		)
+		for i := range 4 {
+			span.AddEvent(fmt.Sprintf("ev.%d", i))
+		}
+		span.End()
+		require.NoError(t, tr.Shutdown(t.Context()))
+
+		require.Len(t, captured.spans, 1)
+		got := captured.spans[0]
+		require.Len(t, got.Attributes, 3)
+		require.Equal(t, 2, got.DroppedAttributeCount)
+		require.Len(t, got.Events, 2)
+		require.Equal(t, 2, got.DroppedEventCount)
+		require.Len(t, got.Links, 1)
+		require.Equal(t, 3, got.DroppedLinkCount)
+	})
+
+	t.Run("explicit_zero_unlimited", func(t *testing.T) {
+		t.Parallel()
+
+		captured := &spanCaptureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		cfg := stubTracing()
+		cfg.SpanLimits = observabilityconfig.TracingSpanLimits{
+			MaxAttributes: new(0),
+			MaxEvents:     new(0),
+			MaxLinks:      new(0),
+		}
+		tr, err := factory.New(cfg).UseAdapter(stubType, func(context.Context, *observabilityconfig.TracingAdapters) (adapters.Adapter, error) {
+			return captured, nil
+		}).Build(t.Context())
+		require.NoError(t, err)
+
+		_, span := tr.Recorder("test").Start(t.Context(), "op",
+			tracing.WithAttributes(attrs...),
+			tracing.WithLinks(links...),
+		)
+		for i := range total {
+			span.AddEvent(fmt.Sprintf("ev.%d", i))
+		}
+		span.End()
+		require.NoError(t, tr.Shutdown(t.Context()))
+
+		require.Len(t, captured.spans, 1)
+		got := captured.spans[0]
+		require.Len(t, got.Attributes, total)
+		require.Zero(t, got.DroppedAttributeCount)
+		require.Len(t, got.Events, total)
+		require.Zero(t, got.DroppedEventCount)
+		require.Len(t, got.Links, total)
+		require.Zero(t, got.DroppedLinkCount)
+	})
+
+	t.Run("negative_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := stubTracing()
+		cfg.SpanLimits.MaxAttributes = new(-1)
+		_, err := factory.New(cfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
+		require.Error(t, err)
+	})
 }

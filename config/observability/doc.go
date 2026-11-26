@@ -11,5 +11,5 @@
 // to generated options.
 //
 // Key types: [Health], [LoggerConsoleOutput], [LoggerLevel], [LogFormat],
-// [LoggerBuffer], [LoggerMaskRule].
+// [LoggerBuffer], [LoggerMaskRule], [Tracing], [TracingBatch], [TracingSpanLimits].
 package observabilityconfig

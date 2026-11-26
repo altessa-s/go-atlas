@@ -55,6 +55,11 @@ Use `UseConsoleWriter` to set the built-in console adapter's output. It defaults
 Existing configurations use a queue of 2048 spans, batches of up to 512, a 1s scheduled delay and a 10s export timeout.
 Set any of these under `tracing.batch`. A full queue drops new spans. See [batch options and shutdown](../../../observability/tracing/README.md#batch-export).
 
+## Span limits
+
+Recording spans retain up to 128 distinct attributes, 128 events and 128 links by default (the OpenTelemetry defaults). Set `maxAttributes`, `maxEvents`
+or `maxLinks` under `tracing.spanLimits` to override a cap (`0` disables the cap; negative values fail validation).
+
 ## Proxy wiring
 
 For the `otlp` adapter, `otlpfactory.Builder()` builds the exporter's outbound client and injects it, so both protocols share one proxy policy from

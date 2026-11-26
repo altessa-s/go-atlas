@@ -71,6 +71,8 @@ func TestRecorder_ExportCarriesIDsAndScope(t *testing.T) {
 }
 
 func TestNewTreatsTypedNilDependenciesAsAbsent(t *testing.T) {
+	t.Parallel()
+
 	var adapter *captureAdapter
 	tr := tracing.New(tracing.WithAdapter(adapter))
 	require.True(t, tracing.IsNoop(tr))
@@ -85,6 +87,8 @@ func TestNewTreatsTypedNilDependenciesAsAbsent(t *testing.T) {
 }
 
 func TestRecorderKeepsDistinctInstrumentationScopes(t *testing.T) {
+	t.Parallel()
+
 	a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
 	tr := tracing.New(tracing.WithAdapter(a))
 	scopes := []adapters.InstrumentationScope{
@@ -408,4 +412,81 @@ func TestSpan_SetAttributesManyKeysUsesMapIndexAndHonorsCap(t *testing.T) {
 	require.Equal(t, 6, got.DroppedAttributeCount)
 	require.Contains(t, got.Attributes, adapters.Attribute{Key: "k0", Value: 100})
 	require.Contains(t, got.Attributes, adapters.Attribute{Key: "k23", Value: 230})
+}
+
+func TestSpan_DefaultLimitsAre128AndZeroDisablesCap(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 128, tracing.DefaultMaxAttributes)
+	require.Equal(t, 128, tracing.DefaultMaxEvents)
+	require.Equal(t, 128, tracing.DefaultMaxLinks)
+
+	refTr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOn()))
+	defer func() { require.NoError(t, refTr.Shutdown(t.Context())) }()
+
+	const total = 140
+	links := make([]tracing.Link, 0, total)
+	attrs := make([]tracing.Attribute, 0, total)
+	for i := range total {
+		_, l := refTr.Recorder("ref").Start(t.Context(), "linked")
+		l.End()
+		links = append(links, tracing.Link{SpanContext: l.SpanContext()})
+		attrs = append(attrs, tracing.Int(fmt.Sprintf("attr.%d", i), i))
+	}
+
+	t.Run("default_128", func(t *testing.T) {
+		t.Parallel()
+
+		a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		tr := tracing.New(tracing.WithAdapter(a), tracing.WithSampler(sampler.AlwaysOn()))
+		_, span := tr.Recorder("svc").Start(t.Context(), "default-limits",
+			tracing.WithAttributes(attrs...),
+			tracing.WithLinks(links...),
+		)
+		for i := range total {
+			span.AddEvent(fmt.Sprintf("ev.%d", i))
+		}
+		span.End()
+
+		require.NoError(t, tr.Shutdown(t.Context()))
+		require.Len(t, a.spans, 1)
+		got := a.spans[0]
+		require.Len(t, got.Attributes, 128)
+		require.Equal(t, total-128, got.DroppedAttributeCount)
+		require.Len(t, got.Events, 128)
+		require.Equal(t, total-128, got.DroppedEventCount)
+		require.Len(t, got.Links, 128)
+		require.Equal(t, total-128, got.DroppedLinkCount)
+	})
+
+	t.Run("explicit_zero_unlimited", func(t *testing.T) {
+		t.Parallel()
+
+		a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+		tr := tracing.New(
+			tracing.WithAdapter(a),
+			tracing.WithSampler(sampler.AlwaysOn()),
+			tracing.WithMaxAttributes(0),
+			tracing.WithMaxEvents(0),
+			tracing.WithMaxLinks(0),
+		)
+		_, span := tr.Recorder("svc").Start(t.Context(), "unlimited",
+			tracing.WithAttributes(attrs...),
+			tracing.WithLinks(links...),
+		)
+		for i := range total {
+			span.AddEvent(fmt.Sprintf("ev.%d", i))
+		}
+		span.End()
+
+		require.NoError(t, tr.Shutdown(t.Context()))
+		require.Len(t, a.spans, 1)
+		got := a.spans[0]
+		require.Len(t, got.Attributes, total)
+		require.Zero(t, got.DroppedAttributeCount)
+		require.Len(t, got.Events, total)
+		require.Zero(t, got.DroppedEventCount)
+		require.Len(t, got.Links, total)
+		require.Zero(t, got.DroppedLinkCount)
+	})
 }
