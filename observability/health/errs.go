@@ -6,6 +6,9 @@ package health
 
 import (
 	"errors"
+	"fmt"
+
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -41,7 +44,7 @@ var (
 	// ErrSchedulerManaged is returned by [Coordinator.RunHealthCheckCycle] when
 	// the cycle is managed by a scheduler via [Coordinator.RegisterHealthCheckSchedulerFunc].
 	// Direct calls are not allowed in this mode.
-	ErrSchedulerManaged = errors.New("health: function is managed by scheduler, direct calls not allowed")
+	ErrSchedulerManaged = fmt.Errorf("health: %w", cycle.ErrManaged)
 )
 
 // WrapCheckError wraps a health check error with service context.

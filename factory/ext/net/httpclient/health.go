@@ -18,8 +18,10 @@ import (
 //
 // Example:
 //
+//	obs := observe.New(meter, coord, factory.HealthOptions(cfg.HTTPHealth)...)
+//	defer obs.Close()
 //	client := httpclient.New(
-//	    httpclient.WithObserver(observe.New(meter, coord, factory.HealthOptions(cfg.HTTPHealth)...)),
+//	    httpclient.WithObserver(obs),
 //	    httpclient.WithLogger(logger),
 //	)
 func HealthOptions(h *clienthealthconfig.HTTP) []observe.Option {

@@ -44,6 +44,11 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 					return checked
 				}))
 				done := make(chan health.ServingStatus, 1)
+				type listResult struct {
+					statuses map[string]health.ServingStatus
+					err      error
+				}
+				listed := make(chan listResult, 1)
 				go func() {
 					switch api {
 					case "overall":
@@ -56,11 +61,7 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 						done <- c.CheckStatus(t.Context(), "db")
 					case "list":
 						statuses, err := c.ListStatuses(t.Context())
-						if err != nil {
-							done <- health.StatusUnknown
-							return
-						}
-						done <- statuses["db"]
+						listed <- listResult{statuses, err}
 					}
 				}()
 				<-entered
@@ -88,9 +89,16 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 					want = health.StatusServiceUnknown
 				}
 				if api == "list" {
-					want = checked
+					result := <-listed
+					require.NoError(t, result.err)
+					if replace {
+						require.Equal(t, want, result.statuses["db"])
+					} else {
+						require.NotContains(t, result.statuses, "db")
+					}
+				} else {
+					require.Equal(t, want, <-done)
 				}
-				require.Equal(t, want, <-done)
 				require.Equal(t, 0, c.GetMetrics()["cached_statuses"], "a changed registration must not populate the cache")
 				if replace {
 					require.Equal(t, health.StatusNotServing, c.CheckStatus(t.Context(), ""))

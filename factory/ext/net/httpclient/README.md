@@ -21,8 +21,12 @@ matching deny rule still refuses the address. Without rules the built-in private
 `HealthOptions` returns `[]observe.Option`; install them with the meter and health reporter:
 
 ```go
-c := httpclient.New(httpclient.WithObserver(observe.New(meter, coord, factory.HealthOptions(cfg.Health)...)))
+obs := observe.New(meter, coord, factory.HealthOptions(cfg.Health)...)
+defer obs.Close()
+c := httpclient.New(httpclient.WithObserver(obs))
 ```
+
+Keep the `*observe.Observer` returned by `observe.New`. Its `Close` method joins the notifier and releases the health registrations.
 
 ## Related packages
 

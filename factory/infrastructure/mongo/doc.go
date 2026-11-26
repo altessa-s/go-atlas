@@ -14,10 +14,17 @@
 //	    UseKmsProvider(kmsProvider).
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	defer m.Close()
+//	if err := m.Connect(ctx); err != nil {
+//	    return err
+//	}
 //
 // The builder integrates with [mongoconfig.Config] to produce driver-level
 // [go.mongodb.org/mongo-driver/v2/mongo/options.ClientOptions] and
-// higher-level [mongo.Mongo] wrappers with authentication, TLS, connection
+// higher-level [ManagedMongo] owners with authentication, TLS, connection
 // pooling, compression, and client-side field level encryption (CSFLE).
 //
 // The builder supports two configuration modes: connection-URI based
@@ -27,5 +34,7 @@
 //
 // When a [health.Registrar] is provided via [MongoBuilder.UseHealthCoordinator],
 // the builder automatically registers a health checker that pings the
-// primary on each check.
+// primary on each check. [ManagedMongo.Close] releases the health registration
+// and closes the current connection. The embedded Mongo is available to APIs
+// that require a *mongo.Mongo.
 package factory

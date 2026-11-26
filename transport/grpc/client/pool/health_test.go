@@ -370,8 +370,17 @@ type legacyPoolReporter struct {
 
 func (r *legacyPoolReporter) RegisterService(name string, checker health.Checker) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.registered[name] = checker
+	r.mu.Unlock()
+	if entry, ok := checker.(*health.DetachableChecker); ok {
+		entry.BindRemoval(func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if current, ok := r.registered[name].(*health.DetachableChecker); ok && current == entry {
+				delete(r.registered, name)
+			}
+		})
+	}
 }
 
 func (r *legacyPoolReporter) NotifyStatusChange(string, health.ServingStatus) {}

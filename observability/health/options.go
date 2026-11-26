@@ -49,7 +49,7 @@ type options struct {
 	maxWatchersPerService     int           `optgen:"default=DefaultMaxWatchersPerService" optval:"positive"`
 	numShards                 int           `optgen:"default=DefaultNumShards" optval:"positive"`
 	maxConcurrentHealthChecks int           `optgen:"default=DefaultMaxConcurrentHealthChecks"  optval:"positive"`
-	statusCacheTTL            time.Duration `optgen:"default=DefaultStatusCacheTTL"`
+	statusCacheTTL            time.Duration `optgen:"default=DefaultStatusCacheTTL" optval:"nonpositive"`
 	checkTimeout              time.Duration `optgen:"default=DefaultCheckTimeout"`
 	adaptiveBufferThreshold   int32         `optgen:"default=DefaultAdaptiveBufferThreshold"  optval:"positive"`
 	adaptiveBufferMultiplier  int           `optgen:"default=DefaultAdaptiveBufferMultiplier"  optval:"positive"`

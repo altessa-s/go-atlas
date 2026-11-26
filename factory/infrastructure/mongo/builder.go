@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"log/slog"
+	"sync"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -49,12 +50,12 @@ func New(cfg *mongoconfig.Config) *MongoBuilder {
 	}
 }
 
-// Build creates a [mongo.Mongo] wrapper from configuration.
+// Build creates a [ManagedMongo] from configuration.
 // If a [health.Registrar] was provided via [MongoBuilder.UseHealthCoordinator],
 // a health checker is registered under the service name "mongo".
 // The returned instance is not connected; call [mongo.Mongo.Connect] to establish
 // the connection.
-func (b *MongoBuilder) Build(_ context.Context) (*mongo.Mongo, error) {
+func (b *MongoBuilder) Build(_ context.Context) (*ManagedMongo, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -73,14 +74,28 @@ func (b *MongoBuilder) Build(_ context.Context) (*mongo.Mongo, error) {
 		return nil, err
 	}
 
+	managed := &ManagedMongo{Mongo: m}
 	if !nilcheck.IsNil(b.healthCoordinator) {
-		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
+		managed.unregister = sync.OnceFunc(health.RegisterOwnedChecker(b.healthCoordinator, cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
 			m:      m,
 			logger: b.Logger(),
-		})
+		}))
 	}
+	return managed, nil
+}
 
-	return m, nil
+// ManagedMongo owns a MongoDB client and its health registration.
+type ManagedMongo struct {
+	*mongo.Mongo
+	unregister func()
+}
+
+// Close releases the factory health registration and closes the current MongoDB connection.
+func (m *ManagedMongo) Close() {
+	if m.unregister != nil {
+		m.unregister()
+	}
+	m.Mongo.Close()
 }
 
 // ClientOptions creates MongoDB driver [mongoOptions.ClientOptions] from

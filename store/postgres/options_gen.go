@@ -103,6 +103,15 @@ func WithMeter(v metrics.Meter) Option {
 	}
 }
 
+// WithOnClose sets the onClose option.
+//
+// OnClose runs when database/sql closes the pool connector after a successful Open.
+func WithOnClose(v func()) Option {
+	return func(o *options) {
+		o.onClose = v
+	}
+}
+
 // WithPoolName sets the poolName option.
 //
 // PoolName identifies the pool in metrics and logs.

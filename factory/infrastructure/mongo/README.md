@@ -18,12 +18,14 @@ m, err := factory.New(cfg.Mongodb).
 if err != nil {
     return err
 }
+defer m.Close()
 if err := m.Connect(ctx); err != nil {
     return err
 }
 ```
 
-The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish the connection.
+`Build` returns a `*ManagedMongo`. Call `Connect` to establish the connection and `Close` to release the factory health registration
+and close the current connection. The embedded `m.Mongo` is available to APIs that accept a `*mongo.Mongo`.
 
 ## Authentication
 
@@ -59,7 +61,7 @@ The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish
 
 | Method       | Description                                                                            |
 |--------------|----------------------------------------------------------------------------------------|
-| `Build(ctx)` | Assembles and returns the `*mongo.Mongo` wrapper (not yet connected)                   |
+| `Build(ctx)` | Assembles and returns an unconnected `*ManagedMongo`                   |
 | `ClientOptions()` | Renders the driver `ClientOptions` without building the client                           |
 
 ## Configuration Modes

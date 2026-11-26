@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
@@ -97,14 +98,25 @@ func (b *ClickHouseBuilder) Build(_ context.Context) (driver.Conn, error) {
 	}
 
 	if !nilcheck.IsNil(b.healthCoordinator) {
-		b.healthCoordinator.RegisterService(
+		unregister := health.RegisterOwnedChecker(b.healthCoordinator,
 			cmp.Or(b.healthServiceName, DefaultHealthServiceName),
 			&clickHouseHealthChecker{conn: conn, logger: b.Logger()},
 		)
+		return &managedConn{Conn: conn, close: sync.OnceValue(func() error {
+			unregister()
+			return conn.Close()
+		})}, nil
 	}
 
 	return conn, nil
 }
+
+type managedConn struct {
+	driver.Conn
+	close func() error
+}
+
+func (c *managedConn) Close() error { return c.close() }
 
 // ClientOptions builds the driver [chgo.Options] from the builder's
 // configuration. When [clickhouseconfig.Config.ConnectionURI] is set, the DSN is

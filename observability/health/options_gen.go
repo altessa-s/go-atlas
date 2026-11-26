@@ -154,9 +154,6 @@ func WithScheduler(v schedtask.Registrar) Option {
 // WithStatusCacheTTL sets the statusCacheTTL option.
 func WithStatusCacheTTL(v time.Duration) Option {
 	return func(o *options) {
-		if v <= 0 {
-			return
-		}
 		o.statusCacheTTL = v
 	}
 }

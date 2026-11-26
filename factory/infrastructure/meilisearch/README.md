@@ -42,7 +42,10 @@ defer client.Close()
 
 | Method        | Description                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------|
-| `Build(ctx)`  | Assembles the `*meilisearch.Client`, runs the synchronous startup health probe within `ctx`  |
+| `Build(ctx)`  | Assembles the `*ManagedClient`, runs the synchronous startup health probe within `ctx`  |
+
+`ManagedClient.Close` releases the health registration and idle HTTP connections. Use `client.Client` with APIs that require a
+`*meilisearch.Client`.
 
 ## Errors
 

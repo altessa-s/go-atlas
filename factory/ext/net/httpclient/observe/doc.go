@@ -38,16 +38,17 @@
 //   - any half-open or open-while-others-closed, or retry rate above threshold → DEGRADED
 //   - all breakers open → NOT_SERVING
 //
-// Subscribers receive an immediate update on every breaker state
-// transition. [WithPerHostHealthChecks] also registers a "<service>.<host>"
-// checker for every host with explicit circuit breaker settings.
+// A single worker publishes current health after breaker state changes.
+// [WithPerHostHealthChecks] also registers a "<service>.<host>" checker
+// for every host with explicit circuit breaker settings. [Observer.Close]
+// joins the worker and releases the checkers.
 //
 // # Usage
 //
 //	coord := health.New()
 //	defer coord.Close()
 //
-//	c := client.New(
-//	    client.WithObserver(observe.New(meter, coord, observe.WithMetricsSubsystem("payments"))),
-//	)
+//	obs := observe.New(meter, coord, observe.WithMetricsSubsystem("payments"))
+//	defer obs.Close()
+//	c := client.New(client.WithObserver(obs))
 package observe

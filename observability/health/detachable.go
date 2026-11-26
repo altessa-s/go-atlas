@@ -33,11 +33,9 @@ func (c *DetachableChecker) CheckHealth(ctx context.Context) ServingStatus {
 	return checker.CheckHealth(ctx)
 }
 
-// Detach releases the underlying checker and removes its registrations with
-// [Coordinator]. It is safe to call repeatedly.
-func (c *DetachableChecker) Detach() { c.detach(nil) }
-
-func (c *DetachableChecker) detach(unregisterLegacy func()) {
+// Detach releases the underlying checker and removes its bound registrations.
+// It is safe to call repeatedly.
+func (c *DetachableChecker) Detach() {
 	c.mu.Lock()
 	if c.checker == nil {
 		c.mu.Unlock()
@@ -47,29 +45,32 @@ func (c *DetachableChecker) detach(unregisterLegacy func()) {
 	bindings := c.bindings
 	c.bindings = nil
 	c.mu.Unlock()
-	if unregisterLegacy != nil && bindingsCurrent(bindings) {
-		unregisterLegacy()
-	}
 	for _, binding := range bindings {
 		binding.remove()
 	}
 }
 
 type serviceBinding struct {
-	registry *serviceRegistry
-	name     string
-	owner    *serviceRegistration
+	remove  func()
+	current func() bool
 }
-
-func (b serviceBinding) remove() { b.registry.remove(b.name, b.owner) }
 
 func bindingsCurrent(bindings []serviceBinding) bool {
 	for _, b := range bindings {
-		if b.registry.lookup(b.name) != b.owner {
+		if b.current != nil && !b.current() {
 			return false
 		}
 	}
 	return true
+}
+
+// BindRemoval links a registrar's own entry to the checker's lifetime. A
+// registrar that stores the checker should bind a callback that removes only
+// the entry created by that registration, even when several entries share a
+// name. Call BindRemoval outside the registrar's lock. If the checker was
+// already detached, BindRemoval runs the callback before returning.
+func (c *DetachableChecker) BindRemoval(remove func()) {
+	c.bind(serviceBinding{remove: remove})
 }
 
 func (c *DetachableChecker) bind(binding serviceBinding) {
@@ -83,20 +84,15 @@ func (c *DetachableChecker) bind(binding serviceBinding) {
 	binding.remove()
 }
 
-// RegisterOwnedService registers through the supplied Reporter, including its
-// method overrides. A direct Coordinator uses its scoped registration. A
-// legacy reporter receives name-based updates and, for DynamicReporter,
-// teardown. Use ScopedReporter explicitly to serialize these with replacement.
+// RegisterOwnedService prefers scoped reporting for replacement-safe updates
+// and removal. A legacy reporter receives name-based updates and can bind
+// removal of its own entry via [DetachableChecker.BindRemoval].
 func RegisterOwnedService(reporter Reporter, name string, checker Checker) (notify func(ServingStatus), unregister func()) {
-	if coordinator, ok := reporter.(*Coordinator); ok {
-		return coordinator.RegisterScopedService(name, checker)
+	if scoped, ok := reporter.(ScopedReporter); ok {
+		return scoped.RegisterScopedService(name, checker)
 	}
 	detachable := NewDetachableChecker(checker)
 	reporter.RegisterService(name, detachable)
-	var unregisterLegacy func()
-	if dynamic, ok := reporter.(DynamicReporter); ok {
-		unregisterLegacy = func() { dynamic.UnregisterService(name) }
-	}
 	return func(status ServingStatus) {
 		detachable.mu.Lock()
 		active := detachable.checker != nil
@@ -105,5 +101,18 @@ func RegisterOwnedService(reporter Reporter, name string, checker Checker) (noti
 		if active && bindingsCurrent(bindings) {
 			reporter.NotifyStatusChange(name, status)
 		}
-	}, func() { detachable.detach(unregisterLegacy) }
+	}, detachable.Detach
+}
+
+// RegisterOwnedChecker registers a checker for the lifetime of its owner.
+// Registrars can support cleanup by implementing [ScopedReporter] or binding
+// entry removal via [DetachableChecker.BindRemoval].
+func RegisterOwnedChecker(registrar Registrar, name string, checker Checker) func() {
+	if scoped, ok := registrar.(ScopedReporter); ok {
+		_, unregister := scoped.RegisterScopedService(name, checker)
+		return unregister
+	}
+	detachable := NewDetachableChecker(checker)
+	registrar.RegisterService(name, detachable)
+	return detachable.Detach
 }

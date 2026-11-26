@@ -36,7 +36,7 @@ func (b *ManagerBuilder[T]) UseScheduler(v task.Registrar) *ManagerBuilder[T] {
 }
 
 // UseHealthCoordinator sets the health coordinator for auto-registration with the health system.
-func (b *ManagerBuilder[T]) UseHealthCoordinator(v health.Registrar) *ManagerBuilder[T] {
+func (b *ManagerBuilder[T]) UseHealthCoordinator(v health.ScopedReporter) *ManagerBuilder[T] {
 	b.healthCoordinator = v
 	return b
 }

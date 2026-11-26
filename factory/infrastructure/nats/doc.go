@@ -25,4 +25,6 @@
 //
 // When a [health.Registrar] is provided via [ConnectionBuilder.UseHealthCoordinator],
 // the builder registers a health checker that reports the connection status.
+// Build returns a [ManagedConn]. Call its Close method to release the registration,
+// and use its embedded Conn with APIs that require a *nats.Conn.
 package factory

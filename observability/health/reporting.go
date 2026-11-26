@@ -49,7 +49,9 @@ func (s *statusReporter) checkService(ctx context.Context, service string) servi
 	if override := ServingStatus(s.override.Load()); override != StatusUnknown {
 		status = override
 	} else {
-		status = checker.CheckHealth(ctx)
+		checkCtx, cancel := corectx.WithMaxTimeout(ctx, s.checkTimeout)
+		defer cancel()
+		status = checker.CheckHealth(checkCtx)
 	}
 
 	current := s.registry.lookup(service)
@@ -95,11 +97,7 @@ func (s *statusReporter) checkServices(ctx context.Context) ([]serviceStatus, er
 	}
 
 	statuses, err := concurrency.ProcessCollect(ctx, services, func(ctx context.Context, svc string) (serviceStatus, error) {
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, s.checkTimeout)
-		status := s.checkService(checkCtx, svc)
-		cancel()
-
-		return status, nil
+		return s.checkService(ctx, svc), nil
 	},
 		// No StopOnError: continue checking other services if one fails.
 		concurrency.WithConcurrency[string](s.maxConcurrentHealthChecks),
@@ -113,6 +111,9 @@ func (s *statusReporter) checkServices(ctx context.Context) ([]serviceStatus, er
 }
 
 func (s *statusReporter) getCachedStatus(service string) (ServingStatus, bool) {
+	if s.statusCacheTTL <= 0 {
+		return StatusUnknown, false
+	}
 	if cached, ok := s.registry.cache.Load(service); ok {
 		if cs, ok := cached.(*cachedStatus); ok {
 			timestamp := cs.timestamp.Load()
@@ -148,9 +149,7 @@ func (s *statusReporter) getHealthStatus(ctx context.Context, service string) Se
 		return s.refreshStatus(work, service), nil
 	})
 	if errors.Is(err, singleflight.ErrOverloaded) {
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, s.checkTimeout)
-		defer cancel()
-		return s.refreshStatus(checkCtx, service)
+		return s.refreshStatus(ctx, service)
 	}
 	if err != nil {
 		// The caller stopped waiting; the shared refresh still fills the cache.
@@ -182,6 +181,12 @@ func (s *statusReporter) list(ctx context.Context) (map[string]ServingStatus, er
 
 	results := make(map[string]ServingStatus, len(statuses))
 	for _, r := range statuses {
+		if r.unregistered {
+			continue
+		}
+		if r.replaced {
+			r.status = StatusNotServing
+		}
 		results[r.service] = r.status
 	}
 

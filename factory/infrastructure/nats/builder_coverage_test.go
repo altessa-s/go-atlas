@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -77,8 +78,15 @@ func TestBuild_ConnectsAndReportsHealth(t *testing.T) {
 	require.True(t, conn.IsConnected())
 	require.Equal(t, health.StatusServing, coord.CheckServiceHealth(t.Context(), "nats"))
 
+	closed := make(chan struct{})
+	conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
 	conn.Close()
-	require.Equal(t, health.StatusNotServing, coord.CheckServiceHealth(t.Context(), "nats"))
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("caller close handler did not run")
+	}
+	require.NotContains(t, slices.Collect(coord.ListServices()), "nats")
 }
 
 // RetryOnFailedConnect keeps an unreachable server from failing Build; the

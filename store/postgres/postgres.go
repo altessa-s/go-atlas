@@ -71,6 +71,7 @@ func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (poo
 	if o.meter != nil && !metrics.IsNoop(o.meter) {
 		owner.stop = observePool(db, o.meter, o.poolName)
 	}
+	owner.onClose = o.onClose
 	registerPoolLogger(db, o.logger)
 	o.logger.DebugContext(ctx, "PostgreSQL pool opened", slogx.Module("postgres"), "pool", o.poolName)
 	return db, nil

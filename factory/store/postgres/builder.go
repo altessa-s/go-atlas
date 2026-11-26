@@ -12,6 +12,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -69,6 +70,7 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 		return nil, err
 	}
 	pools := make(postgres.Pools, len(c.Pools)+1)
+	registrations := make(map[string]*poolHealthRegistration, len(c.Pools)+1)
 	complete := false
 	defer func() {
 		if !complete && len(pools) != 0 {
@@ -105,6 +107,11 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 			postgres.WithLogger(b.Logger()),
 		}
 		opts = coreslices.AppendIf(opts, tlsCfg != nil && tlsCfg.InsecureSkipVerify, postgres.WithAllowInsecureSkipVerify())
+		if !nilcheck.IsNil(b.health) {
+			reg := &poolHealthRegistration{}
+			registrations[name] = reg
+			opts = append(opts, postgres.WithOnClose(reg.close))
+		}
 		db, err := postgres.Open(ctx, cmp.Or(p.DSN, c.DSN), opts...)
 		if err != nil {
 			return nil, coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name)
@@ -122,13 +129,38 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 			return nil, err
 		}
 	}
-	if !nilcheck.IsNil(b.health) {
-		for name, db := range pools {
-			b.health.RegisterService("postgres."+name, postgres.Checker(db))
-		}
+	for name, reg := range registrations {
+		reg.register(b.health, "postgres."+name, postgres.Checker(pools[name]))
 	}
 	complete = true
 	return pools, nil
+}
+
+// A migrator can close its pool before startup has finished. Serialize the
+// close hook with registration so that pool cannot leave a stale checker.
+type poolHealthRegistration struct {
+	mu         sync.Mutex
+	closed     bool
+	unregister func()
+}
+
+func (r *poolHealthRegistration) register(registrar health.Registrar, name string, checker health.Checker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.closed {
+		r.unregister = health.RegisterOwnedChecker(registrar, name, checker)
+	}
+}
+
+func (r *poolHealthRegistration) close() {
+	r.mu.Lock()
+	r.closed = true
+	unregister := r.unregister
+	r.unregister = nil
+	r.mu.Unlock()
+	if unregister != nil {
+		unregister()
+	}
 }
 
 // Validate effective settings. An injected config supersedes certificate files,

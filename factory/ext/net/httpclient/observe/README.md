@@ -14,11 +14,14 @@ from them, so the client package itself stays free of the observability stack. C
 coord := health.New()
 defer coord.Close()
 
+obs := observe.New(meter, coord,
+    observe.WithMetricsSubsystem("payments"),
+    observe.WithPerHostHealthChecks(),
+)
+defer obs.Close()
+
 c := client.New(
-    client.WithObserver(observe.New(meter, coord,
-        observe.WithMetricsSubsystem("payments"),
-        observe.WithPerHostHealthChecks(),
-    )),
+    client.WithObserver(obs),
     client.WithCircuitBreakerSettings("api.example.com", &client.CircuitBreakerSettings{Name: "api"}),
 )
 ```
@@ -58,10 +61,9 @@ The aggregate checker is registered when the observer is attached to a client (i
 | `Degraded`   | any half-open, ≥ 1 open while ≥ 1 closed exists, OR retry rate above threshold    |
 | `NotServing` | every breaker is open (and at least one breaker exists)                           |
 
-The breakers counted are the per-host ones, plus the client-wide overflow breaker once it has served a request. Coordinator subscribers receive an
-immediate push on every breaker state transition (the recompute runs in a goroutine because the breaker callback holds the breaker's internal mutex);
-pull-based callers (`/healthz`, `/readyz`, gRPC `Check`) read the cached value through `CheckStatus`. Lazy hosts (no explicit settings) only
-contribute to the aggregate.
+The aggregate counts per-host breakers and the client-wide overflow breaker once it has served a request. A single notification worker reads the
+current status after breaker callbacks and can combine rapid transitions into one update. Pull-based callers read through `CheckStatus`. Lazy hosts
+contribute only to the aggregate. Call `Observer.Close` when retiring the client to join the worker and release the checkers.
 
 ## Key types
 

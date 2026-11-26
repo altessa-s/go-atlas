@@ -12,9 +12,13 @@
 //	    UseLogger(logger).
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	defer client.Close()
 //
 // The builder integrates with [meilisearchconfig.Config] to create
-// [meilisearch.Client] instances with the configured host, optional API key,
+// [ManagedClient] instances with the configured host, optional API key,
 // and HTTP timeout. Build performs an initial health check against the
 // server and returns an error unless the server reports that it is available.
 //
@@ -22,5 +26,7 @@
 // the builder registers a health checker that pings Meilisearch on each
 // check under the service name "meilisearch" (overridable via
 // [ClientBuilder.UseHealthServiceName]). [ClientBuilder.WithoutHealth]
-// disables registration and retains the startup check.
+// disables registration and retains the startup check. [ManagedClient.Close]
+// releases the health registration and idle HTTP connections. The embedded
+// Client is available to APIs that require a *meilisearch.Client.
 package factory

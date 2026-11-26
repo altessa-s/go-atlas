@@ -38,6 +38,8 @@ coordinator, err := factory.New(cfg.Health).
 |--------|-------------|
 | `Build(ctx)` | Assembles and returns the health coordinator; `ctx` bounds the check-cycle registration |
 
+`watcherChannelBuffer` and `maxWatchersPerService` must be at least 1. Set `statusCacheTTL: "0s"` to disable cached status reads.
+
 ## Check cycle
 
 The check cycle is what re-evaluates watched services and notifies their watchers; watchers themselves are push-based and never poll. It runs only when

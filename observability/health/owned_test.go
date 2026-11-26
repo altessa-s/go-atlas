@@ -104,25 +104,15 @@ func TestUnrelatedPushKeepsNamedRefreshCacheable(t *testing.T) {
 
 type prefixReporter struct {
 	*health.Coordinator
-	registered, notified, removed int
+	registered int
 }
 
-func (p *prefixReporter) RegisterService(name string, checker health.Checker) {
+func (p *prefixReporter) RegisterScopedService(name string, checker health.Checker) (func(health.ServingStatus), func()) {
 	p.registered++
-	p.Coordinator.RegisterService("my/"+name, checker)
+	return p.Coordinator.RegisterScopedService("my/"+name, checker)
 }
 
-func (p *prefixReporter) NotifyStatusChange(name string, status health.ServingStatus) {
-	p.notified++
-	p.Coordinator.NotifyStatusChange("my/"+name, status)
-}
-
-func (p *prefixReporter) UnregisterService(name string) {
-	p.removed++
-	p.Coordinator.UnregisterService("my/" + name)
-}
-
-func TestOwnedServiceHonorsReporterOverrides(t *testing.T) {
+func TestOwnedServiceHonorsScopedReporterOverride(t *testing.T) {
 	t.Parallel()
 	reporter := &prefixReporter{Coordinator: health.New()}
 	t.Cleanup(reporter.Close)
@@ -138,8 +128,6 @@ func TestOwnedServiceHonorsReporterOverrides(t *testing.T) {
 	remove()
 	require.Empty(t, slices.Collect(reporter.ListServices()))
 	require.Equal(t, 2, reporter.registered)
-	require.Equal(t, 1, reporter.notified)
-	require.Equal(t, 1, reporter.removed)
 }
 
 func TestDetachableCheckerRemovesScopedRegistrations(t *testing.T) {
@@ -192,4 +180,54 @@ func TestCycleDoesNotPublishProbeSupersededByPush(t *testing.T) {
 	default:
 	}
 	require.Equal(t, health.StatusNotServing, c.CheckStatus(t.Context(), "db"))
+}
+
+type storingRegistrar struct{ checks map[string]*storedCheck }
+
+type storedCheck struct{ checker health.Checker }
+
+func (r *storingRegistrar) RegisterService(name string, checker health.Checker) {
+	entry := &storedCheck{checker: checker}
+	r.checks[name] = entry
+	if detachable, ok := checker.(*health.DetachableChecker); ok {
+		detachable.BindRemoval(func() {
+			if r.checks[name] == entry {
+				delete(r.checks, name)
+			}
+		})
+	}
+}
+
+type storingDynamicReporter struct{ *storingRegistrar }
+
+func (*storingDynamicReporter) NotifyStatusChange(string, health.ServingStatus) {}
+func (r *storingDynamicReporter) UnregisterService(name string)                 { delete(r.checks, name) }
+
+func TestOwnedRegistrationRemovesAdapterEntriesByIdentity(t *testing.T) {
+	t.Parallel()
+	checker := health.Func(func(context.Context) health.ServingStatus { return health.StatusServing })
+	for _, dynamic := range []bool{false, true} {
+		name := "registrar"
+		if dynamic {
+			name = "dynamic reporter"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			registrar := &storingRegistrar{checks: make(map[string]*storedCheck)}
+			register := func() func() {
+				if !dynamic {
+					return health.RegisterOwnedChecker(registrar, "db", checker)
+				}
+				_, unregister := health.RegisterOwnedService(&storingDynamicReporter{registrar}, "db", checker)
+				return unregister
+			}
+			old := register()
+			current := register()
+			replacement := registrar.checks["db"]
+			old()
+			require.Same(t, replacement, registrar.checks["db"])
+			current()
+			require.NotContains(t, registrar.checks, "db")
+		})
+	}
 }

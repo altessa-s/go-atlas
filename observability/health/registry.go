@@ -13,10 +13,11 @@ import (
 // The registry lock serializes registration changes with cache invalidation,
 // publication of a checked result, and delivery of a pushed status to watchers.
 type serviceRegistry struct {
-	mu       sync.RWMutex
-	services map[string]*serviceRegistration
-	version  uint64
-	cache    sync.Map // map[string]*cachedStatus
+	mu            sync.RWMutex
+	services      map[string]*serviceRegistration
+	version       uint64
+	cache         sync.Map // map[string]*cachedStatus
+	cacheDisabled bool
 }
 
 type serviceRegistration struct {
@@ -128,6 +129,9 @@ func (r *serviceRegistry) report(service string, owner *serviceRegistration, sta
 }
 
 func (r *serviceRegistry) setCachedStatus(service string, status ServingStatus) {
+	if r.cacheDisabled {
+		return
+	}
 	cs := &cachedStatus{status: status}
 	cs.timestamp.Store(time.Now().UnixNano())
 	r.cache.Store(service, cs)
