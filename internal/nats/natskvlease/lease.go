@@ -34,6 +34,9 @@ const (
 	// defaultReleaseTimeout is the timeout for releasing a lease during shutdown.
 	defaultReleaseTimeout = 5 * time.Second
 
+	// acquireCleanupTimeout bounds the extra time a failed acquisition can spend checking for and deleting an unconfirmed write.
+	acquireCleanupTimeout = time.Second
+
 	// DefaultRenewRatio is the fraction of the lease lifetime at which the
 	// lease is renewed, and the fallback when a caller supplies a ratio
 	// outside (0, 1].
@@ -173,7 +176,7 @@ func (l *Lease) acquireAt(ctx context.Context, started time.Time) (bool, error) 
 	l.record("acquire", err)
 	if err != nil {
 		// A write may have landed even if its acknowledgment did not.
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultReleaseTimeout)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), acquireCleanupTimeout)
 		defer cancel()
 		if releaseErr := l.deleteOwned(releaseCtx, revision); releaseErr != nil {
 			l.logger.WarnContext(releaseCtx, "failed to release an unconfirmed acquisition", slog.Any("error", releaseErr))
@@ -220,7 +223,7 @@ func (l *Lease) refreshOwned(ctx context.Context) (uint64, error) {
 	}
 
 	// Check if we're already the owner
-	if l.opts.ownerCheck != nil && l.opts.ownerCheck(entry.Value()) {
+	if l.owns(entry.Value()) {
 		// We own it, just update to renew
 		revision, err := l.ops.Update(ctx, l.key, l.currentValue(), entry.Revision())
 		if errors.Is(err, jetstream.ErrKeyExists) {

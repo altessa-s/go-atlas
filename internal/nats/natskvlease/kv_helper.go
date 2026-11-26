@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/internal/nats/natskey"
@@ -261,13 +262,19 @@ func (o *KVOps) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, e
 	})
 }
 
-// Create makes one attempt to create a key. The caller handles ambiguous replies.
+// Create retries transient failures. If a retry finds the key already exists,
+// the caller must check ownership to resolve a possibly lost reply.
 func (o *KVOps) Create(ctx context.Context, key string, value []byte) (uint64, error) {
 	physical, err := natskey.Encode(key)
 	if err != nil {
 		return 0, err
 	}
-	return o.kv.Create(ctx, physical, value)
+	return retryIf(ctx, func() (uint64, error) {
+		return o.kv.Create(ctx, physical, value)
+	}, func(err error) bool {
+		return isTransientError(err) || errors.Is(err, jetstream.ErrNoStreamResponse) ||
+			errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
+	})
 }
 
 // Update updates an existing key with optimistic locking using revision.
