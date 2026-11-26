@@ -192,6 +192,41 @@ func TestNew_NarrowOriginPatternWithCredentials_NoPanic(t *testing.T) {
 	require.False(t, m.isOriginAllowed("https://evil.invalid"))
 }
 
+func TestNew_StartUnanchoredOriginPatternWithCredentials_Panics(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		pattern string
+	}{
+		{"missing start anchor", `example\.com$`},
+		{"alternation second unanchored", `^https://a\.com$|b\.com$`},
+		{"alternation first unanchored", `a\.com$|^https://b\.com$`},
+		{"captured unanchored", `(example\.com$)`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Panics(t, func() {
+				New(WithAllowCredentials(), WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern)))
+			})
+		})
+	}
+
+	t.Run("guard anchored patterns accepted", func(t *testing.T) {
+		t.Parallel()
+		for _, p := range []string{
+			`^https://app\.example\.com$`,
+			`^https://a\.example\.com$|^https://b\.example\.com$`,
+			`^(https://a\.example\.com|https://b\.example\.com)$`,
+			`^https://.*example\.com$`,
+		} {
+			require.NotPanics(t, func() {
+				New(WithAllowCredentials(), WithAllowedOriginPatterns(regexp.MustCompile(p)))
+			}, p)
+		}
+	})
+}
+
 // TestMiddleware_VaryOrigin pins that every response whose CORS headers depend
 // on the request Origin carries Vary: Origin, so a shared cache never serves
 // one origin's (or a no-Origin request's) response to another origin.

@@ -51,6 +51,7 @@ type BaseServer struct {
 	shutdownWaiting atomic.Bool // test-only instrumentation: reports shutdown contention on lifecycle
 	started         atomic.Bool
 	shutdown        atomic.Bool
+	listener        atomic.Pointer[net.Listener]
 	options         *options
 	listenerOwned   bool // listener was created by Listen, rather than supplied by WithListener
 
@@ -110,6 +111,10 @@ func NewBaseServer(opt ...Option) *BaseServer {
 	if s.options.timeouts.ShutdownWarning <= 0 {
 		s.options.timeouts.ShutdownWarning = timeouts.DefaultShutdownWarning
 	}
+	if !nilcheck.IsNil(s.options.listener) {
+		ln := s.options.listener
+		s.listener.Store(&ln)
+	}
 	return s
 }
 
@@ -158,8 +163,8 @@ func (s *BaseServer) watch(errCh <-chan error) {
 // [WithListener], otherwise creates a new TCP listener on [BaseServer.Address].
 // The protocol server applies [BaseServer.TLSConfig] when serving.
 func (s *BaseServer) Listen() (net.Listener, error) {
-	if s.Listener() != nil {
-		return s.Listener(), nil
+	if ln := s.Listener(); ln != nil {
+		return ln, nil
 	}
 
 	if s.Address() == "" {
@@ -171,7 +176,7 @@ func (s *BaseServer) Listen() (net.Listener, error) {
 		return nil, coreerrs.WrapOperationWithContext(err, "listen", s.Address())
 	}
 
-	s.options.listener = ln
+	s.listener.Store(&ln)
 	s.listenerOwned = true
 	return ln, nil
 }
@@ -268,7 +273,7 @@ func (s *BaseServer) Start(protocol string, startFn StartFunc) error {
 	case err := <-chErr:
 		if s.listenerOwned {
 			_ = ln.Close()
-			s.options.listener = nil
+			s.listener.Store(nil)
 			s.listenerOwned = false
 		}
 		s.started.Store(false) // Reset flag on error
@@ -384,15 +389,15 @@ func (s *BaseServer) HasTLS() bool {
 
 // HasListener returns true if a listener is set.
 func (s *BaseServer) HasListener() bool {
-	return !nilcheck.IsNil(s.Listener())
+	return s.Listener() != nil
 }
 
 // Address returns the listener's actual address if a listener is active,
 // otherwise the configured address string. When the configured address
 // uses port :0, this returns the OS-assigned port after [Listen].
 func (s *BaseServer) Address() string {
-	if !nilcheck.IsNil(s.Listener()) {
-		return s.Listener().Addr().String()
+	if ln := s.Listener(); ln != nil {
+		return ln.Addr().String()
 	}
 	return s.options.address
 }
@@ -400,7 +405,10 @@ func (s *BaseServer) Address() string {
 // Listener returns the listener set by [WithListener] or created by [Listen].
 // May be nil before [Listen] is called.
 func (s *BaseServer) Listener() net.Listener {
-	return s.options.listener
+	if p := s.listener.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // TLSConfig returns TLS configuration.

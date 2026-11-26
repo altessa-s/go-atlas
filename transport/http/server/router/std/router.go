@@ -13,6 +13,8 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
+
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // Router implements [router.Router] on one [http.ServeMux] with Go 1.22+
@@ -244,6 +246,7 @@ func (rt *route) register(mux *http.ServeMux) {
 		methods = append(slices.Clone(methods), method)
 		pattern = strings.TrimLeft(rest, " ")
 	}
+	methods = coreslices.Deduplicate(methods)
 	path := joinPath(rt.router.prefix, pattern)
 	if rt.isPrefix && !strings.HasSuffix(path, "/") {
 		path += "/"
