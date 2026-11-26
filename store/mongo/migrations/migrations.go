@@ -57,6 +57,8 @@ type Migration struct {
 	// Down reverts it on rollback (WithRollbackOnFailure); registered as nil, the migration is irreversible and rollback stops there
 	// with [ErrIrreversibleMigration].
 	Down MigrationFunc
+	// CleanupOnFailure compensates for partial changes when Up returns an error. It is optional.
+	CleanupOnFailure MigrationFunc
 }
 
 var migrationRegistry Registry
@@ -75,12 +77,13 @@ type Registry struct {
 // under the same version never runs again. Version 0 (which the collection reads as "nothing applied"), a nil up and a version already
 // registered are rejected with [ErrInvalidMigration]; a nil down makes the migration irreversible: rollback stops at it with
 // [ErrIrreversibleMigration] and keeps its result.
-func RegisterMigration(version uint64, description string, up, down MigrationFunc) error {
-	return migrationRegistry.Register(version, description, up, down)
+// Use [WithCleanupOnFailure] to compensate for partial changes when this step's up returns an error.
+func RegisterMigration(version uint64, description string, up, down MigrationFunc, opts ...MigrationOption) error {
+	return migrationRegistry.Register(version, description, up, down, opts...)
 }
 
 // Register adds a version to this registry under the same rules as [RegisterMigration].
-func (r *Registry) Register(version uint64, description string, up, down MigrationFunc) error {
+func (r *Registry) Register(version uint64, description string, up, down MigrationFunc, opts ...MigrationOption) error {
 	if version == 0 {
 		return fmt.Errorf("%w: version 0 is reserved", ErrInvalidMigration)
 	}
@@ -92,19 +95,20 @@ func (r *Registry) Register(version uint64, description string, up, down Migrati
 			return fmt.Errorf("%w: version %d (%s)", ErrIrreversibleMigration, version, description)
 		}
 	}
+	cleanup := newMigrationOptions(opts...).cleanupOnFailure
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if slices.ContainsFunc(r.migrations, func(m Migration) bool { return m.Version == version }) {
 		return fmt.Errorf("%w: version %d is already registered", ErrInvalidMigration, version)
 	}
 	r.migrations = append(r.migrations,
-		Migration{Version: version, Description: description, Up: up, Down: down})
+		Migration{Version: version, Description: description, Up: up, Down: down, CleanupOnFailure: cleanup})
 	return nil
 }
 
 // MustRegisterMigration is [RegisterMigration] that panics on an invalid migration, for init functions.
-func MustRegisterMigration(version uint64, description string, up, down MigrationFunc) {
-	if err := RegisterMigration(version, description, up, down); err != nil {
+func MustRegisterMigration(version uint64, description string, up, down MigrationFunc, opts ...MigrationOption) {
+	if err := RegisterMigration(version, description, up, down, opts...); err != nil {
 		panic(err)
 	}
 }
@@ -122,7 +126,7 @@ func (r *Registry) Registered() []Migration {
 }
 
 // pendingMigrations preserves legacy init registration for the default runner.
-func (o *options) pendingMigrations() ([]migrate.Migration, error) {
+func (o *options) pendingMigrations() ([]Migration, error) {
 	if o.registry != nil {
 		return mergeMigrations(nil, o.registry.Registered())
 	}
@@ -131,24 +135,28 @@ func (o *options) pendingMigrations() ([]migrate.Migration, error) {
 
 // mergeMigrations appends typed to global. A version present in both is an [ErrInvalidMigration]: running either one would silently
 // skip the other.
-func mergeMigrations(global []migrate.Migration, typed []Migration) ([]migrate.Migration, error) {
-	out := make([]migrate.Migration, 0, len(global)+len(typed))
-	out = append(out, global...)
+func mergeMigrations(global []migrate.Migration, typed []Migration) ([]Migration, error) {
+	out := make([]Migration, 0, len(global)+len(typed))
+	for _, m := range global {
+		out = append(out, Migration{
+			Version: m.Version, Description: m.Description,
+			Up: MigrationFunc(m.Up), Down: MigrationFunc(m.Down),
+		})
+	}
 	for _, m := range typed {
 		if slices.ContainsFunc(global, func(g migrate.Migration) bool { return g.Version == m.Version }) {
 			return nil, fmt.Errorf("%w: version %d is registered with both RegisterMigration and mongo-migrate", ErrInvalidMigration, m.Version)
 		}
-		out = append(out, migrate.Migration{
-			Version: m.Version, Description: m.Description,
-			Up: migrate.MigrationFunc(m.Up), Down: migrate.MigrationFunc(m.Down),
-		})
 	}
-	return out, nil
+	return append(out, typed...), nil
 }
 
 // Run applies registered migrations to db under the database-wide lease.
 // Without [WithRegistry], it merges the default and legacy registries and rejects
 // duplicate versions. Earlier successful steps remain applied on failure.
+// An up error invokes only the failed step's [WithCleanupOnFailure] handler, if registered.
+// Cleanup runs before any rollback, with a fresh timeout and verified ownership of the lease.
+// The result preserves the up error and any cleanup error. A failed up is never recorded in the ledger.
 // WithRollbackOnFailure opts into rolling back the steps applied by this run, newest first, only after the ledger version is
 // reconciled with the steps this run recorded, with the lease verified, and with every revert and ledger write bound to the lease;
 // steps applied by earlier runs are never touched, the failed step's own down is not invoked, and rollback stops at a migration
@@ -161,11 +169,9 @@ func Run(ctx context.Context, db *mongo.Database, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	// A runner of its own, bound to this database, over a copy of the
-	// registered migrations: the package-level mongo-migrate state is one
-	// database for the whole process, so clients of different databases
-	// migrating concurrently would otherwise run against each other's.
-	runner := migrate.NewMigrate(db, migrations...)
+	// Use a ledger bound to this database so concurrent runs on different
+	// databases cannot share mongo-migrate's package-level state.
+	runner := migrate.NewMigrate(db)
 	runner.SetMigrationsCollection(MigrationCollectionName)
 
 	return withMigrationLock(ctx, db, o.logger, func(l *databaselock.Lease) error { //nolint:contextcheck // the lease carries the work and scope contexts
@@ -173,10 +179,10 @@ func Run(ctx context.Context, db *mongo.Database, opts ...Option) error {
 		if err != nil {
 			return err
 		}
-		pending := slices.DeleteFunc(slices.Clone(migrations), func(m migrate.Migration) bool {
+		pending := slices.DeleteFunc(migrations, func(m Migration) bool {
 			return m.Version <= start || m.Up == nil
 		})
-		slices.SortFunc(pending, func(a, b migrate.Migration) int { return cmp.Compare(a.Version, b.Version) })
+		slices.SortFunc(pending, func(a, b Migration) int { return cmp.Compare(a.Version, b.Version) })
 
 		r := run{db: db, runner: runner, lease: l, logger: o.logger, start: start, startDescription: startDescription}
 		for _, m := range pending {
@@ -200,16 +206,19 @@ type run struct {
 	start            uint64
 	startDescription string
 	// applied holds the steps this run applied and recorded, oldest first.
-	applied []migrate.Migration
+	applied []Migration
 }
 
 // apply runs one step on the work context, then records it in the ledger on the lease scope: a step that returned after the work
 // budget ended is recorded, not replayed by the next run, and the record never outlives the lease.
-func (r *run) apply(m migrate.Migration) error {
+func (r *run) apply(m Migration) error {
 	if err := r.lease.Work().Err(); err != nil {
 		return err
 	}
 	if err := m.Up(r.lease.Work(), r.db); err != nil {
+		if m.CleanupOnFailure != nil {
+			return errors.Join(err, r.cleanupFailedStep(m))
+		}
 		return err
 	}
 	if !r.lease.Held() {
@@ -226,6 +235,18 @@ func (r *run) apply(m migrate.Migration) error {
 		}
 	}
 	r.applied = append(r.applied, m)
+	return nil
+}
+
+func (r *run) cleanupFailedStep(m Migration) error {
+	ctx, cancel := context.WithTimeout(r.lease.Scope(), MigrationTimeout)
+	defer cancel()
+	if err := r.lease.Verify(ctx); err != nil {
+		return fmt.Errorf("cleanup skipped for version %d, lease unverified: %w", m.Version, err)
+	}
+	if err := m.CleanupOnFailure(ctx, r.db); err != nil {
+		return fmt.Errorf("cleanup version %d: %w", m.Version, err)
+	}
 	return nil
 }
 

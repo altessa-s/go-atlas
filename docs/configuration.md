@@ -338,6 +338,12 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 
 ---
 
+## MongoDB repository options
+
+Repository reads issue independent queries by default. Enable sharing in Go with `mongo.WithReadDeduplication()` and register per-step migration
+cleanup with `migrations.WithCleanupOnFailure()`. See the [MongoDB repository options](../store/mongo/README.md#read-deduplication-and-tenant-isolation)
+and [migration cleanup contract](../store/mongo/migrations/README.md#cleanup-after-a-failed-step).
+
 ## SQL backends
 
 Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: select `type: sqldb` (dlock: `provider: sqldb`) and fill the `sqldb`

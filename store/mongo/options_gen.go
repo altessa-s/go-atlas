@@ -96,11 +96,12 @@ func WithConverterOptions(v ...converter.Option) Option {
 // segment (typically tenant/subject) mixed into the GetEntity/GetEntities
 // singleflight deduplication key. This prevents two callers with the same filter
 // but different identities from collapsing onto one another's in-flight query.
+// It applies only with [WithReadDeduplication].
 //
 // Returning "" from fn disables prefixing for that call, so existing callers are
 // unaffected when no identity func is configured.
 //
-//	m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+//	m, _ := mongo.New("app", mongo.WithReadDeduplication(), mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
 //		p, _ := principal.FromContext(ctx) // zero Principal when unauthenticated
 //		return p.Tenant
 //	}))
@@ -190,6 +191,15 @@ func WithMigrationRegistry(v *migrations.Registry) Option {
 			return
 		}
 		o.migrationRegistry = v
+	}
+}
+
+// WithReadDeduplication enables sharing eligible concurrent GetEntity and
+// GetEntities queries. By default each caller issues its own query.
+func WithReadDeduplication() Option {
+	return func(o *config) {
+		value := true
+		o.readDeduplication = value
 	}
 }
 

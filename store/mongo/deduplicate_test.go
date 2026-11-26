@@ -23,7 +23,7 @@ func TestDeduplicateBypassesSessions(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		outside := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "outside"}})
 		inside := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "inside"}})
-		m, db, entered, release, finds := gatedRepository(t, outside, inside)
+		m, db, entered, release, finds := gatedRepository(t, true, outside, inside)
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
 		coll := db.Collection("items")

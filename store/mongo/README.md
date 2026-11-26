@@ -38,7 +38,8 @@ structured logging.
 | `WithLogger`                      | discard           | Structured logger                                                      |
 | `WithMeter`                       | no-op             | Metrics collector for MongoDB operations                               |
 | `WithConverterOptions`            | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities`      |
-| `WithDeduplicationIdentity`       | nil               | Per-context identity segment for the read singleflight key (see below) |
+| `WithReadDeduplication`          | off               | Share eligible in-flight repository reads |
+| `WithDeduplicationIdentity`       | nil               | Per-context identity segment for opted-in read deduplication |
 | `WithRollbackMigrationsOnFailure` | off               | Roll back this run's applied migrations when one fails (see Migrations) |
 
 ## Write documents
@@ -100,10 +101,11 @@ BSON-bound cursors. `ListCursorSeq` captures the prepared filter when iteration 
 
 ## Read deduplication and tenant isolation
 
-`GetEntity` and `GetEntities` share an in-flight query when the database, collection handle, model type, operation, prepared BSON filter and caller
-identity match. Reuse the same collection handle across requests to enable deduplication. Each caller decodes and converts its own BSON copy. Provide
-database or collection codec overrides through `FilterEncoding`. On a borrowed handle, pass its registry and any nondefault BSON options to enable
-deduplication. With no explicit settings, borrowed handles use the driver's decoder and issue independent reads.
+`GetEntity` and `GetEntities` issue independent queries by default. Pass `mongo.WithReadDeduplication()` to `mongo.New` to let concurrent reads
+share an in-flight query when the database, collection handle, model type, operation, prepared BSON filter, and caller identity match. Reuse the
+same collection handle across requests. Each caller decodes and converts its own BSON copy. Provide database or collection codec overrides through
+`FilterEncoding`. On a borrowed handle, pass its registry and any nondefault BSON options to enable sharing. With no explicit settings, borrowed
+handles use the driver's decoder and issue independent reads.
 
 When caller identity affects a result outside the filter, identical filters can return different data. Per-tenant CSFLE keys, session-scoped reads,
 and caller-bound read preferences can make it unsafe to share a query across tenants. Reads carrying a driver session always run independently to
@@ -117,7 +119,7 @@ In such deployments, configure `WithDeduplicationIdentity` so the identity (tena
 share a query only when their identities match.
 
 ```go
-m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+m, _ := mongo.New("app", mongo.WithReadDeduplication(), mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
     p, _ := principal.FromContext(ctx)
     return p.Tenant // "" leaves the identity segment empty
 }))
@@ -335,7 +337,7 @@ func init() {
 
 | Function                                                | Behavior                                                                                                 |
 |---------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| `migrations.RegisterMigration(version, desc, up, down)` | Registers a migration; version 0, a nil `up` or a registered version is `migrations.ErrInvalidMigration` |
+| `migrations.RegisterMigration(version, desc, up, down, opts...)` | Registers a migration. Version 0, a nil `up`, or a duplicate version returns `migrations.ErrInvalidMigration`. |
 | `migrations.MustRegisterMigration(...)`                 | Same, panics on an invalid migration                                                                     |
 | `migrations.RegisteredMigrations()`                     | The registered migrations by version (for tests asserting the set)                                       |
 
@@ -344,6 +346,10 @@ Versions are stored in the same `migrations` collection and format (`{version, d
 registries fails `Connect` with `migrations.ErrInvalidMigration`.
 
 `Close` waits for an in-flight `Connect` to finish, including ping retries and schema migration. The shutdown timeout starts after that wait.
+
+`migrations.WithCleanupOnFailure` registers a per-step handler for partial changes if that step's up returns an error. It runs under the
+verified lease before any rollback of earlier steps. The failed step stays pending and its down is never called. See the
+[cleanup contract](migrations/README.md#cleanup-after-a-failed-step).
 
 `Connect` applies all pending migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
 it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back the steps this run applied, newest first, while the lease is held; earlier runs' steps are never touched and a step registered with a nil `down` is irreversible (`migrations.ErrIrreversibleMigration`). The underlying

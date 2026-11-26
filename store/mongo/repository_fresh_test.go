@@ -13,6 +13,41 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+func TestRepositoryReadsAreIndependentByDefault(t *testing.T) {
+	t.Parallel()
+
+	for _, operation := range []string{"GetEntity", "GetEntities"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				first := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "first"}})
+				second := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "second"}})
+				m, db, entered, release, finds := gatedRepository(t, false, first, second)
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				coll := db.Collection("items")
+				encoding := FilterEncoding{Registry: bson.NewRegistry()}
+				read := func() ([]flightModel, error) {
+					if operation == "GetEntities" {
+						return GetEntities[flightModel, flightModel](t.Context(), m, coll, bson.D{}, encoding)
+					}
+					entity, err := GetEntity[flightModel, flightModel](t.Context(), m, coll, bson.D{}, encoding)
+					return []flightModel{entity}, err
+				}
+				a := beginRead(read)
+				<-entered
+				b := beginRead(read)
+				synctest.Wait()
+				unblock()
+
+				require.Equal(t, []flightModel{{Name: "first"}}, readValue(t, a))
+				require.Equal(t, []flightModel{{Name: "second"}}, readValue(t, b))
+				require.EqualValues(t, 2, finds.Load())
+			})
+		})
+	}
+}
+
 func TestFreshReadBypassesPreWriteFlight(t *testing.T) {
 	t.Parallel()
 
@@ -27,7 +62,7 @@ func TestFreshReadBypassesPreWriteFlight(t *testing.T) {
 				old := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "old"}})
 				updated := cursorBatchReply("db.items", bson.D{{Key: "name", Value: "new"}})
 				ack := bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}, {Key: "nModified", Value: 1}}
-				m, db, entered, release, finds := gatedRepository(t, old, ack, updated)
+				m, db, entered, release, finds := gatedRepository(t, true, old, ack, updated)
 				releaseFlight := sync.OnceFunc(func() { close(release) })
 				defer releaseFlight()
 				coll := db.Collection("items")

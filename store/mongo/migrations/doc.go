@@ -11,6 +11,12 @@
 // cancels the work. [WithRollbackOnFailure] reverts only the steps applied by the failing run, newest first, while the lease is held,
 // and stops at a step registered without a down with [ErrIrreversibleMigration].
 //
+// # Partial migration failures
+//
+// Register a step with [WithCleanupOnFailure] to compensate for partial changes if its up returns an error. Cleanup runs on a fresh,
+// bounded context under the verified lease and before any rollback of earlier steps. The failed step's down is never called.
+// The failed version stays pending. Both up and cleanup errors are available through errors.Is.
+//
 // # Usage
 //
 //	err := migrations.Run(ctx, db)

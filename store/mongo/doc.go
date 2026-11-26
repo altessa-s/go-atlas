@@ -8,11 +8,11 @@
 //
 // # Repository reads
 //
-// [GetEntity] and [GetEntities] deduplicate eligible reads using the same
-// collection handle. Canceling one waiter does not cancel shared work or
-// other waiters. A caller can join a read started before its
-// own write. Use [WithFreshRead] or [FilterEncoding.FreshRead] after a write
-// to issue an independent query with the collection's read preference and concern.
+// [GetEntity] and [GetEntities] issue independent queries by default.
+// [WithReadDeduplication] lets eligible reads using the same collection
+// handle share an in-flight query. Canceling one waiter does not cancel shared
+// work or other waiters. Use [WithFreshRead] or [FilterEncoding.FreshRead]
+// after a write to bypass sharing and use the collection's read preference and concern.
 //
 // # Cursor pagination
 //
@@ -61,6 +61,7 @@
 //
 // mongomigrations.RegisterMigration registers a versioned migration that Connect applies
 // under the database-wide migration lock, in the mongo-migrate format. [WithMigrationRegistry] selects a client-specific set of steps.
+// mongomigrations.WithCleanupOnFailure registers a handler for partial changes when a step's up returns an error.
 // mongoindexes.Ensure creates a collection's indexes idempotently, optionally
 // dropping obsolete ones and recreating those whose specification changed.
 //
