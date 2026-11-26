@@ -18,7 +18,7 @@ func FuzzManager_Register(f *testing.F) {
 		if intervalMs <= 0 {
 			return
 		}
-		mgr := New()
+		mgr := mustNew(t)
 		h := &fuzzHeartbeater{}
 		stop := mgr.Register(h, time.Duration(intervalMs)*time.Millisecond)
 		stop()

@@ -7,6 +7,7 @@ package inprogress_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,12 +67,12 @@ func TestNew_RegistersTickTaskWithScheduler(t *testing.T) {
 
 			reg := &captureRegistrar{}
 			col := metricstest.NewTestCollector()
-			mgr := inprogress.New(inprogress.WithScheduler(reg), tc.schedule, inprogress.WithMeter(col))
+			mgr := mustNew(t, inprogress.WithScheduler(reg), tc.schedule, inprogress.WithMeter(col))
 
 			cfgs := reg.registered()
 			require.Len(t, cfgs, 1)
 			cfg := cfgs[0]
-			require.Equal(t, "broker-inprogress-heartbeat", cfg.ID)
+			require.True(t, strings.HasPrefix(cfg.ID, "broker-inprogress-heartbeat-"), cfg.ID)
 			require.Equal(t, tc.want, cfg.Schedule)
 			require.True(t, cfg.DisableHistory)
 			require.NotNil(t, cfg.Func)
@@ -103,7 +104,7 @@ func TestNew_NoRegistrationWithoutSchedule(t *testing.T) {
 	t.Parallel()
 
 	reg := &captureRegistrar{}
-	mgr := inprogress.New(
+	mgr := mustNew(t,
 		inprogress.WithScheduler(reg),
 		inprogress.WithTickSchedule(""),
 		inprogress.WithTickSchedule((*string)(nil)),
@@ -128,19 +129,27 @@ func (failingRegistrar) Register(context.Context, schedtask.Config) error {
 	return errRegisterFailed
 }
 
-func TestNew_FailedRegistrationKeepsManualTicks(t *testing.T) {
+func TestNew_FailedRegistrationIsAnError(t *testing.T) {
 	t.Parallel()
 
-	mgr := inprogress.New(
+	mgr, err := inprogress.New(
 		inprogress.WithScheduler(failingRegistrar{}),
 		inprogress.WithTickSchedule("@every 1s"),
 	)
+	require.ErrorIs(t, err, errRegisterFailed)
+	require.Nil(t, mgr)
+}
 
-	h := &countingHeartbeater{}
-	stop := mgr.Register(h, 0)
-	defer stop()
+func TestNew_TickTaskID(t *testing.T) {
+	t.Parallel()
 
-	require.NoError(t, mgr.RunTickCycle(t.Context()),
-		"a failed registration must leave the caller-driven tick cycle usable")
-	require.Equal(t, int64(1), h.calls.Load(), "heartbeat must still be sent")
+	reg := &captureRegistrar{}
+	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"))
+	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"))
+	mustNew(t, inprogress.WithScheduler(reg), inprogress.WithTickSchedule("@every 1s"), inprogress.WithTickTaskID("orders-heartbeat"))
+
+	cfgs := reg.registered()
+	require.Len(t, cfgs, 3)
+	require.NotEqual(t, cfgs[0].ID, cfgs[1].ID, "managers with default IDs must not share a scheduler task")
+	require.Equal(t, "orders-heartbeat", cfgs[2].ID)
 }

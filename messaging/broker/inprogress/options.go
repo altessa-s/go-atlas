@@ -26,6 +26,12 @@ type options struct {
 	scheduler schedtask.Registrar `optgen:"notnil"`
 	// tickSchedule is the cron schedule for heartbeat tick cycle task
 	tickSchedule string
+	// tickTaskID is the scheduler task ID of the heartbeat tick cycle. The
+	// scheduler keys tasks by ID, so two managers sharing an ID leave only
+	// the last one heartbeating. Empty derives a unique ID per manager
+	// instance, "broker-inprogress-heartbeat-<n>"; set it for an ID that is
+	// stable across restarts.
+	tickTaskID string
 	// meter is the metrics meter for instrumentation.
 	meter metrics.Meter `optgen:"notnil"`
 	// heartbeatTimeout bounds a single InProgress call, so that one slow

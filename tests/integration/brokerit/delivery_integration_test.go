@@ -290,7 +290,8 @@ func TestDelivery_InProgressHeartbeatsHoldOffRedelivery(t *testing.T) {
 		heartbeat = ackWait / 4
 	)
 
-	mgr := inprogress.New()
+	mgr, err := inprogress.New()
+	require.NoError(t, err)
 	tickDone := make(chan struct{})
 	go func() {
 		defer close(tickDone)

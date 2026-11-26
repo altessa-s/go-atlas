@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkManager_Register(b *testing.B) {
-	mgr := New()
+	mgr := mustNew(b)
 	h := &benchHeartbeater{}
 	for b.Loop() {
 		stop := mgr.Register(h, time.Second)
@@ -19,7 +19,7 @@ func BenchmarkManager_Register(b *testing.B) {
 }
 
 func BenchmarkManager_RunTickCycle(b *testing.B) {
-	mgr := New()
+	mgr := mustNew(b)
 	h := &benchHeartbeater{}
 	mgr.Register(h, time.Millisecond)
 	ctx := b.Context()

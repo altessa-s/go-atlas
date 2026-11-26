@@ -57,7 +57,9 @@ func TestCreateInProgressManager(t *testing.T) {
 		mgr, err := factory.New(cfg).UseScheduler(reg).CreateInProgressManager()
 		require.NoError(t, err)
 		require.NotNil(t, mgr)
-		require.Equal(t, []string{"broker-inprogress-heartbeat"}, reg.ids())
+		ids := reg.ids()
+		require.Len(t, ids, 1)
+		require.Contains(t, ids[0], "broker-inprogress-heartbeat")
 	})
 }
 

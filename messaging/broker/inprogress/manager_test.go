@@ -18,6 +18,14 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
+// mustNew creates a Manager and fails the test when New returns an error.
+func mustNew(tb testing.TB, opts ...Option) *Manager {
+	tb.Helper()
+	mgr, err := New(opts...)
+	require.NoError(tb, err)
+	return mgr
+}
+
 type mockHeartbeater struct {
 	calls atomic.Int64
 	err   error
@@ -29,7 +37,7 @@ func (m *mockHeartbeater) InProgress() error {
 }
 
 func TestManager_RunTickCycle_SendsInProgress_Repeated(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	h := &mockHeartbeater{}
 	stop := mgr.Register(h, 20*time.Millisecond)
@@ -59,7 +67,7 @@ func TestManager_RunTickCycle_SendsInProgress_Repeated(t *testing.T) {
 }
 
 func TestManager_RunTickCycle_RespectsInterval_Repeated(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	fast := &mockHeartbeater{}
 	slow := &mockHeartbeater{}
@@ -92,7 +100,7 @@ func TestManager_RunTickCycle_RespectsInterval_Repeated(t *testing.T) {
 }
 
 func TestManager_StopFunc(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	h := &mockHeartbeater{}
 	stop := mgr.Register(h, 15*time.Millisecond)
@@ -130,7 +138,7 @@ func TestManager_StopFunc(t *testing.T) {
 }
 
 func TestManager_StopIsIdempotent(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	h := &mockHeartbeater{}
 	stop := mgr.Register(h, time.Second)
@@ -141,7 +149,7 @@ func TestManager_StopIsIdempotent(t *testing.T) {
 }
 
 func TestManager_ErrorRespectsInterval(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	h := &mockHeartbeater{err: errors.New("connection lost")}
 	mgr.Register(h, 100*time.Millisecond)
@@ -176,7 +184,7 @@ func TestManager_ErrorRespectsInterval(t *testing.T) {
 }
 
 func TestManager_ConcurrentRegisterStop(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -213,7 +221,7 @@ func TestManager_ConcurrentRegisterStop(t *testing.T) {
 
 func TestManager_RunTickCycle_SendsInProgress(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		mgr := New()
+		mgr := mustNew(t)
 
 		h := &mockHeartbeater{}
 		stop := mgr.Register(h, 10*time.Millisecond)
@@ -231,7 +239,7 @@ func TestManager_RunTickCycle_SendsInProgress(t *testing.T) {
 }
 
 func TestManager_RunTickCycle_RespectsContextCancel(t *testing.T) {
-	mgr := New()
+	mgr := mustNew(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately
@@ -243,7 +251,7 @@ func TestManager_RunTickCycle_RespectsContextCancel(t *testing.T) {
 
 func TestManager_RunTickCycle_RespectsInterval(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		mgr := New()
+		mgr := mustNew(t)
 
 		fast := &mockHeartbeater{}
 		slow := &mockHeartbeater{}

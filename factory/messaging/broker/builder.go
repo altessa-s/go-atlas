@@ -117,7 +117,11 @@ func (b *BrokerBuilder) CreateInProgressManager() (*inprogress.Manager, error) {
 	)
 	opts = slices.AppendIf(opts, cfg.Metrics.Enabled, inprogress.WithMeter(b.collector))
 
-	return inprogress.New(opts...), nil
+	mgr, err := inprogress.New(opts...)
+	if err != nil {
+		return nil, b.WrapError(err, "creating in-progress manager")
+	}
+	return mgr, nil
 }
 
 // CreateOutbox creates the outbox over the storage selected by
