@@ -101,7 +101,9 @@ type Engine struct {
 
 	mu     sync.Mutex // guards active, inflight registration and the closed transition
 	active map[*lock]struct{}
-	closed atomic.Bool
+	// nextPrune limits scans during a sustained acquisition outage.
+	nextPrune time.Time
+	closed    atomic.Bool
 	// inflight counts Lock calls past the closed check; Close waits for them.
 	inflight sync.WaitGroup
 
@@ -137,6 +139,9 @@ func (e *Engine) Interval() time.Duration { return e.cfg.Interval }
 // acquisition request was sent (earlier when ctx ends or it is released).
 func (e *Engine) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	e.mu.Lock()
+	if !e.nextPrune.IsZero() {
+		e.pruneExpiredAcquisitions(e.Now(), false)
+	}
 	if e.closed.Load() {
 		e.mu.Unlock()
 		return nil, ErrClosed
@@ -156,7 +161,7 @@ func (e *Engine) Lock(ctx context.Context, key string) (providers.Lock, error) {
 		// The acquisition may have been applied even though no reply came
 		// back; its owner id is unique to this attempt, so it is released by
 		// owner. An unresolved release stays registered for Close to retry.
-		e.releaseAmbiguous(ctx, key, owner)
+		e.releaseAmbiguous(ctx, key, owner, start.Add(e.cfg.TTL))
 		e.cfg.Logger.ErrorContext(ctx, "failed to acquire lock", slog.Any("error", err), slog.String("key", key))
 		return nil, err
 	}
@@ -226,10 +231,11 @@ func (e *Engine) acquire(ctx context.Context, key, owner string) (uint64, bool, 
 
 // releaseAmbiguous ends a lease an errored acquisition by owner may have
 // taken, keeping it registered when the release fails.
-func (e *Engine) releaseAmbiguous(ctx context.Context, key, owner string) {
+func (e *Engine) releaseAmbiguous(ctx context.Context, key, owner string, deadline time.Time) {
 	done := make(chan struct{})
 	close(done)
-	lk := &lock{engine: e, key: key, owner: owner, stopRenew: func() {}, done: done, guard: make(chan struct{}, 1)}
+	lk := &lock{engine: e, key: key, owner: owner, acquireDeadline: deadline,
+		stopRenew: func() {}, done: done, guard: make(chan struct{}, 1)}
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.cfg.OperationsTimeout)
 	defer cancel()
 	if err := lk.endLease(releaseCtx); err != nil {
@@ -298,6 +304,7 @@ func (e *Engine) Probe(ctx context.Context) error {
 
 // snapshot returns the active locks; the caller holds mu.
 func (e *Engine) snapshot() []*lock {
+	e.pruneExpiredAcquisitions(e.Now(), true)
 	locks := make([]*lock, 0, len(e.active))
 	for lk := range e.active {
 		locks = append(locks, lk)
@@ -308,7 +315,32 @@ func (e *Engine) snapshot() []*lock {
 func (e *Engine) track(lk *lock) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if !lk.acquireDeadline.IsZero() && !e.Now().Before(lk.acquireDeadline) {
+		return
+	}
+	if !lk.acquireDeadline.IsZero() && e.nextPrune.IsZero() {
+		e.nextPrune = lk.acquireDeadline
+	}
 	e.active[lk] = struct{}{}
+}
+
+// pruneExpiredAcquisitions drops ambiguous attempts that are past their TTL.
+// The caller holds mu. Close always prunes before attempting releases.
+func (e *Engine) pruneExpiredAcquisitions(now time.Time, force bool) {
+	if e.nextPrune.IsZero() || (!force && now.Before(e.nextPrune)) {
+		return
+	}
+	e.nextPrune = time.Time{}
+	for lk := range e.active {
+		if lk.acquireDeadline.IsZero() {
+			continue
+		}
+		if !now.Before(lk.acquireDeadline) {
+			delete(e.active, lk)
+		} else {
+			e.nextPrune = now.Add(e.cfg.TTL)
+		}
+	}
 }
 
 func (e *Engine) untrack(lk *lock) {
@@ -323,6 +355,8 @@ type lock struct {
 	key     string
 	owner   string
 	fencing uint64 // 0 when unknown (an ambiguous acquisition)
+	// acquireDeadline bounds tracking of a failed acquisition with no reply.
+	acquireDeadline time.Time
 
 	// stopRenew ends the renewal loop and cancels a renewal in flight; done
 	// closes when the loop has returned.

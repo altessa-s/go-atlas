@@ -7,7 +7,7 @@
 // SQL. A provider implements [Store], the five conditional operations on its
 // records; [Engine] does the rest: single-attempt acquisition with a
 // client-side deadline, rejection of late replies, release of ambiguous
-// acquisitions by owner, background renewal that stops once a renewal is not
+// acquisitions by owner with TTL-bounded tracking, background renewal that stops once a renewal is not
 // confirmed within the lease, release on context end, retryable releases, and
 // a Close that waits for acquisitions in flight. Failed renewals retry after
 // half the remaining lease (at least 1ms), capped by the confirmed deadline.
