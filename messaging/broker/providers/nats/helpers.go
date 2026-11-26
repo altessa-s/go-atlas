@@ -60,3 +60,49 @@ func (n *NATS) checkSubjectAllowed(subject string) error {
 	}
 	return coreerrs.Wrapf(ErrSubjectNotAllowed, "%q", subject)
 }
+
+// subscriptionCovered reports whether every subject that the requested
+// subscription pattern can match is also matched by pattern (requested is a
+// subset of pattern). Unlike [subjectMatchesPattern], wildcards in requested
+// are not literal tokens: a requested "*" is covered only by "*" or ">", and
+// a requested ">" only by a ">" at the same or an earlier position.
+func subscriptionCovered(pattern, requested string) bool {
+	reqTokens := strings.Split(requested, ".")
+	patTokens := strings.Split(pattern, ".")
+
+	for i, pt := range patTokens {
+		if pt == ">" {
+			return i < len(reqTokens)
+		}
+		if i >= len(reqTokens) {
+			return false
+		}
+		rt := reqTokens[i]
+		switch {
+		case rt == ">":
+			return false
+		case rt == "*":
+			if pt != "*" {
+				return false
+			}
+		case pt != "*" && pt != rt:
+			return false
+		}
+	}
+	return len(reqTokens) == len(patTokens)
+}
+
+// checkSubscriptionAllowed returns an error if an allowlist is configured and
+// the subscription subject, which may contain wildcards, is not fully covered
+// by one of the allowed patterns.
+func (n *NATS) checkSubscriptionAllowed(subject string) error {
+	if len(n.allowedSubjects) == 0 {
+		return nil
+	}
+	for _, pattern := range n.allowedSubjects {
+		if subscriptionCovered(pattern, subject) {
+			return nil
+		}
+	}
+	return coreerrs.Wrapf(ErrSubjectNotAllowed, "%q", subject)
+}
