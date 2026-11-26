@@ -17,7 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -36,7 +36,7 @@ func TestBuild_RegistersConfiguredSchedules(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	reg := &testhelpers.MockTaskRegistrar{}
-	cfg := sqlConfig(brokerconfig.SQLDialectPostgres, false)
+	cfg := sqlConfig(outboxconfig.SQLDialectPostgres, false)
 	cfg.TopicCompaction = true
 	cfg.PublishedEventsLifetime = time.Hour
 	cfg.DefaultEventTTL = time.Hour
@@ -67,20 +67,20 @@ var errStorage = errors.New("storage failed")
 
 func TestUseStorage(t *testing.T) {
 	t.Parallel()
-	cfg := &brokerconfig.Outbox{Enabled: true}
+	cfg := &outboxconfig.Config{Enabled: true}
 
 	t.Run("nil_function_fails", func(t *testing.T) {
 		t.Parallel()
-		_, err := New(cfg).UseStorage(brokerconfig.OutboxStorageTypeMongo, nil).Build(t.Context(), noopHandler)
+		_, err := New(cfg).UseStorage(outboxconfig.StorageTypeMongo, nil).Build(t.Context(), noopHandler)
 		require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 	})
 
 	t.Run("function_error_propagates", func(t *testing.T) {
 		t.Parallel()
-		failing := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+		failing := func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) {
 			return nil, errStorage
 		}
-		_, err := New(&brokerconfig.Outbox{Enabled: true}).UseStorage(brokerconfig.OutboxStorageTypeMongo, failing).Build(t.Context(), noopHandler)
+		_, err := New(&outboxconfig.Config{Enabled: true}).UseStorage(outboxconfig.StorageTypeMongo, failing).Build(t.Context(), noopHandler)
 		require.ErrorIs(t, err, errStorage)
 	})
 
@@ -89,14 +89,14 @@ func TestUseStorage(t *testing.T) {
 		db, _ := testhelpers.NewFakeSQL(t, nil)
 		want, err := outboxsql.New(db, outboxsql.DialectPostgres)
 		require.NoError(t, err)
-		local := &brokerconfig.Outbox{Enabled: true}
-		build := func(ctx context.Context, got *brokerconfig.Outbox, _ *slog.Logger) (outbox.Storage, error) {
+		local := &outboxconfig.Config{Enabled: true}
+		build := func(ctx context.Context, got *outboxconfig.Config, _ *slog.Logger) (outbox.Storage, error) {
 			require.NotSame(t, local, got)
 			require.Equal(t, "events_outbox", got.Storage.Mongo.Collection, "the builder normalizes the storage section")
 			require.NotNil(t, ctx)
 			return want, nil
 		}
-		ob, err := New(local).UseStorage(brokerconfig.OutboxStorageTypeMongo, build).Build(t.Context(), noopHandler)
+		ob, err := New(local).UseStorage(outboxconfig.StorageTypeMongo, build).Build(t.Context(), noopHandler)
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 	})
@@ -106,11 +106,11 @@ func TestUseStorage(t *testing.T) {
 		db, _ := testhelpers.NewFakeSQL(t, nil)
 		store, err := outboxsql.New(db, outboxsql.DialectPostgres) // No listener: Watch is unsupported.
 		require.NoError(t, err)
-		local := &brokerconfig.Outbox{Enabled: true, Watch: brokerconfig.OutboxWatchChangeStream, DispatchSchedule: "@every 1m"}
-		build := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return store, nil }
+		local := &outboxconfig.Config{Enabled: true, Watch: outboxconfig.WatchChangeStream, DispatchSchedule: "@every 1m"}
+		build := func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) { return store, nil }
 
 		var hooks coreruntime.HookGroup
-		ob, err := New(local).UseScheduler(&testhelpers.MockTaskRegistrar{}).UseStorage(brokerconfig.OutboxStorageTypeMongo, build).UseShutdownHooks(&hooks).Build(t.Context(), noopHandler)
+		ob, err := New(local).UseScheduler(&testhelpers.MockTaskRegistrar{}).UseStorage(outboxconfig.StorageTypeMongo, build).UseShutdownHooks(&hooks).Build(t.Context(), noopHandler)
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 		require.NoError(t, hooks.Shutdown(t.Context()), "a watcher that reported unsupported has already returned")
@@ -135,9 +135,9 @@ func (s *watchStorage) Watch(ctx context.Context, _ func()) error {
 
 func TestBuildCustomBackend(t *testing.T) {
 	t.Parallel()
-	cfg := brokerconfig.Default().Outbox
-	cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
-	cfg.Watch = brokerconfig.OutboxWatchNotify
+	cfg := outboxconfig.Default()
+	cfg.Storage = &outboxconfig.Storage{Type: "custom"}
+	cfg.Watch = outboxconfig.WatchNotify
 
 	reg := &testhelpers.MockTaskRegistrar{}
 	var hooks coreruntime.HookGroup
@@ -146,9 +146,9 @@ func TestBuildCustomBackend(t *testing.T) {
 	_, err := b.Build(t.Context(), noopHandler)
 	var fields validation.Errors
 	require.ErrorAs(t, err, &fields)
-	require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+	require.ErrorIs(t, err, outboxconfig.ErrUnsupportedWatch)
 	store := &watchStorage{started: make(chan struct{})}
-	b.UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return store, nil })
+	b.UseStorage("custom", func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) { return store, nil })
 	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
 	require.NoError(t, cfg.Validate())
 	cfg.Storage.SetRegisteredTypes(nil)
@@ -173,15 +173,15 @@ func TestBuildCustomBackendWithoutWatcher(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := brokerconfig.Default().Outbox
-			cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
-			cfg.Watch = brokerconfig.OutboxWatchChangeStream
+			cfg := outboxconfig.Default()
+			cfg.Storage = &outboxconfig.Storage{Type: "custom"}
+			cfg.Watch = outboxconfig.WatchChangeStream
 			b := New(&cfg).UseScheduler(&testhelpers.MockTaskRegistrar{})
-			b.UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+			b.UseStorage("custom", func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) {
 				return tc.store, nil
 			})
 			ob, err := b.Build(t.Context(), noopHandler)
-			require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+			require.ErrorIs(t, err, outboxconfig.ErrUnsupportedWatch)
 			require.Nil(t, ob)
 		})
 	}

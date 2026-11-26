@@ -2,12 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package brokerconfig
+package outboxconfig_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 )
 
 // See config/validate_min_test.go: each case zeroes one Min-guarded field of
@@ -20,27 +22,27 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 		validate func() error
 	}{
 		{"Outbox.FetchTimeout", func() error {
-			c := validOutbox()
+			c := outboxconfig.Default()
 			c.FetchTimeout = 0
 			return c.Validate()
 		}},
 		{"Outbox.HandleTimeout", func() error {
-			c := validOutbox()
+			c := outboxconfig.Default()
 			c.HandleTimeout = 0
 			return c.Validate()
 		}},
 		{"Outbox.UpdateTimeout", func() error {
-			c := validOutbox()
+			c := outboxconfig.Default()
 			c.UpdateTimeout = 0
 			return c.Validate()
 		}},
 		{"Outbox.MessagesBatchSize", func() error {
-			c := validOutbox()
+			c := outboxconfig.Default()
 			c.MessagesBatchSize = 0
 			return c.Validate()
 		}},
 		{"Outbox.RetryMaxAttempts", func() error {
-			c := validOutbox()
+			c := outboxconfig.Default()
 			c.RetryMaxAttempts = 0
 			return c.Validate()
 		}},
@@ -54,35 +56,8 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 	}
 }
 
-// The valid* helpers must themselves validate.
 func TestValidate_ZeroRejectedByMinGuardedFields_BaselinesAreValid(t *testing.T) {
 	t.Parallel()
 
-	require.NoError(t, func() error { c := validOutbox(); return c.Validate() }())
-}
-
-func validOutbox() Outbox {
-	return Outbox{
-		Enabled:           defaultOutboxEnabled,
-		DispatchSchedule:  "@every 2s",
-		FetchTimeout:      defaultOutboxFetchTimeout,
-		HandleTimeout:     defaultOutboxHandleTimeout,
-		UpdateTimeout:     defaultOutboxUpdateTimeout,
-		CleanupSchedule:   "@every 10m",
-		UnlockSchedule:    "@every 11s",
-		MessagesBatchSize: defaultOutboxMessagesBatchSize,
-		RetryMaxAttempts:  defaultOutboxRetryMaxAttempts,
-		RetryBaseDelay:    defaultOutboxRetryBaseDelay,
-		RetryMaxDelay:     defaultOutboxRetryMaxDelay,
-		MaxLockTime:       defaultOutboxMaxLockTime,
-		MaxPayloadBytes:   defaultOutboxMaxPayloadBytes,
-		ExpireSchedule:    "@every 11s",
-		StatsSchedule:     "@every 30s",
-		DispatchTaskID:    "outbox-dispatch",
-		UnlockTaskID:      "outbox-unlock",
-		ExpireTaskID:      "outbox-expire",
-		CleanupTaskID:     "outbox-cleanup",
-		StatsTaskID:       "outbox-stats",
-		Storage:           DefaultOutboxStorage(),
-	}
+	require.NoError(t, outboxconfig.Default().Validate())
 }

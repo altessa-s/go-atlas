@@ -13,7 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 )
 
 // TestBuild_HandsTheLoggerToTheStorage pins that the storage
@@ -35,12 +35,12 @@ func TestBuild_HandsTheLoggerToTheStorage(t *testing.T) {
 			t.Parallel()
 
 			var got *slog.Logger
-			capture := func(_ context.Context, _ *brokerconfig.Outbox, l *slog.Logger) (outbox.Storage, error) {
+			capture := func(_ context.Context, _ *outboxconfig.Config, l *slog.Logger) (outbox.Storage, error) {
 				got = l
 				return nil, errStorage
 			}
 
-			b := New(&brokerconfig.Outbox{Enabled: true}).UseStorage(brokerconfig.OutboxStorageTypeMongo, capture)
+			b := New(&outboxconfig.Config{Enabled: true}).UseStorage(outboxconfig.StorageTypeMongo, capture)
 			if tc.logger != nil {
 				b.UseLogger(tc.logger)
 			}

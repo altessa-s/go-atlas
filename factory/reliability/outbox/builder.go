@@ -19,7 +19,7 @@ import (
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -28,26 +28,26 @@ import (
 // StorageFunc creates the outbox storage from the outbox configuration. ctx
 // bounds the storage's startup I/O (index or schema creation); logger is the
 // builder's logger.
-type StorageFunc func(ctx context.Context, cfg *brokerconfig.Outbox, logger *slog.Logger) (outbox.Storage, error)
+type StorageFunc func(ctx context.Context, cfg *outboxconfig.Config, logger *slog.Logger) (outbox.Storage, error)
 
 // OutboxBuilder assembles an [outbox.Outbox] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at build time.
 // The builder is not safe for concurrent use.
 //
-// The storage is selected by brokerconfig.Outbox.Storage.Type. The builder
+// The storage is selected by outboxconfig.Config.Storage.Type. The builder
 // builds the sqldb store itself over the handle given to
 // [OutboxBuilder.UseSQLDB]. The MongoDB one registers its [StorageFunc] with
 // [OutboxBuilder.UseStorage] from factory/reliability/outbox/storages/mongo; a
 // configured type without one fails at Build naming the package to add.
 type OutboxBuilder struct {
 	corefactory.Base
-	cfg  *brokerconfig.Outbox
+	cfg  *outboxconfig.Config
 	errs []error
 
 	// Dependencies
 	scheduler     schedtask.Registrar
 	outboxOpts    []outbox.Option
-	storages      map[brokerconfig.OutboxStorageType]StorageFunc
+	storages      map[outboxconfig.StorageType]StorageFunc
 	sqlDB         *sql.DB
 	resolveTx     func(context.Context) (*sql.Tx, bool)
 	sqlListener   outboxsql.Listener
@@ -56,7 +56,7 @@ type OutboxBuilder struct {
 
 // New creates a new [OutboxBuilder] for the given outbox config.
 // Config can be nil -- the error surfaces at build time.
-func New(cfg *brokerconfig.Outbox) *OutboxBuilder {
+func New(cfg *outboxconfig.Config) *OutboxBuilder {
 	return &OutboxBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -110,7 +110,7 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 		return nil, fmt.Errorf("validate outbox storage config: %w", err)
 	}
 
-	watch := cfg.Watch == brokerconfig.OutboxWatchChangeStream || cfg.Watch == brokerconfig.OutboxWatchNotify
+	watch := cfg.Watch == outboxconfig.WatchChangeStream || cfg.Watch == outboxconfig.WatchNotify
 	if watch && b.scheduler == nil {
 		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "scheduler is required when watch is %q", cfg.Watch)
 	}
@@ -140,16 +140,16 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 // validateWatchBackend rejects incompatible built-in modes before provisioning storage.
 func (b *OutboxBuilder) validateWatchBackend() error {
 	cfg := b.cfg
-	if cfg.Watch != brokerconfig.OutboxWatchChangeStream && cfg.Watch != brokerconfig.OutboxWatchNotify {
+	if cfg.Watch != outboxconfig.WatchChangeStream && cfg.Watch != outboxconfig.WatchNotify {
 		return nil
 	}
 	switch cfg.Storage.Type {
-	case brokerconfig.OutboxStorageTypeMongo:
-		if cfg.Watch != brokerconfig.OutboxWatchChangeStream {
+	case outboxconfig.StorageTypeMongo:
+		if cfg.Watch != outboxconfig.WatchChangeStream {
 			return unsupportedWatch(cfg)
 		}
-	case brokerconfig.OutboxStorageTypeSQL:
-		if cfg.Watch != brokerconfig.OutboxWatchNotify || cfg.Storage.SQL == nil || cfg.Storage.SQL.Dialect != brokerconfig.SQLDialectPostgres {
+	case outboxconfig.StorageTypeSQL:
+		if cfg.Watch != outboxconfig.WatchNotify || cfg.Storage.SQL == nil || cfg.Storage.SQL.Dialect != outboxconfig.SQLDialectPostgres {
 			return unsupportedWatch(cfg)
 		}
 	default:
@@ -160,16 +160,16 @@ func (b *OutboxBuilder) validateWatchBackend() error {
 	return nil
 }
 
-func unsupportedWatch(cfg *brokerconfig.Outbox) error {
+func unsupportedWatch(cfg *outboxconfig.Config) error {
 	return corefactory.Errorf(coreerrs.ErrInvalidArgument, "outbox watch %q with storage %q: %w",
-		cfg.Watch, cfg.Storage.Type, brokerconfig.ErrUnsupportedOutboxWatch)
+		cfg.Watch, cfg.Storage.Type, outboxconfig.ErrUnsupportedWatch)
 }
 
 // buildStore constructs the [outbox.Storage] named by the storage type: the
 // built-in sqldb store, or the one registered with [OutboxBuilder.UseStorage].
 func (b *OutboxBuilder) buildStore(ctx context.Context) (outbox.Storage, error) {
 	typ := b.cfg.Storage.Type
-	if typ == brokerconfig.OutboxStorageTypeSQL {
+	if typ == outboxconfig.StorageTypeSQL {
 		return b.buildSQLStore(ctx, b.cfg.Storage.SQL)
 	}
 	if build, ok := b.storages[typ]; ok {
@@ -179,7 +179,7 @@ func (b *OutboxBuilder) buildStore(ctx context.Context) (outbox.Storage, error) 
 		}
 		return store, nil
 	}
-	if typ == brokerconfig.OutboxStorageTypeMongo {
+	if typ == outboxconfig.StorageTypeMongo {
 		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "outbox storage %q is not registered: add "+
 			"factory/reliability/outbox/storages/mongo with UseStorage(%q, outboxmongofactory.Builder(db))", typ, typ)
 	}
@@ -189,11 +189,11 @@ func (b *OutboxBuilder) buildStore(ctx context.Context) (outbox.Storage, error) 
 // buildSQLStore creates the SQL store. With EnsureSchema set it creates the
 // table through the store's idempotent EnsureSchema; otherwise it performs no
 // I/O and the schema is expected to exist.
-func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *brokerconfig.OutboxSQLStorageConfig) (*outboxsql.Store, error) {
+func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *outboxconfig.SQLStorage) (*outboxsql.Store, error) {
 	if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
 		return nil, err
 	}
-	notify := b.cfg.Watch == brokerconfig.OutboxWatchNotify
+	notify := b.cfg.Watch == outboxconfig.WatchNotify
 	if notify {
 		if err := b.RequireDependency(b.sqlListener, "SQL listener"); err != nil {
 			return nil, err

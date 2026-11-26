@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/reliability/outbox/storages/mongo"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -35,8 +35,8 @@ func offlineMongo(t *testing.T) *mongo.Client {
 
 // build builds an outbox over the MongoDB storage function.
 func build(ctx context.Context, fn outboxfactory.StorageFunc) error {
-	cfg := &brokerconfig.Outbox{Enabled: true}
-	_, err := outboxfactory.New(cfg).UseStorage(brokerconfig.OutboxStorageTypeMongo, fn).Build(ctx, noopHandler)
+	cfg := &outboxconfig.Config{Enabled: true}
+	_, err := outboxfactory.New(cfg).UseStorage(outboxconfig.StorageTypeMongo, fn).Build(ctx, noopHandler)
 	return err
 }
 

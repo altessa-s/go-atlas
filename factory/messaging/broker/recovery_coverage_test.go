@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
@@ -169,19 +170,19 @@ func TestCreateOutbox_RegisteredStorage(t *testing.T) {
 
 	mongoConfig := func() *brokerconfig.Config {
 		cfg := outboxConfig()
-		cfg.Outbox.Storage = brokerconfig.DefaultOutboxStorage()
+		cfg.Outbox.Storage = outboxconfig.DefaultStorage()
 		return cfg
 	}
 
-	_, err := factory.New(mongoConfig()).UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, nil).CreateOutbox(t.Context(), stubPublisher{})
+	_, err := factory.New(mongoConfig()).UseOutboxStorage(outboxconfig.StorageTypeMongo, nil).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 
 	_, err = factory.New(mongoConfig()).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, corefactory.ErrNotRegistered)
 
-	failing := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+	failing := func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) {
 		return nil, errBuild
 	}
-	_, err = factory.New(mongoConfig()).UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, failing).CreateOutbox(t.Context(), stubPublisher{})
+	_, err = factory.New(mongoConfig()).UseOutboxStorage(outboxconfig.StorageTypeMongo, failing).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, errBuild)
 }

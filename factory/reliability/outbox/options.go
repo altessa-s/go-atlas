@@ -14,7 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -46,15 +46,15 @@ func (b *OutboxBuilder) UseOutboxOptions(opts ...outbox.Option) *OutboxBuilder {
 }
 
 // UseStorage registers the storage function of one outbox storage type
-// (brokerconfig.OutboxStorageTypeMongo). A later registration of the same type
+// (outboxconfig.StorageTypeMongo). A later registration of the same type
 // replaces the earlier one; the sqldb store is built in.
-func (b *OutboxBuilder) UseStorage(typ brokerconfig.OutboxStorageType, build StorageFunc) *OutboxBuilder {
+func (b *OutboxBuilder) UseStorage(typ outboxconfig.StorageType, build StorageFunc) *OutboxBuilder {
 	if build == nil {
 		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrDependencyRequired, "UseStorage %q: nil function", typ))
 		return b
 	}
 	if b.storages == nil {
-		b.storages = map[brokerconfig.OutboxStorageType]StorageFunc{}
+		b.storages = map[outboxconfig.StorageType]StorageFunc{}
 	}
 	b.storages[typ] = build
 	return b
@@ -89,6 +89,6 @@ func (b *OutboxBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *OutboxBuilde
 }
 
 // RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
-func (b *OutboxBuilder) RegisteredStorageTypes() []brokerconfig.OutboxStorageType {
+func (b *OutboxBuilder) RegisteredStorageTypes() []outboxconfig.StorageType {
 	return slices.Sorted(maps.Keys(b.storages))
 }

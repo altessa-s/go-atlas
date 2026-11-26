@@ -9,7 +9,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +23,7 @@ import (
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
@@ -63,7 +63,7 @@ func (p stubPublisher) Publish(context.Context, msg.Message) error { return p.er
 // forgets to read shows up as a default rather than the configured value.
 func outboxConfig() *brokerconfig.Config {
 	return &brokerconfig.Config{
-		Outbox: brokerconfig.Outbox{
+		Outbox: outboxconfig.Config{
 			Enabled:                 true,
 			FetchTimeout:            time.Second,
 			HandleTimeout:           2 * time.Second,
@@ -86,15 +86,15 @@ func outboxConfig() *brokerconfig.Config {
 			ExpireTaskID:            "svc-a-expire",
 			CleanupTaskID:           "svc-a-cleanup",
 			StatsTaskID:             "svc-a-stats",
-			Storage: &brokerconfig.OutboxStorageConfig{
-				Type: brokerconfig.OutboxStorageTypeSQL,
-				SQL:  &brokerconfig.OutboxSQLStorageConfig{Dialect: brokerconfig.SQLDialectPostgres, Table: "events_outbox"},
+			Storage: &outboxconfig.Storage{
+				Type: outboxconfig.StorageTypeSQL,
+				SQL:  &outboxconfig.SQLStorage{Dialect: outboxconfig.SQLDialectPostgres, Table: "events_outbox"},
 			},
 		},
 	}
 }
 
-// The builder and factory/reliability/outbox read the same brokerconfig.Outbox. A field one
+// The builder and factory/reliability/outbox read the same outboxconfig.Config. A field one
 // of them forgets is not a compile error and not a runtime error — the setting
 // is simply ignored, and the operator's YAML quietly does nothing.
 func TestCreateOutbox_RegistersEveryCycleUnderItsConfiguredID(t *testing.T) {
@@ -166,22 +166,22 @@ func TestCreateOutbox_RequiresAPublisher(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The factory-built outbox must keep the broker retry classification: a closed
-// NATS connection never reopens, so the event is dead-lettered at once instead
-// of spending its retry budget.
-func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
+func TestCreateOutbox_ClosedConnectionPreservesRetryBudget(t *testing.T) {
 	t.Parallel()
 
 	created := time.Now().UTC()
-	db, fake := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+	db, fake := testhelpers.NewFakeSQL(t, func(query string, args []any) testhelpers.FakeSQLReply {
 		if strings.HasPrefix(strings.TrimSpace(query), "SELECT") {
-			return testhelpers.FakeSQLReply{
+			reply := testhelpers.FakeSQLReply{
 				Columns: []string{"id", "topic", "order_key", "payload", "attempts", "last_error", "created_at", "locked_on", "published_at", "expires_at", "seq"},
-				Rows: [][]driver.Value{{
+			}
+			if args[0] == string(dataoutbox.StatusPending) {
+				reply.Rows = [][]driver.Value{{
 					[]byte("event-1"), []byte("billing.invoice.paid"), []byte("billing.invoice.paid"), []byte(`{"d":"e30="}`),
 					int64(0), nil, created, nil, nil, created, int64(1),
-				}},
+				}}
 			}
+			return reply
 		}
 		return testhelpers.FakeSQLReply{Affected: 1}
 	})
@@ -191,14 +191,13 @@ func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
-	statuses := make([]any, 0)
+	var failedAttempts []any
 	for _, c := range fake.Calls() {
-		if strings.HasPrefix(strings.TrimSpace(c.Query), "UPDATE") && len(c.Args) > 0 {
-			statuses = append(statuses, c.Args[0])
+		if strings.HasPrefix(strings.TrimSpace(c.Query), "UPDATE") && len(c.Args) > 1 && c.Args[0] == string(dataoutbox.StatusFailed) {
+			failedAttempts = append(failedAttempts, c.Args[1])
 		}
 	}
-	require.True(t, slices.Contains(statuses, any(string(dataoutbox.StatusRejected))),
-		"a closed connection must dead-letter the event, got statuses %v", statuses)
+	require.Equal(t, []any{int64(0)}, failedAttempts)
 }
 
 func TestCreateOutbox_OrdersSQLClaimsByKey(t *testing.T) {
@@ -235,7 +234,7 @@ func TestCreateOutbox_SQLDBEnsureSchema(t *testing.T) {
 		t.Parallel()
 		cfg := outboxConfig()
 		cfg.Outbox.Storage.SQL.EnsureSchema = true
-		cfg.Outbox.Storage.SQL.Dialect = brokerconfig.SQLDialectMySQL
+		cfg.Outbox.Storage.SQL.Dialect = outboxconfig.SQLDialectMySQL
 		db, fake := testhelpers.NewFakeSQL(t, nil)
 		ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 		require.NoError(t, err)
@@ -306,7 +305,7 @@ func TestCreateOutbox_NotifyWatch(t *testing.T) {
 	t.Parallel()
 
 	cfg := outboxConfig()
-	cfg.Outbox.Watch = brokerconfig.OutboxWatchNotify
+	cfg.Outbox.Watch = outboxconfig.WatchNotify
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	_, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)

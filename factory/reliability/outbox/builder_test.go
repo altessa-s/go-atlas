@@ -20,19 +20,19 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // sqlConfig returns an enabled outbox config over the sqldb storage.
-func sqlConfig(dialect string, ensureSchema bool) *brokerconfig.Outbox {
-	return &brokerconfig.Outbox{
+func sqlConfig(dialect string, ensureSchema bool) *outboxconfig.Config {
+	return &outboxconfig.Config{
 		Enabled: true,
-		Storage: &brokerconfig.OutboxStorageConfig{
-			Type: brokerconfig.OutboxStorageTypeSQL,
-			SQL:  &brokerconfig.OutboxSQLStorageConfig{Dialect: dialect, Table: "events_outbox", EnsureSchema: ensureSchema},
+		Storage: &outboxconfig.Storage{
+			Type: outboxconfig.StorageTypeSQL,
+			SQL:  &outboxconfig.SQLStorage{Dialect: dialect, Table: "events_outbox", EnsureSchema: ensureSchema},
 		},
 	}
 }
@@ -42,7 +42,7 @@ func TestBuildPropagatesRegistrationFailureAndRetainsRetryableOutbox(t *testing.
 	t.Parallel()
 	boom := errors.New("registrar unavailable")
 	reg := &testhelpers.MockTaskRegistrar{Err: boom}
-	b := New(&brokerconfig.Outbox{Enabled: true, DispatchSchedule: "@every 1m",
+	b := New(&outboxconfig.Config{Enabled: true, DispatchSchedule: "@every 1m",
 		DispatchTaskID: "dispatch", UnlockTaskID: "unlock", ExpireTaskID: "expire", CleanupTaskID: "cleanup", StatsTaskID: "stats",
 	}).UseScheduler(reg)
 	ob, err := b.createOutboxWithStore(t.Context(), nil, nil)
@@ -55,7 +55,7 @@ func TestBuildPropagatesRegistrationFailureAndRetainsRetryableOutbox(t *testing.
 func TestBuildSQLDB(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(sqlConfig(brokerconfig.SQLDialectPostgres, false)).Build(t.Context(), noopHandler)
+	_, err := New(sqlConfig(outboxconfig.SQLDialectPostgres, false)).Build(t.Context(), noopHandler)
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 
 	db, fake := testhelpers.NewFakeSQL(t, nil)
@@ -63,7 +63,7 @@ func TestBuildSQLDB(t *testing.T) {
 	_, isValidation := errors.AsType[validation.Errors](err)
 	require.True(t, isValidation, "the config rejects an unknown dialect: %v", err)
 
-	ob, err := New(sqlConfig(brokerconfig.SQLDialectMySQL, false)).UseSQLDB(db).Build(t.Context(), noopHandler)
+	ob, err := New(sqlConfig(outboxconfig.SQLDialectMySQL, false)).UseSQLDB(db).Build(t.Context(), noopHandler)
 	require.NoError(t, err)
 	require.NotNil(t, ob)
 	require.Empty(t, fake.Calls(), "without ensureSchema the build performs no I/O")
@@ -75,7 +75,7 @@ func TestBuildSQLDBEnsureSchema(t *testing.T) {
 	t.Run("creates_schema", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		ob, err := New(sqlConfig(brokerconfig.SQLDialectPostgres, true)).UseSQLDB(db).Build(t.Context(), noopHandler)
+		ob, err := New(sqlConfig(outboxconfig.SQLDialectPostgres, true)).UseSQLDB(db).Build(t.Context(), noopHandler)
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 		calls := fake.Calls()
@@ -87,7 +87,7 @@ func TestBuildSQLDBEnsureSchema(t *testing.T) {
 	t.Run("disabled_outbox_runs_no_ddl", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		cfg := sqlConfig(brokerconfig.SQLDialectPostgres, true)
+		cfg := sqlConfig(outboxconfig.SQLDialectPostgres, true)
 		cfg.Enabled = false
 		ob, err := New(cfg).UseSQLDB(db).Build(t.Context(), noopHandler)
 		require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestBuildSQLDBEnsureSchema(t *testing.T) {
 		t.Parallel()
 		boom := errors.New("ddl denied")
 		db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: boom} })
-		_, err := New(sqlConfig(brokerconfig.SQLDialectMySQL, true)).UseSQLDB(db).Build(t.Context(), noopHandler)
+		_, err := New(sqlConfig(outboxconfig.SQLDialectMySQL, true)).UseSQLDB(db).Build(t.Context(), noopHandler)
 		require.ErrorIs(t, err, boom)
 	})
 }
@@ -108,7 +108,7 @@ func TestBuildSQLDBEnsureSchema(t *testing.T) {
 func TestUseOutboxOptionsOverridesConfig(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
-	cfg := sqlConfig(brokerconfig.SQLDialectPostgres, false)
+	cfg := sqlConfig(outboxconfig.SQLDialectPostgres, false)
 	cfg.MaxPayloadBytes = 1024
 
 	ob, err := New(cfg).UseSQLDB(db).UseOutboxOptions(outbox.WithMaxPayloadBytes(8)).Build(t.Context(), noopHandler)
@@ -126,7 +126,7 @@ func TestBuildSQLDBHonorsContext(t *testing.T) {
 	cancel()
 
 	db, fake := testhelpers.NewFakeSQL(t, nil)
-	_, err := New(sqlConfig(brokerconfig.SQLDialectPostgres, true)).UseSQLDB(db).Build(ctx, noopHandler)
+	_, err := New(sqlConfig(outboxconfig.SQLDialectPostgres, true)).UseSQLDB(db).Build(ctx, noopHandler)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, fake.Calls())
 }
@@ -135,19 +135,19 @@ func TestBuildWatchValidation(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 
-	cfg := sqlConfig(brokerconfig.SQLDialectMySQL, false)
-	cfg.Watch = brokerconfig.OutboxWatchNotify
+	cfg := sqlConfig(outboxconfig.SQLDialectMySQL, false)
+	cfg.Watch = outboxconfig.WatchNotify
 	cfg.DispatchSchedule = "@every 1m"
 	_, err := New(cfg).UseSQLDB(db).UseSQLListener(&fakeListener{}).Build(t.Context(), noopHandler)
-	require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+	require.ErrorIs(t, err, outboxconfig.ErrUnsupportedWatch)
 
-	cfg = sqlConfig(brokerconfig.SQLDialectPostgres, false)
-	cfg.Watch = brokerconfig.OutboxWatchChangeStream
+	cfg = sqlConfig(outboxconfig.SQLDialectPostgres, false)
+	cfg.Watch = outboxconfig.WatchChangeStream
 	_, err = New(cfg).UseSQLDB(db).Build(t.Context(), noopHandler)
-	require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+	require.ErrorIs(t, err, outboxconfig.ErrUnsupportedWatch)
 
-	cfg = sqlConfig(brokerconfig.SQLDialectPostgres, false)
-	cfg.Watch = brokerconfig.OutboxWatchNotify
+	cfg = sqlConfig(outboxconfig.SQLDialectPostgres, false)
+	cfg.Watch = outboxconfig.WatchNotify
 	cfg.DispatchSchedule = "@every 1m"
 	var typedNil *fakeListener
 	_, err = New(cfg).UseSQLDB(db).UseSQLListener(typedNil).UseScheduler(&testhelpers.MockTaskRegistrar{}).Build(t.Context(), noopHandler)
@@ -194,8 +194,8 @@ func TestBuildNotifyStartsAndStopsTheWatcher(t *testing.T) {
 				listener := &fakeListener{stopped: make(chan struct{})}
 				var hooks coreruntime.HookGroup
 				t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
-				cfg := sqlConfig(brokerconfig.SQLDialectPostgres, false)
-				cfg.Watch = brokerconfig.OutboxWatchNotify
+				cfg := sqlConfig(outboxconfig.SQLDialectPostgres, false)
+				cfg.Watch = outboxconfig.WatchNotify
 				cfg.DispatchSchedule = "@every 1m"
 				cfg.Storage.SQL.NotifyChannel = channel
 				reg := &testhelpers.MockTaskRegistrar{Err: registrationError}
@@ -242,28 +242,28 @@ func TestBuildNotifyStartsAndStopsTheWatcher(t *testing.T) {
 
 func TestBuildMongoRequiresRegistration(t *testing.T) {
 	t.Parallel()
-	_, err := New(&brokerconfig.Outbox{Enabled: true}).Build(t.Context(), noopHandler)
+	_, err := New(&outboxconfig.Config{Enabled: true}).Build(t.Context(), noopHandler)
 	require.ErrorIs(t, err, corefactory.ErrNotRegistered)
 }
 
 func TestBuildWatchRequiresSchedulerBeforeStorage(t *testing.T) {
 	t.Parallel()
-	for _, watch := range []brokerconfig.OutboxWatch{brokerconfig.OutboxWatchChangeStream, brokerconfig.OutboxWatchNotify} {
+	for _, watch := range []outboxconfig.Watch{outboxconfig.WatchChangeStream, outboxconfig.WatchNotify} {
 		t.Run(string(watch), func(t *testing.T) {
 			t.Parallel()
-			cfg := &brokerconfig.Outbox{Enabled: true, Watch: watch, DispatchSchedule: "@every 1m"}
-			if watch == brokerconfig.OutboxWatchNotify {
-				cfg = sqlConfig(brokerconfig.SQLDialectPostgres, true)
+			cfg := &outboxconfig.Config{Enabled: true, Watch: watch, DispatchSchedule: "@every 1m"}
+			if watch == outboxconfig.WatchNotify {
+				cfg = sqlConfig(outboxconfig.SQLDialectPostgres, true)
 				cfg.Watch, cfg.DispatchSchedule = watch, "@every 1m"
 			}
 			db, fake := testhelpers.NewFakeSQL(t, nil)
 			built := false
-			build := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+			build := func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) {
 				built = true
 				return nil, errStorage
 			}
 			ob, err := New(cfg).UseSQLDB(db).UseSQLListener(&fakeListener{}).
-				UseStorage(brokerconfig.OutboxStorageTypeMongo, build).Build(t.Context(), noopHandler)
+				UseStorage(outboxconfig.StorageTypeMongo, build).Build(t.Context(), noopHandler)
 			require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 			require.Nil(t, ob)
 			require.False(t, built)
@@ -274,20 +274,20 @@ func TestBuildWatchRequiresSchedulerBeforeStorage(t *testing.T) {
 
 func TestBuildDoesNotNormalizeCallerConfig(t *testing.T) {
 	t.Parallel()
-	for _, storage := range []*brokerconfig.OutboxStorageConfig{nil, {Type: brokerconfig.OutboxStorageTypeSQL}} {
+	for _, storage := range []*outboxconfig.Storage{nil, {Type: outboxconfig.StorageTypeSQL}} {
 		t.Run(fmt.Sprintf("storage=%v", storage), func(t *testing.T) {
 			t.Parallel()
-			cfg := &brokerconfig.Outbox{Enabled: true, Storage: storage}
+			cfg := &outboxconfig.Config{Enabled: true, Storage: storage}
 			before := *cfg
-			var storageBefore brokerconfig.OutboxStorageConfig
+			var storageBefore outboxconfig.Storage
 			if storage != nil {
 				storageBefore = *storage
 			}
 			db, _ := testhelpers.NewFakeSQL(t, nil)
 			store, err := outboxsql.New(db, outboxsql.DialectPostgres)
 			require.NoError(t, err)
-			build := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return store, nil }
-			ob, err := New(cfg).UseSQLDB(db).UseStorage(brokerconfig.OutboxStorageTypeMongo, build).Build(t.Context(), noopHandler)
+			build := func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) { return store, nil }
+			ob, err := New(cfg).UseSQLDB(db).UseStorage(outboxconfig.StorageTypeMongo, build).Build(t.Context(), noopHandler)
 			require.NoError(t, err)
 			require.NotNil(t, ob)
 			require.Equal(t, before, *cfg)
@@ -301,7 +301,7 @@ func TestBuildDoesNotNormalizeCallerConfig(t *testing.T) {
 func TestBuildPollingIgnoresNotifyChannel(t *testing.T) {
 	t.Parallel()
 	db, fake := testhelpers.NewFakeSQL(t, nil)
-	cfg := sqlConfig(brokerconfig.SQLDialectPostgres, false)
+	cfg := sqlConfig(outboxconfig.SQLDialectPostgres, false)
 	cfg.Storage.SQL.NotifyChannel = "CustomWake"
 	ob, err := New(cfg).UseSQLDB(db).Build(t.Context(), noopHandler)
 	require.NoError(t, err)
@@ -332,12 +332,12 @@ func TestWatchStopJoinsWorker(t *testing.T) {
 		t.Run(fmt.Sprintf("hooks=%t", viaHooks), func(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
-				cfg := brokerconfig.Default().Outbox
-				cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
-				cfg.Watch = brokerconfig.OutboxWatchNotify
+				cfg := outboxconfig.Default()
+				cfg.Storage = &outboxconfig.Storage{Type: "custom"}
+				cfg.Watch = outboxconfig.WatchNotify
 				watch := &blockingWatcher{canceled: make(chan struct{}), release: make(chan struct{}), exited: make(chan struct{})}
 				var hooks coreruntime.HookGroup
-				ob, err := New(&cfg).UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return watch, nil }).
+				ob, err := New(&cfg).UseStorage("custom", func(context.Context, *outboxconfig.Config, *slog.Logger) (outbox.Storage, error) { return watch, nil }).
 					UseShutdownHooks(&hooks).UseScheduler(&testhelpers.MockTaskRegistrar{}).Build(t.Context(), noopHandler)
 				require.NoError(t, err)
 				stopped := make(chan error, 1)

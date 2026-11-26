@@ -13,7 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	outboxmongo "github.com/altessa-s/go-atlas/reliability/outbox/storages/mongo"
@@ -29,13 +29,13 @@ var (
 )
 
 // Builder returns the storage function of the MongoDB outbox, ready for
-// outboxfactory.OutboxBuilder.UseStorage(brokerconfig.OutboxStorageTypeMongo, ...).
+// outboxfactory.OutboxBuilder.UseStorage(outboxconfig.StorageTypeMongo, ...).
 // The storage keeps events in the collection of db named by
 // outbox.storage.mongo.collection (the store's default when unset), creates
 // its indexes on the build context and logs its watch failures on the
 // builder's logger; the caller owns db.
 func Builder(db *mongo.Database) outboxfactory.StorageFunc {
-	return func(ctx context.Context, cfg *brokerconfig.Outbox, logger *slog.Logger) (outbox.Storage, error) {
+	return func(ctx context.Context, cfg *outboxconfig.Config, logger *slog.Logger) (outbox.Storage, error) {
 		if db == nil {
 			return nil, ErrDatabaseRequired
 		}
@@ -58,7 +58,7 @@ func Builder(db *mongo.Database) outboxfactory.StorageFunc {
 // indexes on the build context and logs its watch failures on the builder's
 // logger; the caller owns col.
 func CollectionBuilder(col *mongo.Collection) outboxfactory.StorageFunc {
-	return func(ctx context.Context, _ *brokerconfig.Outbox, logger *slog.Logger) (outbox.Storage, error) {
+	return func(ctx context.Context, _ *outboxconfig.Config, logger *slog.Logger) (outbox.Storage, error) {
 		if col == nil {
 			return nil, ErrCollectionRequired
 		}

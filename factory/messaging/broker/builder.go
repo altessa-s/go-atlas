@@ -18,6 +18,7 @@ import (
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
@@ -58,7 +59,7 @@ type BrokerBuilder struct {
 	collector        metrics.Meter
 	tracer           tracing.Tracer
 	providers        map[brokerconfig.Provider]ProviderFunc
-	outboxStorages   map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc
+	outboxStorages   map[outboxconfig.StorageType]outboxfactory.StorageFunc
 	sqlDB            *sql.DB
 	resolveTx        func(context.Context) (*sql.Tx, bool)
 	sqlListener      outboxsql.Listener
@@ -175,7 +176,7 @@ func (b *BrokerBuilder) CreateProvider() (broker.Provider, error) {
 // enabled outbox requires a publisher; a nil builder means err holds that
 // failure.
 func (b *BrokerBuilder) outboxBuilder(publisher outbox.Publisher) (*outboxfactory.OutboxBuilder, error) {
-	var cfg *brokerconfig.Outbox
+	var cfg *outboxconfig.Config
 	if b.cfg != nil {
 		cfg = &b.cfg.Outbox
 	}

@@ -104,7 +104,7 @@ type volumeBackend struct {
 func newVolumeOutbox(t testing.TB, store outbox.Storage, handler outbox.Handler) *outbox.Outbox {
 	t.Helper()
 	return outbox.New(store, handler,
-		outbox.WithContext(t.Context()), outbox.WithEventsBatchSize(volumeBatchSize),
+		outbox.WithEventsBatchSize(volumeBatchSize),
 		outbox.WithFetchTimeout(time.Minute), outbox.WithHandleTimeout(time.Minute),
 		outbox.WithUpdateTimeout(time.Minute), outbox.WithMaxLockTime(5*time.Minute),
 		outbox.WithPublishedEventsLifetime(volumeLifetime))

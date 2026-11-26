@@ -39,8 +39,7 @@ type Outbox struct {
 	fetchTimeout            time.Duration
 	handleTimeout           time.Duration
 	updateTimeout           time.Duration
-	compactionFilter        func(string) bool // Optional filter for selective compaction (nil = all keys).
-	baseCtx                 context.Context
+	compactionFilter        func(string) bool       // Optional filter for selective compaction (nil = all keys).
 	shouldRetry             func(error) bool        // Optional caller-provided retry predicate.
 	retryBackoff            coreretry.NextDelayFunc // Exponential backoff with jitter between attempts.
 
@@ -74,8 +73,7 @@ type Outbox struct {
 func New(store Storage, handler Handler, opts ...Option) *Outbox {
 	cfg := newOptions(opts...)
 
-	// Apply nil defaults for fields that optgen doesn't handle
-	cfg.baseCtx = cmp.Or(cfg.baseCtx, context.Background())
+	// Apply the nil logger default
 	cfg.logger = cmp.Or(cfg.logger, slog.New(slog.DiscardHandler))
 
 	// A lock that expires while the cycle holding it is still publishing lets
@@ -105,7 +103,6 @@ func New(store Storage, handler Handler, opts ...Option) *Outbox {
 		store:                   store,
 		handler:                 handler,
 		logger:                  cfg.logger,
-		baseCtx:                 cfg.baseCtx,
 		compaction:              cfg.compaction,
 		compactionFilter:        cfg.compactionFilter,
 		scheduler:               cfg.scheduler,
