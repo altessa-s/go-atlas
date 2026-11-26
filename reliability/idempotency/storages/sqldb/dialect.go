@@ -64,6 +64,15 @@ func (d dialect) expiresIn() string {
 	return "(" + d.now + " + INTERVAL ? MICROSECOND)"
 }
 
+// lockAgeExceeds compares at database clock precision without rounding
+// a positive Go duration down to the same database tick.
+func (d dialect) lockAgeExceeds() string {
+	if d.name == DialectPostgres {
+		return "EXTRACT(EPOCH FROM (" + d.now + " - locked_at)) * 1000000000 > CAST(? AS BIGINT)"
+	}
+	return "TIMESTAMPDIFF(MICROSECOND, locked_at, " + d.now + ") * CAST(1000 AS DECIMAL(4,0)) > ?"
+}
+
 func (d dialect) duration(ttl time.Duration) any {
 	if d.name == DialectPostgres {
 		return ttl.Seconds()

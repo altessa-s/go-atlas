@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
@@ -28,7 +27,7 @@ import (
 func TestStreamingCallChecksOncePerCall(t *testing.T) {
 	t.Parallel()
 
-	keeper := idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+	keeper := idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute))
 	opts := newOptions(WithRequestFingerprint(true))
 	opts.statusCreator = defaultStatusCreator
 	ic := &interceptor{
@@ -80,7 +79,7 @@ func keyedContext(t *testing.T) context.Context {
 func TestLateFirstReceiveTakesNoLock(t *testing.T) {
 	t.Parallel()
 
-	keeper := idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+	keeper := idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute))
 	ctx := keyedContext(t)
 	late := newStreamCall(t, keeper)
 	gate := make(chan struct{})
@@ -104,7 +103,7 @@ func TestReceiveOverlapsPostCall(t *testing.T) {
 	t.Parallel()
 
 	for range 50 {
-		keeper := idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+		keeper := idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute))
 		ctx := keyedContext(t)
 		ri := newStreamCall(t, keeper)
 		var wg sync.WaitGroup

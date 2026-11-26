@@ -12,4 +12,7 @@
 //	acquired, existing, token, err := store.AttemptLock(ctx, "request-123", inProgress)
 //	// ... process the request when acquired, then:
 //	err = store.Complete(ctx, "request-123", result, token)
+//
+// Storage implementations with access to a backend clock use it to decide
+// whether an observed lock is old enough for takeover.
 package storages

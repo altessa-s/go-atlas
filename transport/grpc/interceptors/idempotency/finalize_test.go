@@ -55,7 +55,7 @@ func TestCanceledCallStillFinalizesKey(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ic := idempotency.ServerInterceptor(ctxKeeper{newReplayKeeper()}).ServerUnaryInterceptor()
+			ic := idempotency.ServerInterceptor(ctxKeeper{newReplayKeeper(t)}).ServerUnaryInterceptor()
 			ctx, cancel := context.WithCancel(t.Context())
 			calls := 0
 			_, err := unary(t, ic, ctx, getReq("order"), func(context.Context, any) (any, error) {
@@ -80,7 +80,7 @@ func TestCanceledCallStillFinalizesKey(t *testing.T) {
 func TestPanickingHandlerReleasesKey(t *testing.T) {
 	t.Parallel()
 
-	ic := idempotency.ServerInterceptor(newReplayKeeper()).ServerUnaryInterceptor()
+	ic := idempotency.ServerInterceptor(newReplayKeeper(t)).ServerUnaryInterceptor()
 	require.PanicsWithValue(t, "boom", func() {
 		_, _ = unary(t, ic, t.Context(), getReq("order"), func(context.Context, any) (any, error) { //nolint:errcheck // panics
 			panic("boom")

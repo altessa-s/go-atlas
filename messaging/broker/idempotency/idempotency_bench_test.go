@@ -11,10 +11,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
-	"github.com/altessa-s/go-atlas/reliability/idempotency"
 
 	brokeridem "github.com/altessa-s/go-atlas/messaging/broker/idempotency"
-	memorystorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 )
 
 type noopAcker struct{}
@@ -37,8 +35,7 @@ func BenchmarkBuildStorageKey(b *testing.B) {
 }
 
 func BenchmarkWrap_Acquired(b *testing.B) {
-	store := memorystorage.New()
-	keeper := idempotency.New(store, idempotency.WithMaxLockDuration(time.Minute))
+	keeper, _ := newTestKeeper(b)
 
 	h := &testSubscriberHandler{
 		topic: "topic",
@@ -64,8 +61,7 @@ func BenchmarkWrap_Acquired(b *testing.B) {
 }
 
 func BenchmarkWrap_Duplicate(b *testing.B) {
-	store := memorystorage.New()
-	keeper := idempotency.New(store, idempotency.WithMaxLockDuration(time.Minute))
+	keeper, _ := newTestKeeper(b)
 
 	h := &testSubscriberHandler{
 		topic: "topic",

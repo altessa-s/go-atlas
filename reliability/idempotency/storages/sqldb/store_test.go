@@ -116,36 +116,45 @@ func TestTTLAndCAS(t *testing.T) {
 			require.NoError(t, err)
 			_, _, _, err = s.AttemptLockWithTTL(t.Context(), "k", []byte("v"), -time.Second)
 			require.NoError(t, err)
-			require.NoError(t, s.Complete(t.Context(), "k", []byte("done"), []byte("v")))
-			token, err := s.Steal(t.Context(), "k", []byte("done"), []byte("new"))
+			didSteal, _, token, err := s.Steal(t.Context(), "k", []byte("v"), []byte("new"), time.Minute, time.Second)
 			require.NoError(t, err)
+			require.True(t, didSteal)
 			require.Equal(t, []byte("new"), token)
-			require.NoError(t, s.Release(t.Context(), "k", token))
+			require.NoError(t, s.Complete(t.Context(), "k", []byte("done"), token))
+			_, _, other, err := s.AttemptLock(t.Context(), "other", []byte("other"))
+			require.NoError(t, err)
+			require.NoError(t, s.Release(t.Context(), "other", other))
 			require.NoError(t, s.Complete(t.Context(), "k", nil, nil))
 			require.NoError(t, s.Delete(t.Context(), "k"))
 			n, err := s.PurgeExpired(t.Context())
 			require.NoError(t, err)
 			require.Equal(t, int64(1), n)
 			c := fake.Calls()
-			require.Equal(t, c[0].Args[2], c[1].Args[1], "Complete resets the configured result TTL")
-			require.Equal(t, c[0].Args[2], c[2].Args[1], "Steal resets the configured TTL")
+			require.Equal(t, c[0].Args[2], c[2].Args[1], "Complete resets the configured result TTL")
 			require.Equal(t, []byte("v"), c[1].Args[3])
-			require.Equal(t, []byte("done"), c[2].Args[3])
-			require.Equal(t, []byte("new"), c[3].Args[1])
-			require.NotNil(t, c[4].Args[1], "nil bytes must bind an empty blob, not SQL NULL")
+			require.Equal(t, []byte("new"), c[2].Args[3])
+			require.Equal(t, []byte("other"), c[4].Args[1])
+			require.NotNil(t, c[5].Args[1], "nil bytes must bind an empty blob, not SQL NULL")
+			require.Contains(t, c[0].Query, "locked_at")
 			require.Contains(t, c[1].Query, "revision = revision + 1")
 			require.Contains(t, c[1].Query, "AND val = ")
 			require.Contains(t, c[1].Query, "AND expires_at > ")
+			require.Contains(t, c[1].Query, "AND locked_at IS NOT NULL")
+			require.Contains(t, c[2].Query, "locked_at = NULL")
 			require.Contains(t, c[2].Query, "AND expires_at > ")
-			require.Contains(t, c[3].Query, "AND expires_at > ")
+			require.Contains(t, c[4].Query, "AND expires_at > ")
 			if d == sqldb.DialectPostgres {
+				require.Equal(t, time.Second.Seconds(), c[1].Args[1])
+				require.Equal(t, time.Minute.Nanoseconds(), c[1].Args[4])
 				require.Contains(t, c[0].Query, "ON CONFLICT")
-				require.Contains(t, c[4].Query, "DO UPDATE")
-				require.Contains(t, c[6].Query, "SKIP LOCKED")
+				require.Contains(t, c[5].Query, "DO UPDATE")
+				require.Contains(t, c[7].Query, "SKIP LOCKED")
 			} else {
+				require.Equal(t, time.Second.Microseconds(), c[1].Args[1])
+				require.Equal(t, time.Minute.Nanoseconds(), c[1].Args[4])
 				require.Contains(t, c[0].Query, "INSERT IGNORE")
-				require.Contains(t, c[4].Query, "ON DUPLICATE KEY UPDATE")
-				require.Contains(t, c[6].Query, "LIMIT ?")
+				require.Contains(t, c[5].Query, "ON DUPLICATE KEY UPDATE")
+				require.Contains(t, c[7].Query, "LIMIT ?")
 			}
 			numbered := regexp.MustCompile(`\$\d+`)
 			for _, call := range c {
@@ -166,8 +175,9 @@ func TestCASMiss(t *testing.T) {
 	t.Parallel()
 	s, _ := newStore(t, sqldb.DialectMySQL, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{} })
 	require.ErrorIs(t, s.Complete(t.Context(), "k", nil, []byte("stale")), storages.ErrLockStolen)
-	_, err := s.Steal(t.Context(), "k", []byte("stale"), []byte("new"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, _, _, err := s.Steal(t.Context(), "k", []byte("stale"), []byte("new"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
 	require.ErrorIs(t, s.Release(t.Context(), "k", []byte("stale")), storages.ErrLockStolen)
 	require.NoError(t, s.Complete(t.Context(), "k", nil, nil))
 }
@@ -182,7 +192,7 @@ func TestKeyValidation(t *testing.T) {
 		_, _, _, err := s.AttemptLock(t.Context(), tc.key, nil)
 		require.ErrorIs(t, err, tc.err)
 		require.ErrorIs(t, s.Complete(t.Context(), tc.key, nil, nil), tc.err)
-		_, err = s.Steal(t.Context(), tc.key, nil, nil)
+		_, _, _, err = s.Steal(t.Context(), tc.key, nil, nil, 0, 0)
 		require.ErrorIs(t, err, tc.err)
 		require.ErrorIs(t, s.Release(t.Context(), tc.key, nil), tc.err)
 		require.ErrorIs(t, s.Delete(t.Context(), tc.key), tc.err)
@@ -201,13 +211,16 @@ func TestWithTx(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 	ctx := sqldb.WithTx(t.Context(), tx)
-	_, _, _, err = s.AttemptLock(ctx, "k", []byte("v"))
+	_, _, old, err := s.AttemptLock(ctx, "k", []byte("v"))
 	require.NoError(t, err)
-	require.NoError(t, s.Complete(ctx, "k", []byte("done"), []byte("v")))
+	stolen, _, fresh, err := s.Steal(ctx, "k", old, []byte("new"), 0, 0)
+	require.NoError(t, err)
+	require.True(t, stolen)
+	require.NoError(t, s.Complete(ctx, "k", []byte("done"), fresh))
+	_, _, other, err := s.AttemptLock(ctx, "other", []byte("other"))
+	require.NoError(t, err)
+	require.NoError(t, s.Release(ctx, "other", other))
 	require.NoError(t, s.Complete(ctx, "k", []byte("done"), nil))
-	_, err = s.Steal(ctx, "k", []byte("done"), []byte("new"))
-	require.NoError(t, err)
-	require.NoError(t, s.Release(ctx, "k", []byte("new")))
 	require.NoError(t, s.Delete(ctx, "k"))
 	_, err = s.PurgeExpired(ctx)
 	require.NoError(t, err)
@@ -217,7 +230,7 @@ func TestWithTx(t *testing.T) {
 	require.Zero(t, fake.Commits(), "the caller owns transaction completion")
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, s.Delete(sqldb.WithTx(t.Context(), nil), "k"))
-	require.False(t, fake.Calls()[7].InTx)
+	require.False(t, fake.Calls()[8].InTx)
 }
 
 func TestErrors(t *testing.T) {
@@ -240,7 +253,7 @@ func TestErrors(t *testing.T) {
 	s, _ := newStore(t, sqldb.DialectPostgres, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: errSQL} })
 	require.ErrorIs(t, s.Complete(t.Context(), "k", nil, nil), errSQL)
 	require.ErrorIs(t, s.Complete(t.Context(), "k", nil, []byte("v")), errSQL)
-	_, err := s.Steal(t.Context(), "k", nil, nil)
+	_, _, _, err := s.Steal(t.Context(), "k", nil, nil, 0, 0)
 	require.ErrorIs(t, err, errSQL)
 	require.ErrorIs(t, s.Release(t.Context(), "k", []byte("v")), errSQL)
 	require.ErrorIs(t, s.Delete(t.Context(), "k"), errSQL)
@@ -316,4 +329,62 @@ func TestPostgresPurgeSkipsLockedRows(t *testing.T) {
 	_, err := s.PurgeExpired(t.Context())
 	require.NoError(t, err)
 	require.Contains(t, fake.Calls()[0].Query, "LIMIT $1 FOR UPDATE SKIP LOCKED")
+}
+
+// TestStealAgeBoundary checks the generated predicate and its bound
+// threshold at database clock precision, without a live database clock.
+func TestStealAgeBoundary(t *testing.T) {
+	t.Parallel()
+	for _, d := range dialects {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				name           string
+				age, threshold time.Duration
+				want           bool
+			}{
+				{"no threshold", 0, 0, true},
+				{"equal", time.Microsecond, time.Microsecond, false},
+				{"older", 2 * time.Microsecond, time.Microsecond, true},
+				{"sub-microsecond same tick", 0, time.Nanosecond, false},
+				{"sub-microsecond next tick", time.Microsecond, time.Nanosecond, true},
+				{"fractional threshold", 2 * time.Microsecond, 1500 * time.Nanosecond, true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					expected := []byte("lock")
+					s, _ := newStore(t, d, func(q string, args []any) testhelpers.FakeSQLReply {
+						if strings.HasPrefix(q, "SELECT") {
+							return testhelpers.FakeSQLReply{Columns: []string{"val"}, Rows: [][]driver.Value{{expected}}}
+						}
+						require.Contains(t, q, "AND locked_at IS NOT NULL")
+						if tc.threshold <= 0 {
+							require.Len(t, args, 4, "no age comparison for a zero threshold")
+							return testhelpers.FakeSQLReply{Affected: 1}
+						}
+						require.Len(t, args, 5)
+						threshold, ok := args[4].(int64)
+						require.True(t, ok)
+						require.Equal(t, tc.threshold.Nanoseconds(), threshold)
+						if d == sqldb.DialectPostgres {
+							require.Contains(t, q, "EXTRACT(EPOCH FROM (statement_timestamp() - locked_at)) * 1000000000 > CAST($5 AS BIGINT)")
+						} else {
+							require.Contains(t, q, "TIMESTAMPDIFF(MICROSECOND, locked_at, UTC_TIMESTAMP(6)) * CAST(1000 AS DECIMAL(4,0)) > ?")
+						}
+						if tc.age.Nanoseconds() > threshold {
+							return testhelpers.FakeSQLReply{Affected: 1}
+						}
+						return testhelpers.FakeSQLReply{}
+					})
+					stolen, current, token, err := s.Steal(t.Context(), "k", expected, []byte("new"), tc.threshold, 0)
+					require.NoError(t, err)
+					require.Equal(t, tc.want, stolen)
+					if !tc.want {
+						require.Equal(t, expected, current)
+						require.Nil(t, token)
+					}
+				})
+			}
+		})
+	}
 }

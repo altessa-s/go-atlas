@@ -18,8 +18,8 @@
 // WithTx makes key operations join the caller's business transaction. The caller
 // owns commit, rollback and retry. ErrRestartTransaction marks deadlocks,
 // serialization failures and MariaDB stale snapshots that require a full retry.
-// Complete and Steal compare stored bytes; Release deletes only matching live
-// bytes. A nil Complete token is an unconditional write, as in the Mongo backend.
+// Complete and Release compare live stored bytes. Steal also checks locked_at
+// against the database clock. A nil Complete token is an unconditional write.
 //
 // # Usage
 //

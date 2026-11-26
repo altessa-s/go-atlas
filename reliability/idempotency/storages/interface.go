@@ -30,19 +30,15 @@ type Storage interface {
 	// been taken over by another holder.
 	Complete(ctx context.Context, key string, val []byte, lockToken []byte) error
 
-	// Steal atomically replaces the existing key value when its
-	// current content equals expectedVal. Returns the new lockToken
-	// for the caller to use as the holder of the freshly-stolen lock.
-	//
-	// Returns [ErrLockStolen] when expectedVal no longer matches the
-	// current value (somebody else stole the lock between the caller's
-	// observation and this Steal call).
-	//
-	// Used by orphan reclaim: when an InProgress entry's timestamp
-	// indicates the original holder has crashed (older than the
-	// configured maxLockDuration), Keeper builds a fresh InProgress
-	// payload and calls Steal to take ownership.
-	Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error)
+	// Steal replaces an unexpired lock when its bytes match expected and
+	// its backend-stamped age exceeds maxLockAge. A nonpositive maxLockAge
+	// imposes no age threshold. A nonpositive ttl uses the backend default.
+	// Use a distinct replacement value to fence the prior token on
+	// stores that use the payload as the token. On success Steal returns
+	// the new token. Otherwise current is the live
+	// value observed during the attempt, or nil if the key is absent.
+	// Stores without a server clock may implement [KeeperClockStorage].
+	Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (stolen bool, current, token []byte, err error)
 
 	// Release atomically deletes key only if lockToken still owns it.
 	// Missing or replaced keys return ErrLockStolen; nil tokens return ErrMissingLockState.
@@ -51,4 +47,12 @@ type Storage interface {
 	// Delete unconditionally removes a key for administrative use.
 	// Request error cleanup must use Release instead.
 	Delete(ctx context.Context, key string) error
+}
+
+// KeeperClockStorage is implemented by stores that delegate the lock-age
+// check to the Keeper. The Keeper passes a zero maxLockAge after checking
+// the wire timestamp. Those stores require synchronized Keeper clocks.
+// A storage wrapper must forward this interface to keep takeover enabled.
+type KeeperClockStorage interface {
+	UsesKeeperClock() bool
 }

@@ -636,3 +636,70 @@ func TestOutcomeClassifierDefinitiveAbort(t *testing.T) {
 	require.ErrorIs(t, err, cause)
 	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
 }
+
+func TestApply_CallbackPanicRedactsLogs(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	previous := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	const marker = "private-callback-payload"
+	r := uow.New(&uowtest.Fake{}, logger)
+	err := r.Run(t.Context(), func(ctx context.Context) error {
+		require.NoError(t, r.AfterCommit(ctx, func(context.Context) { panic(marker + "-hook") }))
+		require.NoError(t, uow.OnCommit(ctx, uow.Effect{
+			Apply:      func(context.Context) error { return nil },
+			Compensate: func(context.Context) error { panic(marker + "-compensate") },
+		}))
+		return uow.OnCommit(ctx, uow.Effect{
+			Apply: func(context.Context) error { panic(marker + "-apply") },
+		})
+	})
+	require.ErrorIs(t, err, uow.ErrCallbackPanicked)
+	require.NotContains(t, err.Error(), marker)
+	require.NotContains(t, logs.String(), marker)
+	require.Equal(t, 3, bytes.Count(logs.Bytes(), []byte("stacktrace=")))
+	require.Contains(t, logs.String(), "TestApply_CallbackPanicRedactsLogs")
+}
+
+func TestApply_EffectPanicStillCompensatesAndRunsHooks(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	r := uow.New(&uowtest.Fake{}, nil)
+	var runErr error
+	func() {
+		defer func() { _ = recover() }()
+		runErr = r.Run(t.Context(), func(ctx context.Context) error {
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("a", nil, nil)))
+			require.NoError(t, uow.OnCommit(ctx, uow.Effect{Label: "b",
+				Apply: func(context.Context) error { panic("apply") },
+			}))
+			return r.AfterCommit(ctx, func(context.Context) { rec.events = append(rec.events, "hook") })
+		})
+	}()
+	require.Equal(t, []string{"apply:a", "comp:a", "hook"}, rec.events)
+	require.Error(t, runErr)
+}
+
+func TestApply_CompensationPanicStillCompensatesAndRunsHooks(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	r := uow.New(&uowtest.Fake{}, nil)
+	applyErr := errors.New("apply failed")
+	var runErr error
+	func() {
+		defer func() { _ = recover() }()
+		runErr = r.Run(t.Context(), func(ctx context.Context) error {
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("a", nil, nil)))
+			effect := rec.effect("b", nil, nil)
+			effect.Compensate = func(context.Context) error { panic("compensation") }
+			require.NoError(t, uow.OnCommit(ctx, effect))
+			require.NoError(t, uow.OnCommit(ctx, rec.effect("c", applyErr, nil)))
+			return r.AfterCommit(ctx, func(context.Context) { rec.events = append(rec.events, "hook") })
+		})
+	}()
+	require.Equal(t, []string{"apply:a", "apply:b", "apply:c", "comp:a", "hook"}, rec.events)
+	require.ErrorIs(t, runErr, applyErr)
+	require.ErrorContains(t, runErr, "compensate post-commit effect")
+}

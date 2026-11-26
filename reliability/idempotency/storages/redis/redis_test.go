@@ -5,6 +5,7 @@
 package redis_test
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	idempredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // setupStorage creates a new Storage instance backed by miniredis for testing.
@@ -285,8 +287,9 @@ func TestStorage_Steal_Success(t *testing.T) {
 	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("orphan"))
 	require.NoError(t, err)
 
-	newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"))
+	didSteal, _, newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"), 0, 0)
 	require.NoError(t, err)
+	require.True(t, didSteal)
 	require.Equal(t, "fresh", string(newToken),
 		"Redis backend's lock token mirrors the stored value")
 
@@ -306,8 +309,10 @@ func TestStorage_Steal_Mismatch(t *testing.T) {
 	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("current"))
 	require.NoError(t, err)
 
-	_, err = storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, current, _, err := storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
+	require.Equal(t, []byte("current"), current)
 
 	_, existing, _, _ := storage.AttemptLock(ctx, "k", []byte("retry"))
 	require.Equal(t, "current", string(existing),
@@ -318,20 +323,20 @@ func TestStorage_Steal_Mismatch(t *testing.T) {
 // branch surfaces ErrLockStolen.
 func TestStorage_Steal_KeyMissing(t *testing.T) {
 	storage, _ := setupStorage(t)
-	_, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, _, _, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
 }
 
 // TestStorage_Steal_EmptyKey verifies the empty-key contract.
 func TestStorage_Steal_EmptyKey(t *testing.T) {
 	storage, _ := setupStorage(t)
-	_, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
+	_, _, _, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"), 0, 0)
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
-// TestStorage_CompleteAndSteal_SameCAS pins that Complete and Steal share one
-// compare-and-set: both succeed on a matching value and report ErrLockStolen
-// on a mismatched, missing, or expired key, leaving the stored value intact.
+// TestStorage_CompleteAndSteal_SameCAS pins matching, mismatched, missing,
+// and expired values for both operations.
 func TestStorage_CompleteAndSteal_SameCAS(t *testing.T) {
 	t.Parallel()
 	ops := map[string]func(t *testing.T, s *idempredis.Storage, expected []byte) error{
@@ -339,11 +344,13 @@ func TestStorage_CompleteAndSteal_SameCAS(t *testing.T) {
 			return s.Complete(t.Context(), "k", []byte("new"), expected)
 		},
 		"steal": func(t *testing.T, s *idempredis.Storage, expected []byte) error {
-			token, err := s.Steal(t.Context(), "k", expected, []byte("new"))
-			if err == nil {
-				require.Equal(t, []byte("new"), token)
+			didSteal, _, token, err := s.Steal(t.Context(), "k", expected, []byte("new"), 0, 0)
+			require.NoError(t, err)
+			if !didSteal {
+				return storages.ErrLockStolen
 			}
-			return err
+			require.Equal(t, []byte("new"), token)
+			return nil
 		},
 	}
 	cases := []struct {
@@ -381,4 +388,38 @@ func TestStorage_CompleteAndSteal_SameCAS(t *testing.T) {
 			})
 		}
 	}
+}
+
+type expireBeforeGet struct {
+	expire func()
+}
+
+func (h expireBeforeGet) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h expireBeforeGet) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+func (h expireBeforeGet) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		if cmd.Name() == "get" {
+			h.expire()
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func TestStorageRetriesWhenKeyVanishesBetweenSetAndGet(t *testing.T) {
+	t.Parallel()
+	client, mr := redistest.RedisClient(t)
+	s := idempredis.New(client)
+	ctx := t.Context()
+	acquired, _, _, err := s.AttemptLock(ctx, "k", []byte("first"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	client.AddHook(expireBeforeGet{expire: func() { mr.Del(idempredis.DefaultKeyPrefix + "k") }})
+	acquired, _, token, err := s.AttemptLock(ctx, "k", []byte("second"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	require.Equal(t, []byte("second"), token)
 }

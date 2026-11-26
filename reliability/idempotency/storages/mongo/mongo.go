@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -25,6 +26,7 @@ const (
 	fieldID        = "_id"
 	fieldValue     = "val"
 	fieldExpiresAt = "expires_at"
+	fieldLockedAt  = "locked_at"
 	// fieldAttempt holds a marker unique to the AttemptLock call that wrote
 	// the value, so acquisition never depends on two callers' bytes
 	// differing.
@@ -98,11 +100,14 @@ type document struct {
 
 // expiresIn returns the aggregation expression for "ttl from now".
 func expiresIn(ttl time.Duration) bson.D {
-	return bson.D{{Key: "$add", Value: bson.A{serverNow, ttl.Milliseconds()}}}
+	return bson.D{{Key: "$add", Value: bson.A{serverNow, max(1, ttl.Milliseconds())}}}
 }
 
 // live matches a document that has not expired.
-var live = bson.D{{Key: "$expr", Value: bson.D{{Key: "$gt", Value: bson.A{"$" + fieldExpiresAt, serverNow}}}}}
+var (
+	unexpired = bson.D{{Key: "$gt", Value: bson.A{"$" + fieldExpiresAt, serverNow}}}
+	live      = bson.D{{Key: "$expr", Value: unexpired}}
+)
 
 // AttemptLock tries to acquire a lock for the given key using the
 // backend's configured TTL.
@@ -132,6 +137,7 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 		{Key: fieldValue, Value: bson.D{{Key: opCond, Value: bson.A{free, bson.D{{Key: opLiteral, Value: val}}, "$" + fieldValue}}}},
 		{Key: fieldExpiresAt, Value: bson.D{{Key: opCond, Value: bson.A{free, expiresIn(ttl), "$" + fieldExpiresAt}}}},
 		{Key: fieldAttempt, Value: bson.D{{Key: opCond, Value: bson.A{free, attempt, "$" + fieldAttempt}}}},
+		{Key: fieldLockedAt, Value: bson.D{{Key: opCond, Value: bson.A{free, serverNow, "$" + fieldLockedAt}}}},
 	}}}}
 	opts := mongoOptions.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(mongoOptions.After)
 
@@ -164,6 +170,7 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 		set := mongo.Pipeline{{{Key: opSet, Value: bson.D{
 			{Key: fieldValue, Value: bson.D{{Key: opLiteral, Value: val}}},
 			{Key: fieldExpiresAt, Value: expiresIn(s.opts.ttl)},
+			{Key: fieldLockedAt, Value: "$$REMOVE"},
 		}}}}
 		_, err := s.collection.UpdateOne(ctx, bson.D{{Key: fieldID, Value: key}}, set, mongoOptions.UpdateOne().SetUpsert(true))
 		if err != nil {
@@ -174,17 +181,48 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 	return s.compareAndSet(ctx, key, lockToken, val, "complete idempotency key in MongoDB")
 }
 
-// Steal replaces the value of key with newVal while it still holds
-// expectedVal and has not expired. Returns the new lock token, or
-// [storages.ErrLockStolen] when the value changed.
-func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+// Steal uses the server clock to replace an unexpired matching lock only
+// when it is old enough. A successful takeover gets a new timestamp and TTL.
+func (s *Storage) Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
-		return nil, storages.ErrEmptyKey
+		return false, nil, nil, storages.ErrEmptyKey
 	}
-	if err := s.compareAndSet(ctx, key, expectedVal, newVal, "steal idempotency key in MongoDB"); err != nil {
-		return nil, err
+	if ttl <= 0 {
+		ttl = s.opts.ttl
 	}
-	return slices.Clone(newVal), nil
+
+	age := bson.D{{Key: "$subtract", Value: bson.A{serverNow, "$" + fieldLockedAt}}}
+	minAge := max(0, maxLockAge.Milliseconds())
+	oldEnough := bson.D{{Key: "$gte", Value: bson.A{age, minAge}}}
+	if maxLockAge > 0 {
+		oldEnough = bson.D{{Key: "$gt", Value: bson.A{age, minAge}}}
+	}
+	filter := bson.D{
+		{Key: fieldID, Value: key},
+		{Key: fieldValue, Value: expected},
+		{Key: fieldLockedAt, Value: bson.D{{Key: "$type", Value: "date"}}},
+		{Key: "$expr", Value: bson.D{{Key: "$and", Value: bson.A{unexpired, oldEnough}}}},
+	}
+	set := mongo.Pipeline{{{Key: opSet, Value: bson.D{
+		{Key: fieldValue, Value: bson.D{{Key: opLiteral, Value: replacement}}},
+		{Key: fieldExpiresAt, Value: expiresIn(ttl)},
+		{Key: fieldLockedAt, Value: serverNow},
+	}}}}
+	res, err := s.collection.UpdateOne(ctx, filter, set)
+	if err != nil {
+		return false, nil, nil, coreerrs.WrapOperation(err, "steal idempotency key in MongoDB")
+	}
+	if res.MatchedCount != 0 {
+		return true, nil, slices.Clone(replacement), nil
+	}
+
+	filter = bson.D{{Key: fieldID, Value: key}, live[0]}
+	var current document
+	err = s.collection.FindOne(ctx, filter).Decode(&current)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil, nil, nil
+	}
+	return false, current.Value, nil, coreerrs.WrapOperation(err, "read idempotency key after refused takeover in MongoDB")
 }
 
 // compareAndSet writes val for a live key holding expected, with the
@@ -196,6 +234,7 @@ func (s *Storage) compareAndSet(ctx context.Context, key string, expected, val [
 	set := mongo.Pipeline{{{Key: opSet, Value: bson.D{
 		{Key: fieldValue, Value: bson.D{{Key: opLiteral, Value: val}}},
 		{Key: fieldExpiresAt, Value: expiresIn(s.opts.ttl)},
+		{Key: fieldLockedAt, Value: "$$REMOVE"},
 	}}}}
 	res, err := s.collection.UpdateOne(ctx, filter, set)
 	if err != nil {

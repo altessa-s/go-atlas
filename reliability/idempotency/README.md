@@ -58,13 +58,13 @@ whatever bytes their components hold. A composed key nested as a component is fr
 | `Keeper`, for every storage operation  | `("namespace", namespace, key)`           |
 
 The `Keeper` wraps every key it is given, even in the empty namespace, so a transport request with key `550e8400-…` on `POST /api/v1/users` is stored
-under `idk:v2:9:namespace0:78:idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…`. The NATS backend escapes the final key once and refuses one longer
-than 3072 bytes after escaping; nothing is truncated or hashed. The bytes are an external ABI: the v2 layout is frozen.
+under `idk:v2:9:namespace0:78:idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…`. The NATS backend escapes the final key once and refuses one
+longer than 3072 bytes after escaping; nothing is truncated or hashed. The bytes are an external ABI: the v2 layout is frozen.
 
 ## Request fingerprints
 
-A key identifies one command. Pass a fingerprint of the request with `AttemptLockOpts.Fingerprint` — [`keys.Digest(parts...)`](https://github.com/altessa-s/go-atlas-core/tree/develop/encoding/keys)
-hashes the operation and a canonical encoding of the request, e.g. a deterministic protobuf marshal — and it is stored with the key. A later attempt
+A key identifies one command. Pass `AttemptLockOpts.Fingerprint` to store a fingerprint with the key. Use [`keys.Digest(parts...)`][keys-digest]
+to hash the operation and a canonical encoding of the request, such as a deterministic protobuf marshal. A later attempt
 with the same key and another fingerprint fails with `ErrFingerprintMismatch` instead of receiving the stored result; transports answer it with 422
 (HTTP) or `InvalidArgument` (gRPC). Records or callers without a fingerprint are not checked.
 
@@ -73,6 +73,8 @@ fp := keys.Digest([]byte(method), canonicalBody)
 ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOpts{Fingerprint: fp})
 if errors.Is(err, idempotency.ErrFingerprintMismatch) { /* the key was reused for another command */ }
 ```
+
+[keys-digest]: https://github.com/altessa-s/go-atlas-core/tree/develop/encoding/keys
 
 ## Owners
 
@@ -87,16 +89,16 @@ whatever access attributes the service needs later (a legal entity and an employ
 
 Only the record's own owner may take over its orphaned lock. Records written without an owner are not checked unless an authorizer is set.
 
-The [`reliability/idempotency/principalowner`](../../reliability/idempotency/principalowner) adapter provides `PrincipalOwner`, an `OwnerFunc` labeling each key with the verified principal's
-tenant and subject. It replaces the former `reliability/idempotency.PrincipalOwner`; update imports to `reliability/idempotency/principalowner`. The
+The [`principalowner`](./principalowner) adapter provides `PrincipalOwner`, an `OwnerFunc` labeling each key with the verified principal's tenant and
+subject. It replaces the former `reliability/idempotency.PrincipalOwner`; update imports to `reliability/idempotency/principalowner`. The
 [configuration factory](../../factory/reliability/idempotency/README.md) uses it by default. The HTTP middleware and gRPC interceptor
 replay a response or echo an entity ID only for a record bound to an owner: a record without one is answered as already used, whoever presents its key.
 
 ## Stolen-lock detection
 
 `AttemptLock` returns a `*State` carrying an opaque CAS token. `Complete` requires that same `*State` back; if the lock has been taken over by another
-holder between `AttemptLock` and `Complete` (typically because the lock TTL fired during processing), Complete returns `storages.ErrLockStolen` instead of
-silently overwriting the new holder's result.
+holder between `AttemptLock` and `Complete` (typically because the lock TTL fired during processing), Complete returns `storages.ErrLockStolen` to avoid
+overwriting the new holder's result.
 
 Backend-specific CAS primitives:
 
@@ -173,9 +175,10 @@ Either form silences the warning. Factory users set `idempotency.maxLockDuration
 
 ## Orphan-lock reclaim
 
-When a holder crashes between `AttemptLock` and `Complete`/`Release`, the InProgress entry sits in storage until the bucket TTL fires (default 24h). To
-unblock retries sooner, every InProgress wire embeds a `LockedAt` timestamp. On collision, if the existing entry is older than the resolved
-`MaxLockDuration`, `AttemptLock` issues a CAS-steal via the storage layer and the new holder gets a fresh lock token.
+Redis, MongoDB, SQL, and memory stamp locks with their own clocks. On collision, the store checks whether the live lock's age strictly exceeds
+`MaxLockDuration` and whether its bytes match before replacing it and returning a fresh token. The Keeper skips takeover for its own fresh locks.
+The replacement uses the contender's `LockTTL` when supplied. NATS KV delegates the age check to the Keeper and requires synchronized clocks
+across processes sharing the bucket. Wrappers must forward `storages.KeeperClockStorage` to preserve NATS takeover.
 
 | Behavior                          | Setting                                       |
 |-----------------------------------|-----------------------------------------------|
@@ -184,8 +187,7 @@ unblock retries sooner, every InProgress wire embeds a `LockedAt` timestamp. On 
 | Override per-call                 | `AttemptLockOpts{MaxLockDuration: 30*time.Second}`. |
 | Disable reclaim                   | Cannot be disabled via public API (`WithMaxLockDuration` ignores `<= 0`; `New` defaults to `5m`). |
 
-The crashed holder's stale `Complete` then surfaces `storages.ErrLockStolen` because its CAS token is no longer current. Callers see this as the normal "we lost
-the race" path and skip writing.
+After takeover, the previous holder's token fails with `storages.ErrLockStolen` on completion or release.
 
 ## Options
 
@@ -212,6 +214,6 @@ the race" path and skip writing.
 
 ## Ownership-safe release
 
-`Release(ctx, key, state)` requires the token returned by `AttemptLock`, just like `Complete`. A missing token returns `storages.ErrMissingLockState`; an
-expired, completed or replaced lock returns `storages.ErrLockStolen`. HTTP and gRPC adapters use `Release` when a handler fails. `Delete` unconditionally removes
-a key and is reserved for administrative invalidation, never request cleanup.
+`Release(ctx, key, state)` requires the token returned by `AttemptLock`, just like `Complete`. A missing token returns `storages.ErrMissingLockState`.
+An expired, completed, or replaced lock returns `storages.ErrLockStolen`. HTTP and gRPC adapters use `Release` when a handler fails.
+`Delete` unconditionally removes a key and is reserved for administrative invalidation.

@@ -23,6 +23,7 @@ Register a custom backend name with `UseStorage`. Before standalone validation o
 
 The builder builds `memory` and `sqldb` storage. `redis`, `nats` and `mongo` use the function registered with `UseStorage`; without one `Build` fails
 naming the package to add. An unregistered custom type fails with `ErrUnsupported`.
+For memory storage, `Build` returns an error if the scheduler rejects the cleanup task.
 
 | Type     | Backend                                            | Requires                                                                                                             |
 |------------|------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
@@ -45,6 +46,9 @@ keeper, err := factory.New(cfg.Idempotency).UseSQLDB(db).Build(ctx)
 The SQL cleanup interval defaults to one minute through configuration; zero disables it. Cleanup starts lazily on the first key write. The builder owns
 the SQL storage and registers its `Close(ctx)` with `UseShutdownHooks(group)`, or the process-wide `go-atlas-core/runtime` shutdown registry when no
 group is supplied. Run those hooks before closing the injected database. A dedicated group lets callers stop and rebuild the subsystem independently.
+
+With `UseScheduler`, configure a distinct `storage.memory.cleanupTaskID` for each memory keeper on the same scheduler. A duplicate memory
+cleanup ID makes `Build` return `memorystorage.ErrDuplicateCleanupTaskID`.
 
 ## Methods
 
@@ -77,7 +81,8 @@ group is supplied. Run those hooks before closing the injected database. A dedic
 
 The keeper binds every record to the verified principal of the request (tenant and subject from `auth/principal` via
 `reliability/idempotency/principalowner`): another caller presenting the key is refused the record (`idempotency.ErrOwnerMismatch`). A request without a
-principal records no owner, and the HTTP middleware and gRPC interceptor never replay such a record or echo its entity ID — they answer "already used".
+principal records no owner, and the HTTP middleware and gRPC interceptor answer "already used" without replaying the record
+or echoing its entity ID.
 Pass `UseOwner` to bind records to another identity.
 
 ### Terminal

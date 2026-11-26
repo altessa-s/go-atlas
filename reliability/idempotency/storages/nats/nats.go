@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -33,15 +34,19 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // the server cannot convert a bucket's storage type.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
+// ErrMirroredBucket is returned by New when the bucket is a mirror.
+var ErrMirroredBucket = errors.New("mirrored NATS KeyValue buckets are not supported")
+
 // ErrKeyTooLong is returned, before any network I/O, for a key whose escaped
 // form exceeds the NATS KeyValue key budget (see the package README).
 var ErrKeyTooLong = natskey.ErrKeyTooLong
 
 // Storage is a NATS JetStream KeyValue-backed idempotency key store.
-// TTL is handled at the bucket level via MaxAge configuration.
+// Locks use the bucket MaxAge by default and accept a per-key TTL override.
 type Storage struct {
 	natsbase.Base
 	opts *options
+	js   jetstream.JetStream
 }
 
 var _ storages.Storage = (*Storage)(nil)
@@ -59,12 +64,32 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 
 	options := newOptions(opts...)
 
-	base, err := natsbase.NewBaseWithBucket(context.Background(), js, bucketConfig(options), nil)
+	ctx := context.Background()
+	streamName := "KV_" + options.bucket
+	stream, err := js.Stream(ctx, streamName)
+	if err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
+		return nil, coreerrs.WrapOperation(err, "inspect NATS KeyValue stream")
+	}
+	if stream != nil && stream.CachedInfo().Config.Mirror != nil {
+		return nil, ErrMirroredBucket
+	}
+
+	base, err := natsbase.NewBaseWithBucket(ctx, js, bucketConfig(options), nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
 
-	return &Storage{Base: base, opts: options}, nil
+	if stream == nil {
+		// Another client may have created the bucket during setup.
+		stream, err = js.Stream(ctx, streamName)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "inspect NATS KeyValue stream")
+		}
+		if stream.CachedInfo().Config.Mirror != nil {
+			return nil, ErrMirroredBucket
+		}
+	}
+	return &Storage{Base: base, opts: options, js: js}, nil
 }
 
 // bucketConfig is the bucket New creates or reconciles.
@@ -106,7 +131,7 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 	createOpts = coreslices.AppendIf(createOpts, lockTtl > 0, jetstream.KeyTTL(lockTtl))
 
 	// Use Create to ensure we only set if key does not exist (atomic lock)
-	revision, err := s.KV().Create(ctx, key, val, createOpts...)
+	revision, err := s.KV().Create(ctx, key, encodeRecord(lockRecord, val), createOpts...)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			// Key exists, get current state
@@ -120,7 +145,8 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 				return false, nil, nil, coreerrs.WrapOperation(getErr, "get existing state from NATS")
 			}
 
-			return false, entry.Value(), nil, nil
+			value, _, decodeErr := decodeRecord(entry.Value())
+			return false, value, nil, decodeErr
 		}
 		return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in NATS")
 	}
@@ -143,6 +169,7 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 		return err
 	}
 
+	val = encodeRecord(completedRecord, val)
 	if lockToken == nil {
 		// No CAS guard requested — fall back to unconditional Put.
 		// Used by tests and adapters that bypass the safe path.
@@ -200,48 +227,125 @@ func decodeRevisionToken(token []byte) (uint64, error) {
 	return binary.BigEndian.Uint64(token), nil
 }
 
-// Steal atomically replaces the value when current bytes equal
-// expectedVal. Performs Get → byte-compare → Update(... revision).
-// The revision check on Update protects against the TOCTOU race
-// between Get and Update: if another caller updates the key in
-// between, our Update fails with ErrKeyExists and we surface
-// [storages.ErrLockStolen].
-//
-// Returns the new lockToken (encoded post-Update revision) on
-// success.
-func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+// UsesKeeperClock delegates the age check to the Keeper. NATS KV requires
+// synchronized Keeper clocks because it cannot supply a server-side clock
+// to the conditional update.
+func (s *Storage) UsesKeeperClock() bool { return true }
+
+// Steal checks the observed value and replaces it using the KV revision as
+// a compare-and-swap guard. A positive maxLockAge is refused because NATS
+// cannot verify it. The Keeper passes zero after checking the lock's age.
+func (s *Storage) Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
-		return nil, storages.ErrEmptyKey
+		return false, nil, nil, storages.ErrEmptyKey
 	}
 	key, err := physicalKey(key)
 	if err != nil {
-		return nil, err
+		return false, nil, nil, err
 	}
 
+	current, found, err := s.currentForSteal(ctx, key)
+	if !found || err != nil {
+		return false, nil, nil, err
+	}
+	value, locked, err := decodeRecord(current.Value())
+	if err != nil {
+		return false, nil, nil, err
+	}
+	if !locked || maxLockAge > 0 || !bytes.Equal(value, expected) {
+		return false, value, nil, nil
+	}
+
+	revision, err := s.updateForSteal(ctx, key, encodeRecord(lockRecord, replacement), current.Revision(), ttl)
+	if err == nil {
+		return true, nil, encodeRevisionToken(revision), nil
+	}
+	if !isStealConflict(err) {
+		return false, nil, nil, coreerrs.WrapOperation(err, "update during steal")
+	}
+	current, found, err = s.currentForSteal(ctx, key)
+	if !found || err != nil {
+		return false, nil, nil, err
+	}
+	value, _, err = decodeRecord(current.Value())
+	return false, value, nil, err
+}
+
+// Record metadata lives alongside the opaque caller payload, so even a
+// completed payload identical to lock bytes cannot authorize takeover.
+const (
+	lockRecord      = "\x00idem\x01L"
+	completedRecord = "\x00idem\x01C"
+)
+
+func encodeRecord(kind string, value []byte) []byte {
+	record := make([]byte, 0, len(kind)+len(value))
+	return append(append(record, kind...), value...)
+}
+
+func decodeRecord(record []byte) (value []byte, locked bool, err error) {
+	if value, ok := bytes.CutPrefix(record, []byte(lockRecord)); ok {
+		return value, true, nil
+	}
+	if value, ok := bytes.CutPrefix(record, []byte(completedRecord)); ok {
+		return value, false, nil
+	}
+	return nil, false, errors.New("invalid NATS idempotency record")
+}
+
+func (s *Storage) currentForSteal(ctx context.Context, key string) (jetstream.KeyValueEntry, bool, error) {
 	entry, err := s.KV().Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, false, nil
+	}
 	if err != nil {
-		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return nil, storages.ErrLockStolen
-		}
-		return nil, coreerrs.WrapOperation(err, "get current value during steal")
+		return nil, false, coreerrs.WrapOperation(err, "get current NATS value during steal")
 	}
+	return entry, true, nil
+}
 
-	if !bytes.Equal(entry.Value(), expectedVal) {
-		return nil, storages.ErrLockStolen
+// KV.Update has no per-key TTL option. With a TTL override publish using
+// the same subject and revision guard as KV.Update, with a TTL header.
+func (s *Storage) updateForSteal(ctx context.Context, key string, val []byte, revision uint64, ttl time.Duration) (uint64, error) {
+	if ttl <= 0 {
+		return s.KV().Update(ctx, key, val, revision)
 	}
-
-	revision, err := s.KV().Update(ctx, key, newVal, entry.Revision())
+	ack, err := s.js.Publish(ctx, putPrefix(s.js, s.opts.bucket)+key, val,
+		jetstream.WithExpectStream("KV_"+s.opts.bucket),
+		jetstream.WithExpectLastSequencePerSubject(revision),
+		jetstream.WithMsgTTL(ttl),
+	)
 	if err != nil {
-		// ErrKeyExists = wrong last sequence = somebody else wrote in
-		// the Get/Update gap. ErrKeyNotFound = the key disappeared
-		// (TTL'd). Both surface as ErrLockStolen.
-		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyNotFound) {
-			return nil, storages.ErrLockStolen
-		}
-		return nil, coreerrs.WrapOperation(err, "update during steal")
+		return 0, err
 	}
+	return ack.Sequence, nil
+}
 
-	return encodeRevisionToken(revision), nil
+// putPrefix reproduces KV.Update subject routing for ordinary buckets,
+// including JetStream domains and custom API prefixes. Mirrored buckets
+// route writes to the source stream and are rejected by New.
+func putPrefix(js jetstream.JetStream, bucket string) string {
+	opts := js.Options()
+	prefix := strings.TrimSuffix(opts.APIPrefix, ".")
+	if opts.Domain != "" {
+		prefix = "$JS." + opts.Domain + ".API"
+	}
+	subject := "$KV." + bucket + "."
+	if prefix == "" || prefix+"." == jetstream.DefaultAPIPrefix {
+		return subject
+	}
+	return prefix + "." + subject
+}
+
+func isStealConflict(err error) bool {
+	if errors.Is(err, jetstream.ErrKeyRevisionMismatch) ||
+		errors.Is(err, jetstream.ErrKeyExists) ||
+		errors.Is(err, jetstream.ErrKeyNotFound) {
+		return true
+	}
+	apiErr, ok := errors.AsType[*jetstream.APIError](err)
+	return ok && (apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+		apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant)
 }
 
 // Delete removes the key from storage.

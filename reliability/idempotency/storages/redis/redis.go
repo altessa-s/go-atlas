@@ -5,10 +5,10 @@
 package redis
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,22 +19,62 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
-// casScript is the Lua compare-and-set shared by [Storage.Complete] and
-// [Storage.Steal]. Returns:
-//
-//	1  — current value matched the expected value; new value written
-//	0  — current value differs (another holder owns the key)
-//	-1 — key not found (TTL expired before we got here)
-//
-// KEYS[1] = redis key
-// ARGV[1] = expected value (lockToken / expectedVal)
-// ARGV[2] = new value
-// ARGV[3] = TTL in milliseconds (positive integer)
-var casScript = redis.NewScript(`
-local current = redis.call('GET', KEYS[1])
-if not current then
-  return -1
+// Keep the server timestamp and the opaque value in a single key so they
+// share one TTL and one Redis Cluster slot. Zero denotes a completed entry.
+const (
+	completedPrefix = "0\n"
+	lockAttempts    = 2
+)
+
+const luaTimestamp = `
+local function nowMicros()
+  local now = redis.call('TIME')
+  return tonumber(now[1]) * 1000000 + tonumber(now[2])
 end
+
+local function lockValue(now, payload)
+  return string.format('%.0f', now) .. '\n' .. payload
+end
+`
+
+const luaRead = `
+local function readEntry(key)
+  local raw = redis.call('GET', key)
+  if not raw then
+    return nil, nil
+  end
+  local sep = string.find(raw, '\n', 1, true)
+  local lockedAt = sep and tonumber(string.sub(raw, 1, sep - 1))
+  if not lockedAt then
+    error('invalid idempotency entry')
+  end
+  return lockedAt, string.sub(raw, sep + 1)
+end
+`
+
+var acquireScript = redis.NewScript(luaTimestamp + `
+if redis.call('SET', KEYS[1], lockValue(nowMicros(), ARGV[1]), 'NX', 'PX', ARGV[2]) then
+  return 1
+end
+return 0
+`)
+
+var stealScript = redis.NewScript(luaRead + luaTimestamp + `
+local lockedAt, current = readEntry(KEYS[1])
+if not current then
+  return {0, false}
+end
+local now = nowMicros()
+local age = tonumber(ARGV[3])
+if current ~= ARGV[1] or lockedAt == 0 or (age > 0 and now - lockedAt <= age) then
+  return {0, current}
+end
+redis.call('SET', KEYS[1], lockValue(now, ARGV[2]), 'PX', ARGV[4])
+return {1, false}
+`)
+
+var completeScript = redis.NewScript(luaRead + `
+local _, current = readEntry(KEYS[1])
 if current ~= ARGV[1] then
   return 0
 end
@@ -84,31 +124,30 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 		ttl = lockTtl
 	}
 
-	// Try to set provided key with NX (only if not exists)
-	ok, err := s.Client().SetNX(ctx, s.Key(key), val, ttl).Result()
-	if err != nil {
-		return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in Redis")
-	}
-
-	if ok {
-		// Token is a defensive copy of the value we just wrote.
-		// Complete will GET-and-compare via Lua to detect a stolen lock.
-		return true, nil, slices.Clone(val), nil
-	}
-
-	// Key exists, get current state
-	data, err := s.Client().Get(ctx, s.Key(key)).Bytes()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			// Race: SetNX failed but Get says missing. Likely the key
-			// expired between the two calls. Surface as "lock not
-			// acquired, no existing data" — the caller can retry.
-			return false, nil, nil, nil
+	redisKey := s.Key(key)
+	for range lockAttempts {
+		acquired, err := acquireScript.Run(ctx, s.Client(), []string{redisKey}, val, ttlMillis(ttl)).Int64()
+		if err != nil {
+			return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in Redis")
 		}
-		return false, nil, nil, coreerrs.WrapOperation(err, "get existing state from Redis")
+		if acquired == 1 {
+			return true, nil, slices.Clone(val), nil
+		}
+		data, err := s.Client().Get(ctx, redisKey).Bytes()
+		if errors.Is(err, redis.Nil) {
+			// Expiry or release raced SET NX. Retry acquisition once.
+			continue
+		}
+		if err != nil {
+			return false, nil, nil, coreerrs.WrapOperation(err, "get existing state from Redis")
+		}
+		_, current, ok := bytes.Cut(data, []byte{'\n'})
+		if !ok {
+			return false, nil, nil, errors.New("invalid idempotency entry in Redis")
+		}
+		return false, current, nil, nil
 	}
-
-	return false, data, nil, nil
+	return false, nil, nil, nil
 }
 
 // Complete marks the key as successfully processed using the
@@ -123,55 +162,58 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 		return storages.ErrEmptyKey
 	}
 
+	data := append([]byte(completedPrefix), val...)
 	if lockToken == nil {
-		// No CAS guard requested — fall back to unconditional overwrite.
-		// Used by tests and adapters that bypass the safe path.
-		if err := s.Client().Set(ctx, s.Key(key), val, s.opts.ttl).Err(); err != nil {
+		if err := s.Client().Set(ctx, s.Key(key), data, s.opts.ttl).Err(); err != nil {
 			return coreerrs.WrapOperation(err, "complete idempotency key in Redis")
 		}
 		return nil
 	}
-
-	return s.compareAndSet(ctx, key, lockToken, val, "complete idempotency key in Redis")
-}
-
-// Steal atomically replaces the value when current bytes equal
-// expectedVal. Returns the new lockToken on success or
-// [storages.ErrLockStolen] when expectedVal no longer matches.
-func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
-	if key == "" {
-		return nil, storages.ErrEmptyKey
-	}
-
-	if err := s.compareAndSet(ctx, key, expectedVal, newVal, "steal idempotency key in Redis"); err != nil {
-		return nil, err
-	}
-	return slices.Clone(newVal), nil
-}
-
-// compareAndSet runs [casScript] for key with the backend TTL and maps
-// its result: nil when the write happened, [storages.ErrLockStolen] when
-// the key is missing or holds another value. op names the operation in
-// transport errors.
-func (s *Storage) compareAndSet(ctx context.Context, key string, expected, val []byte, op string) error {
-	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
-	res, err := casScript.Run(ctx, s.Client(),
-		[]string{s.Key(key)},
-		expected, val, ttlMs,
-	).Int64()
+	result, err := completeScript.Run(ctx, s.Client(), []string{s.Key(key)}, lockToken, data, ttlMillis(s.opts.ttl)).Int64()
 	if err != nil {
-		return coreerrs.WrapOperation(err, op)
+		return coreerrs.WrapOperation(err, "complete idempotency key in Redis")
 	}
-
-	switch res {
-	case 1:
-		return nil
-	case 0, -1:
+	if result != 1 {
 		return storages.ErrLockStolen
-	default:
-		return coreerrs.Wrapf(storages.ErrLockStolen, "unexpected Lua result %d", res)
 	}
+	return nil
 }
+
+// Steal checks the lock's age against Redis TIME and conditionally replaces
+// the matching lock with the requested TTL in one Lua script.
+func (s *Storage) Steal(ctx context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
+	if key == "" {
+		return false, nil, nil, storages.ErrEmptyKey
+	}
+	if ttl <= 0 {
+		ttl = s.opts.ttl
+	}
+	age := maxLockAge.Microseconds()
+	if maxLockAge > 0 {
+		age = max(1, age)
+	}
+	result, err := stealScript.Run(ctx, s.Client(), []string{s.Key(key)}, expected, replacement, age, ttlMillis(ttl)).Slice()
+	if err != nil {
+		return false, nil, nil, coreerrs.WrapOperation(err, "steal idempotency key in Redis")
+	}
+	const resultFields = 2
+	if len(result) == resultFields {
+		switch result[0] {
+		case int64(1):
+			return true, nil, slices.Clone(replacement), nil
+		case int64(0):
+			if result[1] == nil {
+				return false, nil, nil, nil
+			}
+			if current, ok := result[1].(string); ok {
+				return false, []byte(current), nil, nil
+			}
+		}
+	}
+	return false, nil, nil, errors.New("unexpected steal result from Redis")
+}
+
+func ttlMillis(ttl time.Duration) int64 { return max(1, ttl.Milliseconds()) }
 
 // Delete removes the key from storage.
 func (s *Storage) Delete(ctx context.Context, key string) error {
@@ -186,8 +228,9 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-var releaseCASScript = redis.NewScript(`
-if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+var releaseCASScript = redis.NewScript(luaRead + `
+local _, current = readEntry(KEYS[1])
+if current ~= ARGV[1] then return 0 end
 return redis.call('DEL', KEYS[1])
 `)
 

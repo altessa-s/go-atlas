@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/time/clock"
+
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -33,6 +35,43 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.cleanupSchedule = transformedValue
+	}
+}
+
+// WithCleanupTaskID sets the cleanupTaskID option.
+func WithCleanupTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.cleanupTaskID = transformedValue
+	}
+}
+
+// WithClock sets the clock option.
+func WithClock(v clock.Clock) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.clock = v
 	}
 }
 
@@ -64,7 +103,9 @@ func WithTTL(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		ttl: DefaultTTL,
+		cleanupTaskID: DefaultCleanupTaskID,
+		clock:         clock.Real(),
+		ttl:           DefaultTTL,
 	}
 }
 

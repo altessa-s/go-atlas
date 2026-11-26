@@ -20,6 +20,9 @@ import (
 )
 
 var (
+	// ErrCallbackPanicked reports a panic in a post-commit callback.
+	ErrCallbackPanicked = errors.New("post-commit callback panicked")
+
 	// ErrNoUnitOfWork is returned by [OnCommit] when ctx carries no unit of
 	// work (OnCommit was called outside a [Runner.Run] body), and by
 	// [Runner.AfterCommit] in the same situation unless
@@ -406,7 +409,7 @@ func (r *Runner) apply(ctx context.Context, entries []entry, rootScope *txscope.
 		if failed != nil || e.effect.Apply == nil {
 			continue
 		}
-		if err := e.effect.Apply(ctx); err != nil {
+		if err := runCallback(ctx, e.effect.Apply); err != nil {
 			applyErr := coreerrs.WrapOperationWithContext(err, "apply post-commit effect", e.effect.Label)
 			failed = errors.Join(applyErr, r.compensate(ctx, applied))
 			continue
@@ -430,7 +433,7 @@ func (r *Runner) compensate(ctx context.Context, applied []Effect) error {
 		if e.Compensate == nil {
 			continue
 		}
-		if err := e.Compensate(compCtx); err != nil {
+		if err := runCallback(compCtx, e.Compensate); err != nil {
 			r.logger.ErrorContext(compCtx, "post-commit effect compensation failed",
 				slog.String("effect", e.Label), slog.Any("error", err))
 			errs = errors.Join(errs, coreerrs.WrapOperationWithContext(err, "compensate post-commit effect", e.Label))
@@ -444,10 +447,27 @@ func (r *Runner) runHook(ctx context.Context, hook func(ctx context.Context)) {
 	if hook == nil {
 		return
 	}
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, rec any) {
-		r.logger.ErrorContext(ctx, "after-commit hook panicked", slog.Any("panic", rec))
+	if err := runCallback(ctx, func(ctx context.Context) error {
+		hook(ctx)
+		return nil
+	}); err != nil {
+		r.logger.ErrorContext(ctx, "after-commit hook panicked", slog.Any("error", err))
+	}
+}
+
+// runCallback converts a panic to an error without including its payload.
+func runCallback(ctx context.Context, fn func(context.Context) error) (err error) {
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(context.Context, any) {
+		err = ErrCallbackPanicked
 	})
-	hook(ctx)
+	// The core handler logs the recovered value. Replace it while the
+	// original callback is still on the stack so its frames are retained.
+	defer func() {
+		if recover() != nil {
+			panic("post-commit callback panicked")
+		}
+	}()
+	return fn(ctx)
 }
 
 // OnCommit registers a post-commit effect from within a [Runner.Run] body (for

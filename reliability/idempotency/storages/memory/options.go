@@ -9,15 +9,22 @@ package memory
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/time/clock"
+
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
 // DefaultTTL is the default time-to-live for stored keys (24 hours).
 const DefaultTTL = 24 * time.Hour
 
+// DefaultCleanupTaskID is the default identifier for the scheduled cleanup.
+const DefaultCleanupTaskID = "idempotency-memory-cleanup"
+
 // options contains memory storage configuration.
 type options struct {
 	ttl             time.Duration `optgen:"default=DefaultTTL"`
 	cleanupSchedule string
+	cleanupTaskID   string              `optgen:"default=DefaultCleanupTaskID,notblank"`
+	clock           clock.Clock         `optgen:"default=clock.Real(),notnil"`
 	scheduler       schedtask.Registrar `optgen:"notnil"`
 }

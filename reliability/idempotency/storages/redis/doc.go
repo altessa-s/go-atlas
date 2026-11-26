@@ -5,6 +5,8 @@
 // Package redis provides Redis storage for idempotency keys with TTL support.
 // Uses atomic SET NX operations for distributed idempotency checking.
 //
+// A single Redis entry stores the payload and a timestamp from Redis TIME.
+//
 // Example:
 //
 //	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})

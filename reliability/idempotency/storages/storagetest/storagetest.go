@@ -7,6 +7,7 @@ package storagetest
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ var contracts = []struct {
 	check func(*testing.T, storages.Storage)
 }{
 	{"KeeperStoresReplayRecord", KeeperStoresReplayRecord},
+	{"StealRefusesCompletedRecord", StealRefusesCompletedRecord},
 }
 
 // replayResponseSize is the size of the response in the replay record, as
@@ -67,4 +69,62 @@ func KeeperStoresReplayRecord(t *testing.T, store storages.Storage) {
 	require.True(t, isMap, "%T", state.Data)
 	require.Equal(t, "e-1", data["entity_id"])
 	require.Equal(t, base64.StdEncoding.EncodeToString(response), data["response"])
+}
+
+// KeeperUsesStorageClock verifies a fresh lock survives an apparent age
+// injected into the holder's wire timestamp. Run it against stores with a
+// backend clock, and pass a fresh store with a default TTL above maxAge.
+func KeeperUsesStorageClock(t *testing.T, store storages.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	const maxAge = time.Hour
+	key := idempotency.ComposeKey("namespace", "", "clock")
+	// From the Keeper's perspective, the holder's clock was behind by
+	// more than maxAge. The store stamped its own time at acquisition.
+	wire, err := json.Marshal(map[string]any{
+		"status":    idempotency.StatusInProgress,
+		"locked_at": time.Now().Add(-2 * maxAge),
+	})
+	require.NoError(t, err)
+	acquired, _, old, err := store.AttemptLock(ctx, key, wire)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	k := idempotency.New(store, idempotency.WithMaxLockDuration(maxAge))
+	acquired, state, err := k.AttemptLock(ctx, "clock")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, idempotency.StatusInProgress, state.Status)
+	require.Empty(t, state.LockToken())
+
+	stolen, current, token, err := store.Steal(ctx, key, []byte("different bytes"), []byte("replacement"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, stolen)
+	require.Equal(t, wire, current)
+	require.Nil(t, token)
+	require.NoError(t, store.Complete(ctx, key, []byte("completed by holder"), old))
+}
+
+// StealRefusesCompletedRecord verifies that matching completed bytes do not
+// authorize a takeover, even when the caller requests no age threshold.
+func StealRefusesCompletedRecord(t *testing.T, store storages.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	const key = "completed-key"
+	acquired, _, lockToken, err := store.AttemptLock(ctx, key, []byte("lock"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+	done := []byte{1, 0, 255}
+	require.NoError(t, store.Complete(ctx, key, done, lockToken))
+
+	stolen, current, token, err := store.Steal(ctx, key, done, []byte("new lock"), 0, time.Minute)
+	require.NoError(t, err)
+	require.False(t, stolen)
+	require.Equal(t, done, current)
+	require.Nil(t, token)
+	acquired, current, token, err = store.AttemptLock(ctx, key, []byte("another lock"))
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, done, current)
+	require.Nil(t, token)
 }

@@ -24,6 +24,9 @@
 //  3. If an effect fails after the commit, the effects already applied are
 //     compensated in LIFO order.
 //
+// A panic in an effect is handled as an effect failure. Compensation continues
+// after a compensator panics, and subsequent hooks still run.
+//
 // Applying after the commit means a driver-retried transaction never duplicates
 // an effect, and an aborted transaction simply never runs them (a clean
 // rollback with no compensation). Compensation covers the one remaining case —
@@ -82,6 +85,9 @@
 // returns [ErrForeignTransaction] and discards registrations, without
 // [ErrUnknownOutcome]. Without a detector, the Committer must report an explicit
 // abort as an error. Bodies must leave transaction completion to the Committer.
+//
+// Panicking post-commit effects report [ErrCallbackPanicked]. Callback
+// recovery logs a fixed panic class and a stack trace.
 //
 // # Usage
 //

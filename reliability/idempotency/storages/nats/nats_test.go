@@ -5,12 +5,16 @@
 package nats_test
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	idempnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
@@ -42,7 +46,7 @@ func TestNew_NilJetStream(t *testing.T) {
 func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	t.Parallel()
 
-	capture := &natstest.JetStreamKVCapture{}
+	capture := &bucketCapture{}
 
 	_, err := idempnats.New(capture,
 		idempnats.WithBucket("idempotency-replicas"),
@@ -52,6 +56,23 @@ func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
 	require.Equal(t, "idempotency-replicas", capture.KVConfig.Bucket)
 	require.Equal(t, 3, capture.KVConfig.Replicas)
 }
+
+type bucketCapture struct {
+	natstest.JetStreamKVCapture
+}
+
+func (c *bucketCapture) Stream(context.Context, string) (jetstream.Stream, error) {
+	if c.KVConfig.Bucket == "" {
+		return nil, jetstream.ErrStreamNotFound
+	}
+	return capturedStream{}, nil
+}
+
+type capturedStream struct {
+	jetstream.Stream
+}
+
+func (capturedStream) CachedInfo() *jetstream.StreamInfo { return &jetstream.StreamInfo{} }
 
 func TestStorage_AttemptLock_New(t *testing.T) {
 	storage := setupStorage(t)
@@ -238,8 +259,9 @@ func TestStorage_Steal_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, origToken)
 
-	newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"))
+	didSteal, _, newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"), 0, 0)
 	require.NoError(t, err)
+	require.True(t, didSteal)
 	require.NotNil(t, newToken)
 	require.NotEqual(t, origToken, newToken,
 		"NATS Steal must return a fresh revision-encoded token")
@@ -259,8 +281,10 @@ func TestStorage_Steal_Mismatch(t *testing.T) {
 	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("current"))
 	require.NoError(t, err)
 
-	_, err = storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, current, _, err := storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
+	require.Equal(t, []byte("current"), current)
 
 	_, existing, _, _ := storage.AttemptLock(ctx, "k", []byte("retry"))
 	require.Equal(t, "current", string(existing),
@@ -270,13 +294,69 @@ func TestStorage_Steal_Mismatch(t *testing.T) {
 // TestStorage_Steal_KeyMissing verifies the ErrKeyNotFound branch.
 func TestStorage_Steal_KeyMissing(t *testing.T) {
 	storage := setupStorage(t)
-	_, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
-	require.ErrorIs(t, err, storages.ErrLockStolen)
+	didSteal, _, _, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"), 0, 0)
+	require.NoError(t, err)
+	require.False(t, didSteal)
 }
 
 // TestStorage_Steal_EmptyKey verifies the empty-key contract.
 func TestStorage_Steal_EmptyKey(t *testing.T) {
 	storage := setupStorage(t)
-	_, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
+	_, _, _, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"), 0, 0)
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
+}
+
+func TestStealWritesNATSPerKeyTTL(t *testing.T) {
+	t.Parallel()
+	const bucket = "steal-ttl"
+	ns := natstest.StartNATSServer(t)
+	_, js := natstest.ConnectJetStream(t, ns)
+	store, err := idempnats.New(js, idempnats.WithBucket(bucket))
+	require.NoError(t, err)
+	ctx := t.Context()
+	acquired, _, old, err := store.AttemptLock(ctx, "k", []byte("lock"))
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	stolen, _, fresh, err := store.Steal(ctx, "k", []byte("lock"), []byte("replacement"), 0, time.Minute)
+	require.NoError(t, err)
+	require.True(t, stolen)
+	require.ErrorIs(t, store.Complete(ctx, "k", []byte("stale"), old), storages.ErrLockStolen)
+	entry, err := store.KV().Get(ctx, "k")
+	require.NoError(t, err)
+	stream, err := js.Stream(ctx, "KV_"+bucket)
+	require.NoError(t, err)
+	msg, err := stream.GetMsg(ctx, entry.Revision())
+	require.NoError(t, err)
+	require.Equal(t, time.Minute.String(), msg.Header.Get(jetstream.MsgTTLHeader))
+	require.NoError(t, store.Complete(ctx, "k", []byte("done"), fresh))
+}
+
+func TestKeeperClockTakeoverRequiresExplicitDelegation(t *testing.T) {
+	t.Parallel()
+	store := setupStorage(t)
+	ctx := t.Context()
+	const maxAge = time.Hour
+	key := idempotency.ComposeKey("namespace", "", "clock")
+	wire, err := json.Marshal(map[string]any{
+		"status":    idempotency.StatusInProgress,
+		"locked_at": time.Now().Add(-2 * maxAge),
+	})
+	require.NoError(t, err)
+	acquired, _, old, err := store.AttemptLock(ctx, key, wire)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	wrapped := struct{ storages.Storage }{store}
+	k := idempotency.New(wrapped, idempotency.WithMaxLockDuration(maxAge))
+	acquired, state, err := k.AttemptLock(ctx, "clock")
+	require.NoError(t, err)
+	require.False(t, acquired, "the wrapper did not delegate the age check")
+	require.Equal(t, idempotency.StatusInProgress, state.Status)
+
+	k = idempotency.New(store, idempotency.WithMaxLockDuration(maxAge))
+	acquired, _, err = k.AttemptLock(ctx, "clock")
+	require.NoError(t, err)
+	require.True(t, acquired, "the Keeper verified the age from the wire timestamp")
+	require.ErrorIs(t, store.Complete(ctx, key, []byte("stale"), old), storages.ErrLockStolen)
 }

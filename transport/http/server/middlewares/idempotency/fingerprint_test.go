@@ -43,20 +43,20 @@ func post(t *testing.T, h http.Handler, ctx context.Context, target, body string
 	return rec
 }
 
-func newKeeper(opts ...idempotency.Option) *idempotency.Keeper {
-	return idempotency.New(memory.New(), append([]idempotency.Option{idempotency.WithMaxLockDuration(time.Minute)}, opts...)...)
+func newKeeper(t *testing.T, opts ...idempotency.Option) *idempotency.Keeper {
+	return idempotency.New(newMemoryStorage(t), append([]idempotency.Option{idempotency.WithMaxLockDuration(time.Minute)}, opts...)...)
 }
 
 // newOwnedKeeper is newKeeper binding every record to one owner, as response
 // replay and entity ID exposure require.
-func newOwnedKeeper(opts ...idempotency.Option) *idempotency.Keeper {
-	return newKeeper(append([]idempotency.Option{idempotency.WithOwner(func(context.Context) string { return "caller" })}, opts...)...)
+func newOwnedKeeper(t *testing.T, opts ...idempotency.Option) *idempotency.Keeper {
+	return newKeeper(t, append([]idempotency.Option{idempotency.WithOwner(func(context.Context) string { return "caller" })}, opts...)...)
 }
 
 func TestRequestFingerprint(t *testing.T) {
 	t.Parallel()
 
-	h := Middleware(newKeeper())(echo)
+	h := Middleware(newKeeper(t))(echo)
 	rec := post(t, h, t.Context(), "/orders?x=1", `{"amount":10}`)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	require.Equal(t, `{"amount":10}`, rec.Body.String(), "the handler reads the whole body")
@@ -71,7 +71,7 @@ func TestRequestFingerprint(t *testing.T) {
 func TestRequestFingerprintDisabled(t *testing.T) {
 	t.Parallel()
 
-	h := Middleware(newKeeper(), WithRequestFingerprint(false))(echo)
+	h := Middleware(newKeeper(t), WithRequestFingerprint(false))(echo)
 	require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/orders", "a").Code)
 	rec := post(t, h, t.Context(), "/orders", "b")
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
@@ -91,7 +91,7 @@ func TestRequestFingerprintSpooledBody(t *testing.T) {
 		}
 		echo.ServeHTTP(w, r)
 	})
-	h := Middleware(newKeeper(), WithFingerprintMaxBody(64), WithFingerprintMemThreshold(8), WithFingerprintTempDir(dir))(echo)
+	h := Middleware(newKeeper(t), WithFingerprintMaxBody(64), WithFingerprintMemThreshold(8), WithFingerprintTempDir(dir))(echo)
 	a, b := strings.Repeat("a", 40), strings.Repeat("a", 39)+"b"
 	rec := post(t, h, t.Context(), "/orders", a)
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -108,10 +108,10 @@ func TestRequestFingerprintSpooledBody(t *testing.T) {
 func TestRequestFingerprintBodyTooLarge(t *testing.T) {
 	t.Parallel()
 
-	h := Middleware(newKeeper(), WithFingerprintMaxBody(8))(echo)
+	h := Middleware(newKeeper(t), WithFingerprintMaxBody(8))(echo)
 	require.Equal(t, http.StatusRequestEntityTooLarge, post(t, h, t.Context(), "/orders", "0123456789").Code)
 
-	limited := Middleware(newKeeper())(echo)
+	limited := Middleware(newKeeper(t))(echo)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/orders", strings.NewReader("0123456789"))
 	req.Header.Set(DefaultIdempotencyKeyHeader, httpTestKey)
 	rec := httptest.NewRecorder()
@@ -123,7 +123,7 @@ func TestRequestFingerprintBodyTooLarge(t *testing.T) {
 func TestRequestFingerprintUnreadableBody(t *testing.T) {
 	t.Parallel()
 
-	h := Middleware(newKeeper())(echo)
+	h := Middleware(newKeeper(t))(echo)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/orders", io.MultiReader(strings.NewReader("ab"), failingReader{}))
 	req.Header.Set(DefaultIdempotencyKeyHeader, httpTestKey)
 	rec := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestFingerprintMaxBodyNormalized(t *testing.T) {
 	t.Parallel()
 
 	for _, v := range []int64{0, -1, math.MaxInt64} {
-		h := Middleware(newKeeper(), WithFingerprintMaxBody(v))(echo)
+		h := Middleware(newKeeper(t), WithFingerprintMaxBody(v))(echo)
 		rec := post(t, h, t.Context(), "/orders", "body")
 		require.Equal(t, http.StatusCreated, rec.Code, "limit %d", v)
 		require.Equal(t, "body", rec.Body.String(), "limit %d", v)
@@ -152,7 +152,7 @@ func TestFingerprintMaxBodyNormalized(t *testing.T) {
 func TestOwnerForbidden(t *testing.T) {
 	t.Parallel()
 
-	k := newKeeper(idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }))
+	k := newKeeper(t, idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }))
 	h := Middleware(k)(echo)
 	alice := context.WithValue(t.Context(), ownerCtxKey{}, "alice")
 	bob := context.WithValue(t.Context(), ownerCtxKey{}, "bob")
@@ -177,8 +177,8 @@ func TestOriginalBodyClosed(t *testing.T) {
 	t.Parallel()
 
 	for name, h := range map[string]http.Handler{
-		"spooled":   Middleware(newKeeper())(echo),
-		"too_large": Middleware(newKeeper(), WithFingerprintMaxBody(2))(echo),
+		"spooled":   Middleware(newKeeper(t))(echo),
+		"too_large": Middleware(newKeeper(t), WithFingerprintMaxBody(2))(echo),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -203,13 +203,13 @@ func extractBody(_ *http.Request, _ string, body []byte) string { return string(
 func TestEntityIDHeaderOptIn(t *testing.T) {
 	t.Parallel()
 
-	off := Middleware(newOwnedKeeper(), WithEntityIDExtractor(extractBody))(entityEcho)
+	off := Middleware(newOwnedKeeper(t), WithEntityIDExtractor(extractBody))(entityEcho)
 	require.Equal(t, http.StatusCreated, post(t, off, t.Context(), "/orders", "a").Code)
 	rec := post(t, off, t.Context(), "/orders", "a")
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	require.Empty(t, rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader), "not echoed by default")
 
-	on := Middleware(newOwnedKeeper(), WithEntityIDExtractor(extractBody), WithExposeEntityID())(entityEcho)
+	on := Middleware(newOwnedKeeper(t), WithEntityIDExtractor(extractBody), WithExposeEntityID())(entityEcho)
 	require.Equal(t, http.StatusCreated, post(t, on, t.Context(), "/orders", "a").Code)
 	rec = post(t, on, t.Context(), "/orders", "a")
 	require.Equal(t, "order-42", rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader))
@@ -234,7 +234,7 @@ func TestReplayAuthorizerHTTPStatus(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			k := newKeeper(
+			k := newKeeper(t,
 				idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }),
 				idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
 					if ctx.Value(ownerCtxKey{}) == owner {
@@ -250,4 +250,11 @@ func TestReplayAuthorizerHTTPStatus(t *testing.T) {
 			require.NotContains(t, rec.Body.String(), "alice")
 		})
 	}
+}
+
+func newMemoryStorage(t testing.TB) *memory.Storage {
+	t.Helper()
+	store, err := memory.New()
+	require.NoError(t, err)
+	return store
 }

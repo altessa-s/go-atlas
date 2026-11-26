@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -22,6 +24,8 @@ type entry struct {
 	key       string
 	value     []byte
 	expiresAt time.Time
+	lockedAt  time.Time
+	locked    bool
 }
 
 // expired reports whether e's TTL has elapsed at now. Expiration is lazy, so
@@ -46,19 +50,19 @@ var _ storages.Storage = (*Storage)(nil)
 // New creates a new in-memory Storage with the provided options.
 // Default TTL is 24 hours.
 //
-// If scheduler is provided and cleanupSchedule is set, cleanup task will be registered.
+// If scheduler is provided and cleanupSchedule is set, cleanup is registered. A registration failure is returned.
 // Otherwise, call RunCleanup() manually or register it externally.
 //
 // Example:
 //
-//	storage := memory.New(memory.WithTTL(time.Hour))
+//	storage, err := memory.New(memory.WithTTL(time.Hour))
 //	// With scheduler
-//	storage := memory.New(
+//	storage, err := memory.New(
 //	    memory.WithTTL(time.Hour),
 //	    memory.WithScheduler(scheduler),
 //	    memory.WithCleanupSchedule("@every 5m"),
 //	)
-func New(opt ...Option) *Storage {
+func New(opt ...Option) (*Storage, error) {
 	opts := newOptions(opt...)
 	s := &Storage{
 		options:   opts,
@@ -67,10 +71,12 @@ func New(opt ...Option) *Storage {
 	}
 	s.cleanupTask = cycle.New(s.runCleanupCycle)
 
-	// Register cleanup task with scheduler if provided
-	_ = s.registerCleanupTask(opts.cleanupSchedule) //nolint:errcheck // task registration is optional
-
-	return s
+	if !nilcheck.IsNil(opts.scheduler) && opts.cleanupSchedule != "" {
+		if err := s.registerCleanupTask(opts.cleanupSchedule); err != nil {
+			return nil, coreerrs.WrapOperation(err, "register idempotency memory cleanup")
+		}
+	}
+	return s, nil
 }
 
 // AttemptLock tries to acquire a lock for the given key using the
@@ -94,21 +100,12 @@ func (s *Storage) AttemptLockWithTTL(_ context.Context, key string, val []byte, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if e, exists := s.entries[key]; exists {
-		// Check expiry against the entry's own expiresAt — set when it
-		// was created with whatever TTL was active at the time.
-		if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
-			delete(s.entries, key)
-		} else {
-			return false, e.value, nil, nil
-		}
+	now := s.options.clock.Now()
+	if e, exists := s.entries[key]; exists && !e.expired(now) {
+		return false, slices.Clone(e.value), nil, nil
 	}
 
-	now := time.Now()
-	e := &entry{
-		key:   key,
-		value: val,
-	}
+	e := &entry{key: key, value: slices.Clone(val), lockedAt: now, locked: true}
 
 	if ttl > 0 {
 		e.expiresAt = now.Add(ttl)
@@ -135,8 +132,9 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := s.options.clock.Now()
 	e, exists := s.entries[key]
-	if !exists || e.expired(time.Now()) {
+	if !exists || e.expired(now) {
 		// Key gone or expired — TTL elapsed between AttemptLock and
 		// Complete, or someone Delete'd. Either way the lock isn't ours
 		// anymore, and an expired entry must not be revived.
@@ -146,39 +144,45 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken 
 		return storages.ErrLockStolen
 	}
 
-	e.value = val
+	e.value = slices.Clone(val)
+	e.locked = false
 	if s.options.ttl > 0 {
-		e.expiresAt = time.Now().Add(s.options.ttl)
+		e.expiresAt = now.Add(s.options.ttl)
 	} else {
 		e.expiresAt = time.Time{}
 	}
 	return nil
 }
 
-// Steal atomically replaces the value when current bytes equal
-// expectedVal. Returns the new lockToken on success or
-// [storages.ErrLockStolen] when expectedVal no longer matches.
-func (s *Storage) Steal(_ context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+// Steal replaces an unexpired matching lock after the configured clock
+// reports that it is old enough.
+func (s *Storage) Steal(_ context.Context, key string, expected, replacement []byte, maxLockAge, ttl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
-		return nil, storages.ErrEmptyKey
+		return false, nil, nil, storages.ErrEmptyKey
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := s.options.clock.Now()
 	e, exists := s.entries[key]
-	if !exists || e.expired(time.Now()) {
-		return nil, storages.ErrLockStolen
+	if !exists || e.expired(now) {
+		return false, nil, nil, nil
 	}
-	if !bytes.Equal(e.value, expectedVal) {
-		return nil, storages.ErrLockStolen
+	if !e.locked || !bytes.Equal(e.value, expected) || (maxLockAge > 0 && now.Sub(e.lockedAt) <= maxLockAge) {
+		return false, slices.Clone(e.value), nil, nil
 	}
 
-	e.value = newVal
-	if s.options.ttl > 0 {
-		e.expiresAt = time.Now().Add(s.options.ttl)
+	e.value = slices.Clone(replacement)
+	e.lockedAt = now
+	e.expiresAt = time.Time{}
+	if ttl <= 0 {
+		ttl = s.options.ttl
 	}
-	return slices.Clone(newVal), nil
+	if ttl > 0 {
+		e.expiresAt = now.Add(ttl)
+	}
+	return true, nil, slices.Clone(replacement), nil
 }
 
 // Delete removes the key from storage.
@@ -210,7 +214,7 @@ func (s *Storage) Release(_ context.Context, key string, lockToken []byte) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
-	if !ok || !bytes.Equal(e.value, lockToken) || e.expired(time.Now()) {
+	if !ok || !bytes.Equal(e.value, lockToken) || e.expired(s.options.clock.Now()) {
 		return storages.ErrLockStolen
 	}
 	delete(s.entries, key)

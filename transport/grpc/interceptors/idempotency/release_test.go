@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
@@ -20,7 +19,7 @@ import (
 // Directly exercise the private per-request driver after another caller steals its lock.
 func TestPostCallCannotReleaseNewOwner(t *testing.T) {
 	t.Parallel()
-	store := memory.New()
+	store := newMemoryStorage(t)
 	keeper := idempotency.New(store)
 	acquired, old, err := keeper.AttemptLock(t.Context(), "key")
 	require.NoError(t, err)
@@ -29,8 +28,9 @@ func TestPostCallCannotReleaseNewOwner(t *testing.T) {
 	storageKey := idempotency.ComposeKey("namespace", "", "key")
 	_, current, _, err := store.AttemptLock(t.Context(), storageKey, nil)
 	require.NoError(t, err)
-	_, err = store.Steal(t.Context(), storageKey, current, append(current, ' '))
+	stolen, _, _, err := store.Steal(t.Context(), storageKey, current, append(current, ' '), 0, 0)
 	require.NoError(t, err)
+	require.True(t, stolen)
 	ri := &requestInterceptor{
 		interceptor: &interceptor{BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, nil), i: keeper},
 		meta:        &sharedmetadata.CallMetadata{},

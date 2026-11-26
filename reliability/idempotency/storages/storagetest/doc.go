@@ -3,16 +3,17 @@
 // the LICENSE file.
 
 // Package storagetest is the conformance kit for [storages.Storage]
-// backends. [Run] executes every contract — currently that a Keeper stores
-// and replays a transport-sized replay record intact — as parallel subtests
-// on fresh stores.
+// backends. [Run] runs parallel contracts on fresh stores, covering
+// transport-sized replay records and protection against completed-record takeover.
 //
 // # Usage
 //
 //	func TestStorageContract(t *testing.T) {
 //		t.Parallel()
-//		storagetest.Run(t, func(testing.TB) storages.Storage {
-//			return memory.New()
+//		storagetest.Run(t, func(tb testing.TB) storages.Storage {
+//			store, err := memory.New()
+//			require.NoError(tb, err)
+//			return store
 //		})
 //	}
 package storagetest

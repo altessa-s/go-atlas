@@ -32,7 +32,7 @@ func send(t *testing.T, h http.Handler, method, target, header string) *httptest
 func TestKeyFromQueryParam(t *testing.T) {
 	t.Parallel()
 
-	h := Middleware(newKeeper(), WithKeyQueryParam("requestId"), WithKeyFormatValidator(OpaqueKeyValidator(0)),
+	h := Middleware(newKeeper(t), WithKeyQueryParam("requestId"), WithKeyFormatValidator(OpaqueKeyValidator(0)),
 		WithRequestFingerprint(false))(echo)
 
 	require.Equal(t, http.StatusCreated, send(t, h, http.MethodPost, "/orders?requestId=client-1", "").Code)
@@ -52,10 +52,10 @@ func TestKeyFromQueryParam(t *testing.T) {
 func TestKeyFormatValidators(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, http.StatusBadRequest, send(t, Middleware(newKeeper())(echo), http.MethodPost, "/o", "client-1").Code,
+	require.Equal(t, http.StatusBadRequest, send(t, Middleware(newKeeper(t))(echo), http.MethodPost, "/o", "client-1").Code,
 		"the default validator wants a UUID v4")
 
-	pattern := Middleware(newKeeper(), WithKeyFormatValidator(PatternKeyValidator(regexp.MustCompile(`req-\d+`), 0)))(echo)
+	pattern := Middleware(newKeeper(t), WithKeyFormatValidator(PatternKeyValidator(regexp.MustCompile(`req-\d+`), 0)))(echo)
 	require.Equal(t, http.StatusCreated, send(t, pattern, http.MethodPost, "/o", "req-1").Code)
 	require.Equal(t, http.StatusBadRequest, send(t, pattern, http.MethodPost, "/o", "req-1x").Code)
 }
@@ -75,7 +75,7 @@ func TestRequestClassifier(t *testing.T) {
 			return PolicyDefault
 		}
 	}
-	h := Middleware(newKeeper(), WithEnforceMandatory(true), WithRequestClassifier(classify))(echo)
+	h := Middleware(newKeeper(t), WithEnforceMandatory(true), WithRequestClassifier(classify))(echo)
 
 	require.Equal(t, http.StatusBadRequest, send(t, h, http.MethodPost, "/payments", "").Code)
 	require.Equal(t, http.StatusCreated, send(t, h, http.MethodPost, "/webhooks", "not-a-uuid").Code,
@@ -84,7 +84,7 @@ func TestRequestClassifier(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, send(t, h, http.MethodPost, "/other", "").Code, "default follows enforceMandatory")
 
 	called := false
-	safe := Middleware(newKeeper(), WithRequestClassifier(func(*http.Request) Policy { called = true; return PolicyMandatory }))(echo)
+	safe := Middleware(newKeeper(t), WithRequestClassifier(func(*http.Request) Policy { called = true; return PolicyMandatory }))(echo)
 	require.Equal(t, http.StatusCreated, send(t, safe, http.MethodGet, "/payments", "").Code)
 	require.False(t, called, "safe methods are never classified")
 }

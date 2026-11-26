@@ -21,6 +21,9 @@
 #    # Example: "0 */5 * * * *" (every 5 minutes)
 #    # Default value: @every 5m
 #    cleanupSchedule: "@every 5m"
+#    # <string> Unique cleanup task ID among memory idempotency stores on the same scheduler.
+#    # Default value: idempotency-memory-cleanup
+#    cleanupTaskID: "idempotency-memory-cleanup"
 #
 #  # <object> NATS-specific configuration for storage.
 #  # Contains settings for NATS KeyValue bucket and replication.

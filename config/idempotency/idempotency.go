@@ -119,6 +119,15 @@ func (c *MongoStorageConfig) Validate() error {
 	)
 }
 
+// MemoryStorageConfig configures in-memory idempotency storage.
+type MemoryStorageConfig struct {
+	// CleanupSchedule sets the schedule for removing expired keys.
+	CleanupSchedule string `yaml:"cleanupSchedule" default:"@every 5m"`
+
+	// CleanupTaskID selects the scheduler task ID. Empty uses the storage default.
+	CleanupTaskID string `yaml:"cleanupTaskID" default:"idempotency-memory-cleanup"`
+}
+
 // StorageConfig selects and configures the idempotency key store. Each
 // backend has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
@@ -129,7 +138,7 @@ type StorageConfig struct {
 
 	// Memory defines the in-memory configuration.
 	// Required when Type is StorageTypeMemory, ignored otherwise.
-	Memory *storageconfig.MemoryConfig `yaml:"memory" default:"-"`
+	Memory *MemoryStorageConfig `yaml:"memory" default:"-"`
 
 	// NATS defines the NATS KeyValue configuration.
 	// Required when Type is StorageTypeNATS, ignored otherwise.
@@ -154,7 +163,7 @@ func (c *StorageConfig) Normalize() {
 	switch c.Type {
 	case StorageTypeMemory:
 		if c.Memory == nil {
-			c.Memory = &storageconfig.MemoryConfig{}
+			c.Memory = &MemoryStorageConfig{}
 		}
 	case StorageTypeNATS:
 		if c.NATS == nil {

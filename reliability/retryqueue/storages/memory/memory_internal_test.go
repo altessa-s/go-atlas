@@ -6,6 +6,8 @@ package memory
 
 import (
 	"context"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -74,5 +76,94 @@ func TestCanceledWhileWaitingForLock(t *testing.T) {
 			require.Equal(t, 1, s.Len())
 			require.Equal(t, before, s.items["k"])
 		})
+	}
+}
+
+func TestListDueAllocatesOnlyForLimit(t *testing.T) {
+	ctx := t.Context()
+	s, now := expiredBacklog(4096)
+	for key, item := range s.items {
+		item.State = retryqueue.StatePending
+		s.items[key] = item
+	}
+	out, err := s.ListDue(ctx, now, 1)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Equal(t, 1, cap(out))
+	require.Equal(t, "0", out[0].Key)
+	// AllocsPerRun counts allocations, regardless of their size. Sample
+	// allocated bytes as well to catch a single large backing array.
+	var before, after runtime.MemStats
+	testing.AllocsPerRun(5, func() {
+		runtime.ReadMemStats(&before)
+		_, _ = s.ListDue(ctx, now, 1)
+		runtime.ReadMemStats(&after)
+	})
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4096))
+}
+
+func expiredBacklog(size int) (*Store[string], time.Time) {
+	s := New[string]()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range size {
+		key := strconv.Itoa(i)
+		s.items[key] = retryqueue.Item[string]{Key: key, State: retryqueue.StateExpired, Since: now}
+	}
+	return s, now
+}
+
+func BenchmarkListDueOne(b *testing.B) {
+	s, now := expiredBacklog(100_000)
+	for key, item := range s.items {
+		item.State = retryqueue.StatePending
+		s.items[key] = item
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := s.ListDue(b.Context(), now, 1); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestRequeueWorkScalesWithSelectedKeys(t *testing.T) {
+	t.Parallel()
+	s, now := expiredBacklog(100_000)
+	keys := make([]string, 10_000)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+	}
+	visits := 0
+	s.requeueVisit = func() { visits++ }
+	moved, err := s.Requeue(t.Context(), now, keys...)
+	require.NoError(t, err)
+	require.Equal(t, len(keys), moved)
+	require.Positive(t, visits, "the measurement must observe candidate checks")
+	require.LessOrEqual(t, visits, len(keys))
+
+	moved, err = s.Requeue(t.Context(), now, "10000", "10000", "missing")
+	require.NoError(t, err)
+	require.Equal(t, 1, moved)
+}
+
+func BenchmarkRequeueSelected(b *testing.B) {
+	ctx := b.Context()
+	s, now := expiredBacklog(100_000)
+	keys := make([]string, 10_000)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := s.Requeue(ctx, now, keys...); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		for _, key := range keys {
+			item := s.items[key]
+			item.State = retryqueue.StateExpired
+			s.items[key] = item
+		}
+		b.StartTimer()
 	}
 }

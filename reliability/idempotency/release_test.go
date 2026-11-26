@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/idempotencytest"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 
 	idnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 	idredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
@@ -30,7 +29,7 @@ func ownershipStores() []struct {
 		name     string
 		newStore func(*testing.T) storages.Storage
 	}{
-		{"memory", func(t *testing.T) storages.Storage { return memory.New() }},
+		{"memory", func(t *testing.T) storages.Storage { return newMemoryStorage(t) }},
 		{"mock", func(t *testing.T) storages.Storage { return idempotencytest.NewMockIdempotencyStorage() }},
 		{"redis", func(t *testing.T) storages.Storage {
 			client, _ := redistest.RedisClient(t)
@@ -96,8 +95,9 @@ func TestReleaseOwnership(t *testing.T) {
 			_, current, _, err := store.AttemptLock(ctx, storageKey, []byte("unused"))
 			require.NoError(t, err)
 			newWire := append(current, ' ')
-			token, err := store.Steal(ctx, storageKey, current, newWire)
+			didSteal, _, token, err := store.Steal(ctx, storageKey, current, newWire, 0, 0)
 			require.NoError(t, err)
+			require.True(t, didSteal)
 			require.ErrorIs(t, keeper.Release(ctx, "key", old), idempotency.ErrLockStolen)
 			acquired, _, err = keeper.AttemptLock(ctx, "key")
 			require.NoError(t, err)

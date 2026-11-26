@@ -7,6 +7,7 @@ package idempotency
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -367,4 +368,107 @@ func TestErrorSentinelIdentities(t *testing.T) {
 	require.Same(t, storages.ErrEmptyKey, ErrEmptyKey)
 	require.Same(t, storages.ErrMissingLockState, ErrMissingLockState)
 	require.Same(t, storages.ErrLockStolen, ErrLockStolen)
+}
+
+func TestAttemptLockRetriesMissingCollision(t *testing.T) {
+	t.Parallel()
+	for _, recovers := range []bool{true, false} {
+		t.Run(fmt.Sprint(recovers), func(t *testing.T) {
+			t.Parallel()
+			attempts := 0
+			k := New(StorageFunc{
+				AttemptLockWithTTLFunc: func(_ context.Context, _ string, val []byte, _ time.Duration) (bool, []byte, []byte, error) {
+					attempts++
+					if recovers && attempts == 2 {
+						return true, nil, val, nil
+					}
+					return false, nil, nil, nil
+				},
+			})
+			acquired, state, err := k.AttemptLock(t.Context(), "k")
+			require.NoError(t, err)
+			require.Equal(t, recovers, acquired)
+			require.Equal(t, 2, attempts)
+			require.Equal(t, StatusInProgress, state.Status)
+		})
+	}
+}
+
+func TestAttemptLockChecksLatestValueAfterRefusedTakeover(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		latest serializedState
+		err    error
+	}{
+		{"completed", serializedState{Status: StatusSuccess, Owner: "caller", Data: "result"}, nil},
+		{"owner changed", serializedState{Status: StatusSuccess, Owner: "other"}, ErrOwnerMismatch},
+		{"fingerprint changed", serializedState{Status: StatusInProgress, Owner: "caller", Fingerprint: []byte("other")}, ErrFingerprintMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var codec serializer.JSON
+			old, err := codec.Serialize(serializedState{Status: StatusInProgress, Owner: "caller"})
+			require.NoError(t, err)
+			current, err := codec.Serialize(tc.latest)
+			require.NoError(t, err)
+			s := StorageFunc{
+				AttemptLockWithTTLFunc: func(context.Context, string, []byte, time.Duration) (bool, []byte, []byte, error) {
+					return false, old, nil, nil
+				},
+				StealFunc: func(_ context.Context, _ string, expected, _ []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
+					require.Equal(t, old, expected)
+					return false, current, nil, nil
+				},
+			}
+			k := New(s, WithMaxLockDuration(time.Minute), WithOwner(func(context.Context) string { return "caller" }))
+			acquired, state, err := k.AttemptLockWithOpts(t.Context(), "k", AttemptLockOpts{Fingerprint: []byte("request")})
+			require.ErrorIs(t, err, tc.err)
+			require.False(t, acquired)
+			if tc.err == nil {
+				require.Equal(t, StatusSuccess, state.Status)
+				require.Equal(t, "result", state.Data)
+			}
+		})
+	}
+}
+
+func TestAttemptLockSkipsStealForOwnFreshLock(t *testing.T) {
+	t.Parallel()
+	var lock []byte
+	steals := 0
+	s := StorageFunc{
+		AttemptLockWithTTLFunc: func(_ context.Context, _ string, value []byte, _ time.Duration) (bool, []byte, []byte, error) {
+			if lock != nil {
+				return false, lock, nil, nil
+			}
+			lock = value
+			return true, nil, value, nil
+		},
+		StealFunc: func(_ context.Context, _ string, expected, _ []byte, _, _ time.Duration) (bool, []byte, []byte, error) {
+			steals++
+			return false, expected, nil, nil
+		},
+	}
+	opts := []Option{WithMaxLockDuration(time.Hour), WithOwner(func(context.Context) string { return "owner" })}
+	k := New(s, opts...)
+	acquired, _, err := k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.True(t, acquired)
+	acquired, state, err := k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, StatusInProgress, state.Status)
+	require.Zero(t, steals)
+
+	acquired, _, err = New(s, opts...).AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, 1, steals, "another Keeper must defer to the backend clock")
+
+	k.lockEpoch = k.lockEpoch.Add(-2 * time.Hour)
+	acquired, _, err = k.AttemptLock(t.Context(), "k")
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, 2, steals, "once the lock can be stale, this Keeper must defer to the backend clock")
 }

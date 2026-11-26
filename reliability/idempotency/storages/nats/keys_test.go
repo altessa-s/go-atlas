@@ -37,8 +37,11 @@ func TestStorage_KeysNATSRejectsVerbatim(t *testing.T) {
 		require.False(t, acquired, key)
 		require.Equal(t, []byte("lock "+key), existing, key)
 
-		stolen, err := storage.Steal(ctx, key, []byte("lock "+key), []byte("stolen "+key))
+		didSteal, _, stolen, err := storage.Steal(ctx, key, []byte("lock "+key), []byte("stolen "+key), 0, 0)
+
 		require.NoError(t, err, key)
+
+		require.True(t, didSteal)
 		require.NoError(t, storage.Complete(ctx, key, []byte("done "+key), stolen), key)
 
 		_, existing, _, err = storage.AttemptLock(ctx, key, []byte("other"))
@@ -61,9 +64,12 @@ func TestStorage_ValidKeyIsStoredUnderItself(t *testing.T) {
 	_, _, _, err := storage.AttemptLock(ctx, natskeytest.PlainKey, []byte("v"))
 	require.NoError(t, err)
 
-	entry, err := storage.KV().Get(ctx, natskeytest.PlainKey)
+	_, err = storage.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
-	require.Equal(t, []byte("v"), entry.Value())
+	acquired, value, _, err := storage.AttemptLock(ctx, natskeytest.PlainKey, []byte("other"))
+	require.NoError(t, err)
+	require.False(t, acquired)
+	require.Equal(t, []byte("v"), value)
 }
 
 func TestStorage_KeyTooLong(t *testing.T) {

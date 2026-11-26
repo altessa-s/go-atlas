@@ -18,7 +18,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	middleware "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
@@ -82,7 +81,7 @@ func TestStorageErrorFallback(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			keeper := idempotency.New(brokenStorage{Storage: memory.New()})
+			keeper := idempotency.New(brokenStorage{Storage: newMemoryStorage(t)})
 			h := middleware.Middleware(keeper, middleware.WithFallbackBehavior(tc.behavior))(created())
 			rec := post(t, h, "/orders", map[string]string{"Idempotency-Key": validKey})
 			require.Equal(t, tc.wantCode, rec.Code)
@@ -94,7 +93,7 @@ func TestCustomHeadersAndErrorHandler(t *testing.T) {
 	t.Parallel()
 
 	var scenarios []middleware.ErrorScenario
-	keeper := idempotency.New(memory.New(), oneCaller)
+	keeper := idempotency.New(newMemoryStorage(t), oneCaller)
 	h := middleware.Middleware(keeper,
 		middleware.WithIdempotencyKeyHeader("X-Request-Key"),
 		middleware.WithIdempotencyKeyStatusHeader(new("X-Key-Status")),
@@ -128,7 +127,7 @@ func TestCustomHeadersAndErrorHandler(t *testing.T) {
 func TestResponseReplayWithReplayHeaders(t *testing.T) {
 	t.Parallel()
 
-	keeper := idempotency.New(memory.New(), oneCaller)
+	keeper := idempotency.New(newMemoryStorage(t), oneCaller)
 	h := middleware.Middleware(keeper,
 		middleware.WithResponseReplay(),
 		middleware.WithReplayHeaders("location"),
@@ -147,7 +146,7 @@ func TestResponseReplayWithReplayHeaders(t *testing.T) {
 func TestIgnoredPathsAndBlankOptions(t *testing.T) {
 	t.Parallel()
 
-	keeper := idempotency.New(memory.New())
+	keeper := idempotency.New(newMemoryStorage(t))
 	h := middleware.Middleware(keeper,
 		middleware.WithIgnorePaths("/webhooks"),
 		middleware.WithIgnorePatterns(regexp.MustCompile(`^/internal/`)),

@@ -24,6 +24,7 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
   key        VARCHAR(255) COLLATE "C" PRIMARY KEY,
   val        BYTEA NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
+  locked_at  TIMESTAMPTZ,
   revision   BIGINT NOT NULL DEFAULT 0
 )`,
 			`CREATE INDEX IF NOT EXISTS ` + index + ` ON ` + s.table + ` (expires_at, key)`,
@@ -34,6 +35,7 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
   `+s.dialect.Ident("key")+` VARBINARY(1020) NOT NULL PRIMARY KEY,
   val        LONGBLOB NOT NULL,
   expires_at DATETIME(6) NOT NULL,
+  locked_at  DATETIME(6),
   revision   BIGINT NOT NULL DEFAULT 0,
   INDEX `+index+` (expires_at, `+s.dialect.Ident("key")+`)
 ) ENGINE=InnoDB`)

@@ -131,7 +131,7 @@ func TestStorage_EmptyKeyIsRefused(t *testing.T) {
 		_, _, _, err = s.AttemptLockWithTTL(ctx, "", payload("v"), shortTTL)
 		require.ErrorIs(t, err, storages.ErrEmptyKey)
 		require.ErrorIs(t, s.Complete(ctx, "", payload("v"), []byte("token")), storages.ErrEmptyKey)
-		_, err = s.Steal(ctx, "", payload("a"), payload("b"))
+		_, _, _, err = s.Steal(ctx, "", payload("a"), payload("b"), 0, 0)
 		require.ErrorIs(t, err, storages.ErrEmptyKey)
 		require.ErrorIs(t, s.Release(ctx, "", []byte("token")), storages.ErrEmptyKey)
 		require.ErrorIs(t, s.Delete(ctx, ""), storages.ErrEmptyKey)
@@ -168,8 +168,9 @@ func TestStorage_Complete(t *testing.T) {
 			t.Parallel()
 			s := b.open(t, longTTL)
 			stale := lock(t, s, "k", payload("lock"))
-			_, err := s.Steal(t.Context(), "k", payload("lock"), payload("taken-over"))
+			stolen, _, _, err := s.Steal(t.Context(), "k", payload("lock"), payload("taken-over"), 0, 0)
 			require.NoError(t, err)
+			require.True(t, stolen)
 
 			require.ErrorIs(t, s.Complete(t.Context(), "k", payload("done"), stale), storages.ErrLockStolen)
 			require.Equal(t, payload("taken-over"), observe(t, s, "k"))
@@ -208,8 +209,9 @@ func TestStorage_Steal(t *testing.T) {
 			ctx := t.Context()
 			old := lock(t, s, "k", payload("orphan"))
 
-			fresh, err := s.Steal(ctx, "k", payload("orphan"), payload("reclaimed"))
+			stolen, _, fresh, err := s.Steal(ctx, "k", payload("orphan"), payload("reclaimed"), 0, 0)
 			require.NoError(t, err)
+			require.True(t, stolen)
 			require.NotEmpty(t, fresh)
 			require.Equal(t, payload("reclaimed"), observe(t, s, "k"))
 
@@ -224,8 +226,10 @@ func TestStorage_Steal(t *testing.T) {
 			s := b.open(t, longTTL)
 			lock(t, s, "k", payload("current"))
 
-			_, err := s.Steal(t.Context(), "k", payload("stale"), payload("reclaimed"))
-			require.ErrorIs(t, err, storages.ErrLockStolen)
+			stolen, current, _, err := s.Steal(t.Context(), "k", payload("stale"), payload("reclaimed"), 0, 0)
+			require.NoError(t, err)
+			require.False(t, stolen)
+			require.Equal(t, payload("current"), current)
 			require.Equal(t, payload("current"), observe(t, s, "k"))
 		})
 
@@ -233,8 +237,10 @@ func TestStorage_Steal(t *testing.T) {
 			t.Parallel()
 			s := b.open(t, longTTL)
 
-			_, err := s.Steal(t.Context(), "k", payload("orphan"), payload("reclaimed"))
-			require.ErrorIs(t, err, storages.ErrLockStolen)
+			stolen, current, _, err := s.Steal(t.Context(), "k", payload("orphan"), payload("reclaimed"), 0, 0)
+			require.NoError(t, err)
+			require.False(t, stolen)
+			require.Nil(t, current)
 			requireFree(t, s, "k")
 		})
 	})
@@ -431,8 +437,8 @@ func TestStorage_ConcurrentStealHasOneWinner(t *testing.T) {
 		for i := range contenders {
 			wg.Go(func() {
 				<-start
-				_, err := s.Steal(t.Context(), "orphan", payload("orphan"), payload(fmt.Sprint("reclaimer-", i)))
-				if err == nil {
+				stolen, _, _, err := s.Steal(t.Context(), "orphan", payload("orphan"), payload(fmt.Sprint("reclaimer-", i)), 0, 0)
+				if stolen {
 					wins.Add(1)
 					winner.Store(int32(i))
 					return
@@ -445,9 +451,7 @@ func TestStorage_ConcurrentStealHasOneWinner(t *testing.T) {
 
 		require.EqualValues(t, 1, wins.Load(), "exactly one reclaimer must win")
 		for i, err := range errs {
-			if i != int(winner.Load()) {
-				require.ErrorIs(t, err, storages.ErrLockStolen, "reclaimer %d", i)
-			}
+			require.NoError(t, err, "reclaimer %d", i)
 		}
 		require.Equal(t, payload(fmt.Sprint("reclaimer-", winner.Load())), observe(t, s, "orphan"))
 	})
@@ -510,11 +514,14 @@ func TestStorage_LargeBinaryValues(t *testing.T) {
 		// A value that differs from the stored one only in its last byte.
 		almost := append([]byte(nil), first...)
 		almost[len(almost)-1] ^= 0xff
-		_, err := s.Steal(ctx, "k", almost, reclaimed)
-		require.ErrorIs(t, err, storages.ErrLockStolen)
-
-		fresh, err := s.Steal(ctx, "k", first, reclaimed)
+		stolen, current, _, err := s.Steal(ctx, "k", almost, reclaimed, 0, 0)
 		require.NoError(t, err)
+		require.False(t, stolen)
+		require.Equal(t, first, current)
+
+		stolen, _, fresh, err := s.Steal(ctx, "k", first, reclaimed, 0, 0)
+		require.NoError(t, err)
+		require.True(t, stolen)
 		require.ErrorIs(t, s.Complete(ctx, "k", done, token), storages.ErrLockStolen)
 		require.NoError(t, s.Complete(ctx, "k", done, fresh))
 		require.Equal(t, done, observe(t, s, "k"))

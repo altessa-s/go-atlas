@@ -13,10 +13,9 @@ top-level `idempotency.Keeper` to supply the underlying storage backend.
 |------------------|----------------------------------------------------------------|
 | `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Release, Delete |
 
-`Steal` is a low-level CAS-replace primitive used by Keeper's orphan-lock reclaim path: when a collision-time check spots an abandoned InProgress entry
-older than the configured threshold, Keeper builds a fresh wire and atomically swaps it in via `Steal(ctx, key, expectedVal, newVal)`. Backends
-implement it on top of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua GET-compare-SET for Redis, `kv.Update(... revision)` for NATS,
-an `UpdateOne` filtered on the stored bytes for MongoDB, conditional SQL writes comparing live stored bytes for `sqldb`).
+`Steal(ctx, key, expected, replacement, maxLockAge, ttl)` checks the expected value and the acquired lock's age before replacing it.
+A refused takeover returns the observed live value when available. A successful takeover returns a fresh token and uses the supplied lock TTL,
+or the backend default for a nonpositive value. NATS KV implements `KeeperClockStorage` so the Keeper handles the age check.
 
 ## Subpackages
 

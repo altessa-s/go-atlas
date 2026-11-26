@@ -43,14 +43,14 @@ func call(t *testing.T, ic *interceptor, method, header string, req any) error {
 	return ri.PostCall(ctx, nil, nil)
 }
 
-func newKeeper() *idempotency.Keeper {
-	return idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+func newKeeper(t *testing.T) *idempotency.Keeper {
+	return idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute))
 }
 
 // newOwnedKeeper is newKeeper binding every record to one owner, as response
 // replay and entity id exposure require.
-func newOwnedKeeper() *idempotency.Keeper {
-	return idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute),
+func newOwnedKeeper(t *testing.T) *idempotency.Keeper {
+	return idempotency.New(newMemoryStorage(t), idempotency.WithMaxLockDuration(time.Minute),
 		idempotency.WithOwner(func(context.Context) string { return "caller" }))
 }
 
@@ -70,7 +70,7 @@ func TestRequestFieldKey(t *testing.T) {
 func TestKeyFromRequestField(t *testing.T) {
 	t.Parallel()
 
-	ic := newTestInterceptor(newKeeper(), WithKeyField("value"), WithKeyFormatValidator(OpaqueKeyValidator(0)),
+	ic := newTestInterceptor(newKeeper(t), WithKeyField("value"), WithKeyFormatValidator(OpaqueKeyValidator(0)),
 		WithRequestFingerprint(false))
 	const method = "/svc.v1.Orders/CreateOrder"
 
@@ -90,15 +90,15 @@ func TestKeyFormatValidators(t *testing.T) {
 	t.Parallel()
 
 	const method = "/svc.v1.Orders/CreateOrder"
-	uuid := newTestInterceptor(newKeeper())
+	uuid := newTestInterceptor(newKeeper(t))
 	requireScenario(t, call(t, uuid, method, "client-req-1", wrapperspb.String("x")), codes.InvalidArgument, ReasonIDKInvalidFormat)
 
-	opaque := newTestInterceptor(newKeeper(), WithKeyFormatValidator(OpaqueKeyValidator(12)))
+	opaque := newTestInterceptor(newKeeper(t), WithKeyFormatValidator(OpaqueKeyValidator(12)))
 	require.NoError(t, call(t, opaque, method, "client-req-1", wrapperspb.String("x")))
 	requireScenario(t, call(t, opaque, method, "client-req-1234", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKInvalidFormat, "longer than the maximum")
 
-	pattern := newTestInterceptor(newKeeper(), WithKeyFormatValidator(PatternKeyValidator(regexp.MustCompile(`req-\d+`), 0)))
+	pattern := newTestInterceptor(newKeeper(t), WithKeyFormatValidator(PatternKeyValidator(regexp.MustCompile(`req-\d+`), 0)))
 	require.NoError(t, call(t, pattern, method, "req-42", wrapperspb.String("x")))
 	requireScenario(t, call(t, pattern, method, "req-42x", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKInvalidFormat, "the pattern must match the whole key")
@@ -107,7 +107,7 @@ func TestKeyFormatValidators(t *testing.T) {
 func TestMethodClassifier(t *testing.T) {
 	t.Parallel()
 
-	ic := newTestInterceptor(newKeeper(), WithMethodClassifier(VerbMethodClassifier(PolicyMandatory)))
+	ic := newTestInterceptor(newKeeper(t), WithMethodClassifier(VerbMethodClassifier(PolicyMandatory)))
 	requireScenario(t, call(t, ic, "/svc.v1.Orders/CreateOrder", "", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKMissing, "Create requires a key")
 	requireScenario(t, call(t, ic, "/svc.v1.Orders/CancelOrder", "", wrapperspb.String("x")), codes.InvalidArgument,
@@ -116,12 +116,12 @@ func TestMethodClassifier(t *testing.T) {
 	require.NoError(t, call(t, ic, "/svc.v1.Orders/UpdateOrder", "not-a-uuid", wrapperspb.String("x")),
 		"a skipped method does not even validate the key")
 
-	optional := newTestInterceptor(newKeeper(), WithEnforceMandatory(true),
+	optional := newTestInterceptor(newKeeper(t), WithEnforceMandatory(true),
 		WithMethodClassifier(func(string) Policy { return PolicyOptional }))
 	require.NoError(t, call(t, optional, "/svc.v1.Orders/CreateOrder", "", wrapperspb.String("x")),
 		"an optional method overrides enforceMandatory")
 
-	enforced := newTestInterceptor(newKeeper(), WithEnforceMandatory(true),
+	enforced := newTestInterceptor(newKeeper(t), WithEnforceMandatory(true),
 		WithMethodClassifier(func(string) Policy { return PolicyDefault }))
 	requireScenario(t, call(t, enforced, "/svc.v1.Orders/CreateOrder", "", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKMissing, "the default policy follows enforceMandatory")
@@ -132,13 +132,13 @@ func TestMethodClassifier(t *testing.T) {
 func TestVerbMethodClassifierIgnoresBlankVerbs(t *testing.T) {
 	t.Parallel()
 
-	ic := newTestInterceptor(newKeeper(),
+	ic := newTestInterceptor(newKeeper(t),
 		WithMethodClassifier(VerbMethodClassifier(PolicyMandatory, WithSkipVerbs("Get", " ", ""))))
 	requireScenario(t, call(t, ic, "/svc.v1.Orders/CreateOrder", "", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKMissing, "a blank skip verb must not bypass PolicyMandatory")
 	require.NoError(t, call(t, ic, "/svc.v1.Orders/GetOrder", "", wrapperspb.String("x")), "Get is still skipped")
 
-	blanks := newTestInterceptor(newKeeper(), WithMethodClassifier(VerbMethodClassifier(PolicyMandatory, WithSkipVerbs(" "))))
+	blanks := newTestInterceptor(newKeeper(t), WithMethodClassifier(VerbMethodClassifier(PolicyMandatory, WithSkipVerbs(" "))))
 	requireScenario(t, call(t, blanks, "/svc.v1.Orders/GetOrder", "", wrapperspb.String("x")), codes.InvalidArgument,
 		ReasonIDKMissing, "only blank verbs: nothing is skipped")
 }
@@ -148,7 +148,7 @@ func TestMethodClassifierRunsAfterIgnoreLists(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
-	ic := newTestInterceptor(newKeeper(), WithMethodClassifier(func(string) Policy { calls++; return PolicyMandatory }))
+	ic := newTestInterceptor(newKeeper(t), WithMethodClassifier(func(string) Policy { calls++; return PolicyMandatory }))
 	ic.BaseInterceptor = interceptors.NewBaseInterceptorWithFilter(interceptorName, []string{"/svc.v1.Orders/CreateOrder"}, nil, nil)
 	require.NoError(t, call(t, ic, "/svc.v1.Orders/CreateOrder", "", wrapperspb.String("x")))
 	require.Zero(t, calls, "an ignored method is never classified")
@@ -183,14 +183,14 @@ func TestResponseReplayOnlyForDecodableUnaryRecords(t *testing.T) {
 	}
 	refused := func(t *testing.T, data any, why string) {
 		t.Helper()
-		k := newOwnedKeeper()
+		k := newOwnedKeeper(t)
 		ic := newTestInterceptor(k, WithResponseReplay())
 		completeKey(t, k, ic, method, req, data)
 		_, err := newRI(ic).check(ctx, req, true)
 		requireScenario(t, err, codes.FailedPrecondition, ReasonIDKAlreadyUsed, why)
 	}
 
-	k := newOwnedKeeper()
+	k := newOwnedKeeper(t)
 	ic := newTestInterceptor(k, WithResponseReplay())
 	completeKey(t, k, ic, method, req, internalidem.Record{Binding: method, Response: replayBytes(created, DefaultMaxReplaySize)})
 	res, err := newRI(ic).check(ctx, req, true)
@@ -238,4 +238,11 @@ func TestCompletionData(t *testing.T) {
 	require.True(t, record.HasGRPCResponse("/a/B"))
 	require.False(t, record.HasGRPCResponse("/a/C"))
 	require.Empty(t, replay.completionData(struct{}{}).(internalidem.Record).Response, "not a protobuf message")
+}
+
+func newMemoryStorage(t testing.TB) *memory.Storage {
+	t.Helper()
+	store, err := memory.New()
+	require.NoError(t, err)
+	return store
 }

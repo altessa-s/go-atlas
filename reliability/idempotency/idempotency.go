@@ -26,14 +26,16 @@ import (
 // guarantee that two consecutive in-progress writes for the same key
 // produce distinct bytes — required for byte-equality CAS guards in
 // the memory and redis backends. NATS uses revisions and ignores the
-// nonce. LockedAt records when the InProgress wire was written; Keeper
-// uses it to detect orphan locks left behind by crashed holders. The
-// public [State] type does NOT carry these fields.
+// nonce. LockedAt supplies the acquisition time for stores that delegate
+// the age check to the Keeper. LockIssuer and LockTick let the same Keeper
+// recognize a fresh lock using elapsed monotonic time. [State] omits these fields.
 type serializedState struct {
 	Status      Status    `json:"status"`
 	Data        any       `json:"data,omitempty"`
 	Nonce       string    `json:"nonce,omitempty"`
 	LockedAt    time.Time `json:"locked_at,omitzero"`
+	LockIssuer  string    `json:"lock_issuer,omitempty"`
+	LockTick    int64     `json:"lock_tick,omitzero"`
 	Fingerprint []byte    `json:"fingerprint,omitempty"`
 	Owner       string    `json:"owner,omitempty"`
 }
@@ -121,9 +123,11 @@ type Idempotency interface {
 // Keeper provides duplicate request detection using idempotency keys.
 // It supports multiple storage backends for distributed systems.
 type Keeper struct {
-	storage storages.Storage
-	opts    *options
-	metrics *keeperMetrics
+	storage    storages.Storage
+	opts       *options
+	metrics    *keeperMetrics
+	lockIssuer string
+	lockEpoch  time.Time
 }
 
 // effectiveKey returns the storage key for key: the tuple ("namespace",
@@ -172,9 +176,11 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 	}
 
 	return &Keeper{
-		storage: storage,
-		opts:    options,
-		metrics: newKeeperMetrics(options.meter),
+		storage:    storage,
+		opts:       options,
+		metrics:    newKeeperMetrics(options.meter),
+		lockIssuer: uuid.New().String(),
+		lockEpoch:  time.Now(),
 	}
 }
 
@@ -189,11 +195,9 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *State, err
 // per-call overrides in opts. See [AttemptLockOpts] for field
 // semantics.
 //
-// On collision with an existing InProgress entry whose LockedAt
-// timestamp is older than the resolved MaxLockDuration, AttemptLock
-// performs a CAS-steal via [storages.Storage.Steal] to reclaim the
-// orphaned lock. The returned *State carries a fresh lock token in
-// that case, so the caller proceeds as the legitimate holder.
+// On collision with an in-progress entry, AttemptLockWithOpts can ask the
+// store to reclaim locks older than MaxLockDuration. A successful takeover
+// returns a state with a fresh lock token.
 func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *State, error) {
 	if key == "" {
 		return false, nil, ErrEmptyKey
@@ -211,78 +215,76 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	wire := serializedState{
 		Status:      StatusInProgress,
 		Nonce:       uuid.New().String(),
-		LockedAt:    time.Now(),
 		Fingerprint: slices.Clone(opts.Fingerprint),
 		Owner:       owner,
 	}
 
+	i.stampLock(&wire)
 	val, err := i.opts.serializer.Serialize(wire)
 	if err != nil {
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
-	if err != nil {
-		i.metrics.errors.Inc()
-		return false, nil, err
+	var existingVal []byte
+	const lockAttempts = 2
+	for range lockAttempts {
+		ok, current, lockToken, lockErr := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
+		if lockErr != nil {
+			i.metrics.errors.Inc()
+			return false, nil, lockErr
+		}
+		if ok {
+			i.metrics.locksAcquired.Inc()
+			return true, i.heldState(lockToken, wire.Fingerprint, owner), nil
+		}
+		if len(current) != 0 {
+			existingVal = current
+			break
+		}
 	}
-
-	if ok {
-		i.metrics.locksAcquired.Inc()
-		// Carry the CAS token on the State so Complete can validate
-		// our claim later. The State itself isn't serialized at this
-		// point; we hand the freshly-built object back to the caller.
-		return true, i.heldState(lockToken, wire.Fingerprint, owner), nil
-	}
-
-	// Lock failed, key exists. Deserialize existing state via the
-	// wire shape and strip the nonce/LockedAt before handing back to
-	// the caller — they shouldn't need to know about CAS plumbing.
-	var existing serializedState
-	if err := i.opts.serializer.Deserialize(existingVal, &existing); err != nil {
-		i.metrics.errors.Inc()
-		return false, nil, coreerrs.WrapOperation(err, "deserialize existing state")
-	}
-
-	// The owner check comes first, so a caller who may not see the record
-	// learns nothing about it, not even whether its fingerprint matches.
-	if err := i.checkReplay(ctx, existing, owner, opts.Fingerprint); err != nil {
+	if len(existingVal) == 0 {
 		i.metrics.locksDenied.Inc()
+		return false, &State{Status: StatusInProgress}, nil
+	}
+
+	existing, err := i.readCollision(ctx, existingVal, owner, opts.Fingerprint)
+	if err != nil {
 		return false, nil, err
 	}
 
-	// Orphan-steal: an InProgress entry whose LockedAt is older than
-	// the resolved MaxLockDuration belongs to a crashed (or hung)
-	// holder. CAS-steal it so retries don't get stuck behind an
-	// abandoned lock until the bucket TTL expires.
-	// Only the record's own owner may take it over: a ReplayAuthorizer
-	// grants seeing another owner's record, not acting in its place.
-	if existing.Status == StatusInProgress && i.mayTakeOver(existing, owner) {
-		if maxLock := i.resolveMaxLockDuration(opts); maxLock > 0 &&
-			!existing.LockedAt.IsZero() &&
-			time.Since(existing.LockedAt) > maxLock {
-			// The takeover keeps the record's fingerprint and owner, so a
-			// caller without them cannot erase them.
-			if len(existing.Fingerprint) > 0 {
-				wire.Fingerprint = existing.Fingerprint
-			}
-			wire.Owner = cmp.Or(existing.Owner, wire.Owner)
-			stealVal, err := i.opts.serializer.Serialize(wire)
+	// A ReplayAuthorizer grants visibility, not ownership. Only the
+	// record's owner can replace its lock.
+	if maxAge := i.resolveMaxLockDuration(opts); i.canReclaim(existing, owner, maxAge) {
+		if len(existing.Fingerprint) > 0 {
+			wire.Fingerprint = existing.Fingerprint
+		}
+		wire.Owner = cmp.Or(existing.Owner, owner)
+		i.stampLock(&wire)
+		replacement, err := i.opts.serializer.Serialize(wire)
+		if err != nil {
+			return false, nil, coreerrs.WrapOperation(err, "serialize state")
+		}
+		if i.usesKeeperClock() {
+			maxAge = 0 // The Keeper already checked the wire timestamp.
+		}
+		stolen, current, token, err := i.storage.Steal(ctx, ek, existingVal, replacement, maxAge, opts.LockTTL)
+		if err != nil {
+			i.metrics.errors.Inc()
+			return false, nil, err
+		}
+		if stolen {
+			i.metrics.locksAcquired.Inc()
+			return true, i.heldState(token, wire.Fingerprint, wire.Owner), nil
+		}
+		switch {
+		case len(current) == 0:
+			existing = serializedState{Status: StatusInProgress}
+		case !bytes.Equal(current, existingVal):
+			// Concurrent completion or takeover may have changed the
+			// replay permissions or fingerprint along with the payload.
+			existing, err = i.readCollision(ctx, current, owner, opts.Fingerprint)
 			if err != nil {
-				return false, nil, coreerrs.WrapOperation(err, "serialize state")
-			}
-			newToken, stealErr := i.storage.Steal(ctx, ek, existingVal, stealVal)
-			switch {
-			case stealErr == nil:
-				i.metrics.locksAcquired.Inc()
-				return true, i.heldState(newToken, wire.Fingerprint, wire.Owner), nil
-			case errors.Is(stealErr, ErrLockStolen):
-				// Race: someone else stole or the entry vanished
-				// between our Get and Steal. Fall through and surface
-				// the previously observed state — caller will retry.
-			default:
-				i.metrics.errors.Inc()
-				return false, nil, stealErr
+				return false, nil, err
 			}
 		}
 	}
@@ -304,10 +306,49 @@ func (i *Keeper) heldState(lockToken, fingerprint []byte, owner string) *State {
 	return st
 }
 
-// mayTakeOver reports whether the caller may take over existing's lock: the
-// record has no owner, or it is the caller's.
-func (i *Keeper) mayTakeOver(existing serializedState, owner string) bool {
-	return existing.Owner == "" || existing.Owner == owner
+func (i *Keeper) readCollision(ctx context.Context, val []byte, owner string, fingerprint []byte) (serializedState, error) {
+	var existing serializedState
+	if err := i.opts.serializer.Deserialize(val, &existing); err != nil {
+		i.metrics.errors.Inc()
+		return serializedState{}, coreerrs.WrapOperation(err, "deserialize existing state")
+	}
+	if err := i.checkReplay(ctx, existing, owner, fingerprint); err != nil {
+		i.metrics.locksDenied.Inc()
+		return serializedState{}, err
+	}
+	return existing, nil
+}
+
+func (i *Keeper) usesKeeperClock() bool {
+	store, ok := i.storage.(storages.KeeperClockStorage)
+	return ok && store.UsesKeeperClock()
+}
+
+func (i *Keeper) stampLock(wire *serializedState) {
+	if i.usesKeeperClock() {
+		wire.LockedAt = time.Now()
+		return
+	}
+	wire.LockIssuer = i.lockIssuer
+	wire.LockTick = time.Since(i.lockEpoch).Nanoseconds()
+}
+
+func (i *Keeper) canReclaim(existing serializedState, owner string, maxAge time.Duration) bool {
+	if maxAge <= 0 || existing.Status != StatusInProgress || (existing.Owner != "" && existing.Owner != owner) {
+		return false
+	}
+	if i.usesKeeperClock() {
+		return !existing.LockedAt.IsZero() && time.Since(existing.LockedAt) > maxAge
+	}
+	if existing.LockIssuer == i.lockIssuer {
+		// The stamp precedes acquisition, so a fresh local stamp lets us
+		// skip the write attempt. The backend still decides actual age.
+		now := time.Since(i.lockEpoch).Nanoseconds()
+		if existing.LockTick >= 0 && existing.LockTick <= now && now-existing.LockTick < maxAge.Nanoseconds() {
+			return false
+		}
+	}
+	return true
 }
 
 // ownerOf returns the caller's owner identity, "" without [WithOwner].

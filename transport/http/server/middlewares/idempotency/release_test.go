@@ -61,7 +61,7 @@ func TestCanceledRequestStillFinalizesKey(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			keeper := idempotency.New(memory.New())
+			keeper := idempotency.New(newMemoryStorage(t))
 			ctx, cancel := context.WithCancel(t.Context())
 			handler := middleware.Middleware(ctxKeeper{keeper})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				cancel() // the client disconnects while the handler runs
@@ -82,7 +82,7 @@ func TestCanceledRequestStillFinalizesKey(t *testing.T) {
 
 func TestPanickingHandlerReleasesKey(t *testing.T) {
 	t.Parallel()
-	keeper := idempotency.New(memory.New())
+	keeper := idempotency.New(newMemoryStorage(t))
 	handler := middleware.Middleware(keeper)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
@@ -98,7 +98,7 @@ func TestPanickingHandlerReleasesKey(t *testing.T) {
 
 func TestFailedRequestCannotReleaseNewOwner(t *testing.T) {
 	t.Parallel()
-	store := memory.New()
+	store := newMemoryStorage(t)
 	keeper := idempotency.New(store)
 	// key is the Keeper key the middleware builds; the Keeper stores it in the
 	// empty namespace under storageKey.
@@ -107,8 +107,9 @@ func TestFailedRequestCannotReleaseNewOwner(t *testing.T) {
 	handler := middleware.Middleware(keeper)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, current, _, err := store.AttemptLock(r.Context(), storageKey, nil)
 		require.NoError(t, err)
-		_, err = store.Steal(r.Context(), storageKey, current, append(current, ' '))
+		stolen, _, _, err := store.Steal(r.Context(), storageKey, current, append(current, ' '), 0, 0)
 		require.NoError(t, err)
+		require.True(t, stolen)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/users", nil)
@@ -117,4 +118,11 @@ func TestFailedRequestCannotReleaseNewOwner(t *testing.T) {
 	acquired, _, err := keeper.AttemptLock(t.Context(), key)
 	require.NoError(t, err)
 	require.False(t, acquired)
+}
+
+func newMemoryStorage(t testing.TB) *memory.Storage {
+	t.Helper()
+	store, err := memory.New()
+	require.NoError(t, err)
+	return store
 }

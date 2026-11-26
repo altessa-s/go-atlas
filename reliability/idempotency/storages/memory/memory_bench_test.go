@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkStorage_AttemptLock(b *testing.B) {
-	s := New()
+	s := newStore(b)
 	ctx := b.Context()
 	b.ResetTimer()
 	for b.Loop() {
@@ -20,7 +20,7 @@ func BenchmarkStorage_AttemptLock(b *testing.B) {
 }
 
 func BenchmarkStorage_Complete(b *testing.B) {
-	s := New()
+	s := newStore(b)
 	ctx := b.Context()
 	_, _, lockToken, _ := s.AttemptLock(ctx, "bench-key", []byte("in-progress"))
 	b.ResetTimer()
@@ -30,7 +30,7 @@ func BenchmarkStorage_Complete(b *testing.B) {
 }
 
 func BenchmarkStorage_AttemptLock_Contention(b *testing.B) {
-	s := New()
+	s := newStore(b)
 	ctx := b.Context()
 	s.AttemptLock(ctx, "existing", []byte("val"))
 	b.ResetTimer()
@@ -40,7 +40,7 @@ func BenchmarkStorage_AttemptLock_Contention(b *testing.B) {
 }
 
 func BenchmarkStorage_RunCleanup(b *testing.B) {
-	s := New(WithTTL(1))
+	s := newStore(b, WithTTL(1))
 	ctx := b.Context()
 	for i := range 1000 {
 		s.AttemptLock(ctx, fmt.Sprintf("key-%d", i), []byte("val"))

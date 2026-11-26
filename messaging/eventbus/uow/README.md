@@ -17,6 +17,9 @@ transaction is supplied through the consumer-defined [`Committer`](./uow.go) int
 4. Fire-and-forget hooks (cache invalidation) are registered with `Runner.AfterCommit` and run after the commit, in registration order with the
    effects; a hook cannot fail the transaction and its panic is recovered and logged.
 
+A panic in an effect is handled as an effect failure. Compensation continues
+after a compensator panics, and subsequent hooks still run.
+
 Applying after the commit means a driver-retried transaction never duplicates an effect and an aborted transaction never runs them (clean rollback, no
 compensation). Compensation covers the one remaining case — an effect that fails after the commit.
 
@@ -45,6 +48,8 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | `ErrForeignTransaction` | ctx carries a detected transaction that the Runner did not start, or an open unit of another Runner |
 | `ErrScopeClosed`        | ctx carries a unit that ended: retained after `Run` returned, or of an attempt the driver aborted and retried   |
 | `ErrUnknownOutcome`     | Matched by `*UnknownOutcomeError`; the writes may or may not have committed                                       |
+
+Effects that panic return an error matching `ErrCallbackPanicked`. Callback recovery records a stack trace and a fixed panic class.
 
 ## Semantics
 

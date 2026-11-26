@@ -6,8 +6,10 @@ package memory
 
 import (
 	"cmp"
+	"container/heap"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -35,6 +37,8 @@ type Store[P any] struct {
 	// before waiting for mu. It is a test seam, nil in production: a test
 	// holding mu learns that a call passed the check and is about to block.
 	beforeLock func()
+	// requeueVisit counts candidate checks in Requeue when a test installs it.
+	requeueVisit func()
 }
 
 // New returns an empty Store. The default snapshot copies exported data
@@ -161,15 +165,28 @@ func (s *Store[P]) ListDue(ctx context.Context, now time.Time, limit int) ([]ret
 		return nil, err
 	}
 	defer s.mu.Unlock()
-	out := s.collect(func(it retryqueue.Item[P]) bool {
-		return it.State == retryqueue.StatePending && !it.NextAttemptAt.After(now)
-	})
-	slices.SortFunc(out, func(a, b retryqueue.Item[P]) int {
-		return cmp.Or(a.NextAttemptAt.Compare(b.NextAttemptAt), cmp.Compare(a.Key, b.Key))
-	})
-	out = truncate(out, limit)
-	for i := range out {
-		out[i] = s.snapshot(out[i])
+	if limit <= 0 {
+		limit = retryqueue.DefaultListLimit
+	}
+	due := make(dueHeap[P], 0, min(limit, len(s.items)))
+	for _, it := range s.items {
+		if it.State != retryqueue.StatePending || it.NextAttemptAt.After(now) {
+			continue
+		}
+		if len(due) < limit {
+			due = append(due, it)
+			if len(due) == limit {
+				heap.Init(&due)
+			}
+		} else if compareDue(it, due[0]) < 0 {
+			due[0] = it
+			heap.Fix(&due, 0)
+		}
+	}
+	slices.SortFunc(due, compareDue[P])
+	out := make([]retryqueue.Item[P], len(due))
+	for i, it := range due {
+		out[i] = s.snapshot(it)
 	}
 	return out, nil
 }
@@ -187,6 +204,30 @@ func (s *Store[P]) WakeDue(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// dueHeap places the latest selected item first so an earlier candidate can
+// replace it without sorting the whole backlog.
+type dueHeap[P any] []retryqueue.Item[P]
+
+func compareDue[P any](a, b retryqueue.Item[P]) int {
+	return cmp.Or(a.NextAttemptAt.Compare(b.NextAttemptAt), cmp.Compare(a.Key, b.Key))
+}
+
+func (h dueHeap[P]) Len() int           { return len(h) }
+func (h dueHeap[P]) Less(i, j int) bool { return compareDue(h[i], h[j]) > 0 }
+func (h dueHeap[P]) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *dueHeap[P]) Push(x any) {
+	*h = append(*h, x.(retryqueue.Item[P])) //nolint:errcheck // heap elements are retry items.
+}
+
+func (h *dueHeap[P]) Pop() any {
+	last := len(*h) - 1
+	it := (*h)[last]
+	clear((*h)[last:])
+	*h = (*h)[:last]
+	return it
 }
 
 // Reschedule implements [retryqueue.Storage].
@@ -351,8 +392,13 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 	defer s.mu.Unlock()
 	now = now.UTC()
 	moved := 0
-	for key, it := range s.items {
-		if it.State != retryqueue.StateExpired || (len(keys) > 0 && !slices.Contains(keys, key)) {
+	selected := slices.Values(keys)
+	if len(keys) == 0 {
+		selected = maps.Keys(s.items)
+	}
+	for key := range selected {
+		it := s.items[key]
+		if !s.requeueCandidate(it) {
 			continue
 		}
 		it.State = retryqueue.StatePending
@@ -363,6 +409,15 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 		moved++
 	}
 	return moved, nil
+}
+
+// requeueCandidate is the eligibility check shared by keyed and full-queue
+// requeues. A missing item has the zero state and is ineligible.
+func (s *Store[P]) requeueCandidate(it retryqueue.Item[P]) bool {
+	if s.requeueVisit != nil {
+		s.requeueVisit()
+	}
+	return it.State == retryqueue.StateExpired
 }
 
 // Move implements [retryqueue.Mover] under the store's mutex: the item is

@@ -32,7 +32,7 @@ func TestCompletionDoesNotReplayPartialWrite(t *testing.T) {
 	require.EqualValues(t, 2, w.BytesWritten())
 	require.Equal(t, "he", w.BodyString())
 	require.ErrorIs(t, w.WriteError(), io.ErrClosedPipe)
-	m := New(newKeeper(), WithResponseReplay())
+	m := New(newKeeper(t), WithResponseReplay())
 	record := m.completionData(req, w, false).(internalidem.Record)
 	require.False(t, record.HasHTTPResponse(replayBinding(req)))
 	require.Empty(t, record.Body)
