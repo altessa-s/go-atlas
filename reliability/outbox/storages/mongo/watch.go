@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
+	"github.com/altessa-s/go-atlas/reliability/outbox/internal/watchutil"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -55,19 +56,12 @@ const (
 // poll cycle keeps draining the outbox while the stream is down.
 const (
 	// watchRetryBaseDelay is the pause before the first reconnect attempt.
-	watchRetryBaseDelay = time.Second
+	watchRetryBaseDelay = watchutil.ReconnectBaseDelay
 
 	// watchRetryMaxDelay caps the pause between reconnect attempts. It is well
 	// under a typical dispatch interval, so a flapping stream costs latency
 	// rather than throughput.
-	watchRetryMaxDelay = 30 * time.Second
-
-	// watchRetryFactor is the exponential multiplier applied per attempt.
-	watchRetryFactor = 1.5
-
-	// watchRetryJitter spreads reconnects so that every instance of a service
-	// that lost the same primary does not come back at the same instant.
-	watchRetryJitter = 0.2
+	watchRetryMaxDelay = watchutil.ReconnectMaxDelay
 
 	// watchProbeTimeout bounds one attempt of the capability probe that
 	// precedes the first stream, so a hung handshake is retried rather than
@@ -86,10 +80,8 @@ const (
 	watchCloseTimeout = 5 * time.Second
 
 	// watchLogEvery spaces the warnings of a run of consecutive failures: the
-	// first one is logged, then every watchLogEvery-th. Once the backoff has
-	// reached [watchRetryMaxDelay] that is one record every five minutes, so a
-	// deployment that never comes back stays visible without flooding the log.
-	watchLogEvery = 10
+	// first one is logged, then every watchLogEvery-th.
+	watchLogEvery = watchutil.LogEvery
 )
 
 // watchPipeline restricts the change stream to the one transition the poll
@@ -176,12 +168,7 @@ func (s *Store) hello(ctx context.Context) (helloReply, error) {
 // wake-up, because the events missed in the gap are invisible to any stream
 // that starts after them.
 func (s *Store) Watch(ctx context.Context, notify func()) error {
-	backoff := coreretry.Exponential(
-		watchRetryBaseDelay,
-		coreretry.WithExponentialMaxDelay(watchRetryMaxDelay),
-		coreretry.WithExponentialFactor(watchRetryFactor),
-		coreretry.WithExponentialJitter(watchRetryJitter),
-	)
+	backoff := watchutil.ReconnectBackoff()
 
 	supported, err := probeUntilAnswered(ctx, backoff, logProbe(s.logger, s.SupportsChangeStreams))
 	if ctx.Err() != nil {
@@ -237,7 +224,7 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 
 		delay := backoff(attempt, streamErr)
 		attempt++
-		if logsFailure(attempt) {
+		if watchutil.ShouldLogFailure(attempt) {
 			s.logger.WarnContext(ctx, "outbox change stream ended, reconnecting",
 				slog.Int("failures", attempt), slog.Duration("delay", delay), slog.Any("error", streamErr))
 		}
@@ -283,7 +270,7 @@ func logProbe(logger *slog.Logger, probe func(context.Context) (bool, error)) fu
 		case errors.Is(err, context.Canceled):
 		case err != nil:
 			failures++
-			if logsFailure(failures) {
+			if watchutil.ShouldLogFailure(failures) {
 				logger.WarnContext(ctx, "outbox change-stream probe failed, retrying",
 					slog.Int("failures", failures), slog.Any("error", err))
 			}
@@ -293,12 +280,6 @@ func logProbe(logger *slog.Logger, probe func(context.Context) (bool, error)) fu
 		}
 		return supported, err
 	}
-}
-
-// logsFailure reports whether the n-th consecutive failure (counted from 1) is
-// logged: the first, then every [watchLogEvery]-th.
-func logsFailure(n int) bool {
-	return n == 1 || n%watchLogEvery == 0
 }
 
 // streamInserts opens one change stream and pumps it until it ends, calling
@@ -341,17 +322,5 @@ func isServerErrorCode(err error, code int) bool {
 
 // sleep waits for d, reporting false when ctx ended first.
 func sleep(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return ctx.Err() == nil
-	}
-
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
+	return watchutil.Sleep(ctx, d)
 }

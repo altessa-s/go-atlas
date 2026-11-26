@@ -14,8 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/sqlident"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
-
-	coreretry "github.com/altessa-s/go-atlas-core/retry"
+	"github.com/altessa-s/go-atlas/reliability/outbox/internal/watchutil"
 )
 
 // Listener subscribes to PostgreSQL notifications. database/sql has no
@@ -49,24 +48,6 @@ var (
 // errListenerClosed reports a subscription that ended while the watcher was
 // still running.
 var errListenerClosed = errors.New("sqldb: notification subscription closed")
-
-// Watch reconnect timings. Deliberately not options: the window they govern is
-// bounded by the dispatch schedule either way, since the poll cycle keeps
-// draining the outbox while no subscription is active.
-const (
-	// watchRetryBaseDelay is the pause before the first resubscription.
-	watchRetryBaseDelay = time.Second
-	// watchRetryMaxDelay caps the pause between resubscriptions.
-	watchRetryMaxDelay = 30 * time.Second
-	// watchRetryFactor is the exponential multiplier applied per attempt.
-	watchRetryFactor = 1.5
-	// watchRetryJitter spreads the resubscriptions of the instances that lost
-	// the same server.
-	watchRetryJitter = 0.2
-	// watchLogEvery spaces the warnings of a run of consecutive failures: the
-	// first one is logged, then every watchLogEvery-th.
-	watchLogEvery = 10
-)
 
 // notifyChannel returns the validated notification channel: explicit, or
 // derived from the table name by joining a schema qualifier with an underscore
@@ -115,12 +96,7 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 		return outbox.ErrWatchUnsupported
 	}
 
-	backoff := coreretry.Exponential(
-		watchRetryBaseDelay,
-		coreretry.WithExponentialMaxDelay(watchRetryMaxDelay),
-		coreretry.WithExponentialFactor(watchRetryFactor),
-		coreretry.WithExponentialJitter(watchRetryJitter),
-	)
+	backoff := watchutil.ReconnectBackoff()
 
 	var (
 		attempt int
@@ -139,10 +115,10 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 			if gap {
 				notify() // Events committed while nobody listened.
 			}
-			if received := pump(ctx, signals, notify); received && time.Since(started) >= watchRetryMaxDelay {
+			if received := pump(ctx, signals, notify); received && time.Since(started) >= watchutil.ReconnectMaxDelay {
 				// Only a stable subscription that delivered a signal resets the
 				// backoff: a silent one may have been half-open all along. On a
-				// quiet outbox the backoff then stays high, at most watchRetryMaxDelay.
+				// quiet outbox the backoff then stays high, at most ReconnectMaxDelay.
 				attempt = 0
 			}
 			if ctx.Err() != nil {
@@ -154,7 +130,7 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 		gap = true
 		delay := backoff(attempt, err)
 		attempt++
-		if attempt == 1 || attempt%watchLogEvery == 0 {
+		if watchutil.ShouldLogFailure(attempt) {
 			s.logger.WarnContext(ctx, "outbox notification subscription failed, resubscribing",
 				slog.Int("failures", attempt), slog.Duration("delay", delay), slog.Any("error", err))
 		}
@@ -183,13 +159,5 @@ func pump(ctx context.Context, signals <-chan struct{}, notify func()) (received
 
 // sleep waits for d, reporting false when ctx ended first.
 func sleep(ctx context.Context, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
+	return watchutil.Sleep(ctx, d)
 }

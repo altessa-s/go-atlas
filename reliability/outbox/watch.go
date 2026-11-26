@@ -10,8 +10,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/reliability/outbox/internal/watchutil"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	coreretry "github.com/altessa-s/go-atlas-core/retry"
 )
 
 // Watcher is an optional [Storage] capability: a store that can push a signal the
@@ -125,12 +126,7 @@ func (o *Outbox) Watch(ctx context.Context) error {
 	done := make(chan error, 1)
 	go func() { done <- watcher.Watch(watchCtx, notify) }()
 
-	stallBackoff := coreretry.Exponential(
-		watchStallBaseDelay,
-		coreretry.WithExponentialMaxDelay(watchStallMaxDelay),
-		coreretry.WithExponentialFactor(DefaultRetryFactor),
-		coreretry.WithExponentialJitter(DefaultRetryJitter),
-	)
+	stallBackoff := watchutil.Backoff(watchStallBaseDelay, watchStallMaxDelay, DefaultRetryFactor, DefaultRetryJitter)
 	stalled := 0 // Consecutive full cycles that advanced nothing.
 
 	for {
@@ -158,7 +154,7 @@ func (o *Outbox) Watch(ctx context.Context) error {
 			// re-arm at once and spin against the store, so a drain that got
 			// nowhere waits before its next cycle.
 			if !advanced {
-				if !pause(ctx, stallBackoff(stalled, nil)) {
+				if !watchutil.Sleep(ctx, stallBackoff(stalled, nil)) {
 					continue
 				}
 				stalled++
@@ -178,19 +174,6 @@ const (
 	// watchStallMaxDelay caps the pause between such cycles.
 	watchStallMaxDelay = 5 * time.Second
 )
-
-// pause waits for d, reporting false when ctx ended first.
-func pause(ctx context.Context, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
 
 // dispatchNotified runs one notification-driven dispatch cycle. It reports
 // whether the store may hold more work and whether the cycle advanced any event.

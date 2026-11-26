@@ -17,8 +17,8 @@ import (
 
 // factoryOwnTrees are the factory subtrees that build no package of their
 // own path: the generic base, the client lifecycles of external systems and
-// the helpers shared by the transport factories.
-var factoryOwnTrees = []string{"core", "infrastructure", "transport/internal"}
+// the helpers shared by the reliability and transport factories.
+var factoryOwnTrees = []string{"core", "infrastructure", "reliability/internal", "transport/internal"}
 
 // factoryExtModules maps the first segment under factory/ext to the external
 // module whose packages the factories there build.
