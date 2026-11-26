@@ -58,8 +58,8 @@ func (s *samplingLoop) start(ctx context.Context) {
 
 	stop := make(chan struct{})
 	s.stopChan = stop
-	s.running.Store(true)
 	s.initialize()
+	s.running.Store(true)
 	go s.run(ctx, stop)
 }
 
