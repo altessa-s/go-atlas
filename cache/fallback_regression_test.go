@@ -12,11 +12,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-
 	"github.com/altessa-s/go-atlas/cache"
 	"github.com/altessa-s/go-atlas/cache/storages/freecache"
 	"github.com/altessa-s/go-atlas/cache/storages/lru"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // TestGetWithFallback_ReaderAfterDeleteDoesNotJoinOldFlight pins that a reader
