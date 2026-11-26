@@ -769,6 +769,10 @@ nor trigger IdP traffic:
 Garbage or foreign-signed tokens are rejected before any IdP request. A local storage hit always rejects; a local miss never skips
 introspection.
 
+With `itemType: jti` or `kid`, a token whose `jti` claim or `kid` header is missing, empty or not a string has no revocation key and is rejected
+with `ErrTokenInvalid`: looking it up by the whole token would never match an entry revoked by `jti` or `kid`. The Go option
+`WithInsecureRevocationSkipMissingItem()` restores that whole-token lookup (there is no YAML key); use it only when such tokens cannot occur.
+
 ---
 
 ## JSON Service Config
