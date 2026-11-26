@@ -25,6 +25,7 @@ tests and single-process deployments. Items are lost on process exit, and resolv
 - Instants are normalized to UTC. The store snapshots exported payload data on insert and read, including nested pointers, slices and map values.
   Private fields, channels and functions retain their identity. A pointer used in a map key retains its identity wherever it appears in the payload.
   Treat its target as immutable or use `NewWithClone` to snapshot both keys and references according to the payload's lookup rules.
+- `ListDue` selects the earliest due items with working space bounded by the requested limit.
 - Worker methods implement `retryqueue.AttemptStorage` and check both the generation and the age observed by the caller.
 - The store passes the [storagetest](../storagetest) conformance kit.
 
