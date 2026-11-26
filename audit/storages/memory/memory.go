@@ -30,6 +30,9 @@ func New() *Storage {
 
 // Store appends a single event to the in-memory slice.
 func (s *Storage) Store(_ context.Context, event *audit.Event) error {
+	if event == nil {
+		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+	}
 	s.mu.Lock()
 	s.events = append(s.events, event)
 	s.mu.Unlock()

@@ -5,6 +5,7 @@
 package audit_test
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -175,4 +176,40 @@ func TestJSONCodec_RoundTrip(t *testing.T) {
 
 	_, err = c.Decode([]byte("{not json"))
 	require.Error(t, err)
+}
+
+func TestJSONCodec_PreservesLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	const large = "9007199254740993"
+	var c audit.JSONCodec
+	in := &audit.Event{
+		ID:        "evt-large",
+		Type:      audit.EventTypeDataChange,
+		Action:    audit.ActionUpdate,
+		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		Actor:     audit.Actor{Metadata: map[string]any{"actor_seq": json.Number(large)}},
+		Resource: audit.Resource{
+			Attributes: map[string]any{"res_seq": json.Number(large)},
+			Changes: &audit.ResourceChanges{
+				Before: map[string]any{"seq": json.Number(large)},
+				After:  map[string]any{"seq": json.Number(large)},
+			},
+		},
+		Metadata: map[string]any{"seq": json.Number(large)},
+	}
+
+	raw, err := c.Encode(in)
+	require.NoError(t, err)
+
+	decoded, err := c.Decode(raw)
+	require.NoError(t, err)
+
+	reencoded, err := c.Encode(decoded)
+	require.NoError(t, err)
+	require.NotContains(t, string(reencoded), "9007199254740992")
+	require.Equal(t, string(raw), string(reencoded))
+
+	_, err = c.Decode([]byte(`{"id":"a"}{"id":"b"}`))
+	require.Error(t, err, "trailing JSON input must be rejected")
 }

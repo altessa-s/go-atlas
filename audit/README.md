@@ -18,6 +18,7 @@ run off the request path; submission itself runs in the caller and can block on 
 |-----------------------------|-------------------------------------------------------------------------|
 | `Auditor`                   | Main entry point for emitting audit events (non-blocking)               |
 | `Dispatcher`                | Async item dispatch interface (`Submit`, `Dropped`)                     |
+| `Enqueuer`                  | Optional `Dispatcher` interface reporting typed rejection errors        |
 | `Storage`                   | Persistence interface: Store, StoreBatch, Query, Count, Close           |
 | `StorageSink`               | Adapts `Storage` to `dispatch.Sink` for engine construction             |
 | `JSONCodec`                 | Default `dispatch.Codec` for WAL durability (JSON)                      |
@@ -52,9 +53,10 @@ go-atlas-core [runtime/dispatch](https://github.com/altessa-s/go-atlas-core/tree
 
 By default `Start` registers the auditor's shutdown in the process-wide registry
 ([`go-atlas-core/runtime.OnShutdown`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime)), which runs once for the whole program — an
-auditor registered there cannot have its hook run on its own (call `Auditor.Shutdown(ctx)` directly to stop it). Pass a
-[`runtime.HookGroup`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime) when the auditor's lifetime is shorter than the process's, e.g.
-when a factory owns it and the caller may tear the subsystem down and rebuild it:
+auditor registered there cannot have its hook run on its own (call `Auditor.Shutdown(ctx)` directly to stop it). `Auditor.Shutdown` stops admission
+without closing the externally owned `Dispatcher`, so calling `Auditor.Start` again re-enables admission while that dispatcher remains running (a
+`dispatch.Engine` itself is single-use once shut down). Pass a [`runtime.HookGroup`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime)
+when the auditor's lifetime is shorter than the process's, e.g. when a factory owns it and the caller may tear the subsystem down and rebuild it:
 
 ```go
 var hooks runtime.HookGroup
@@ -67,9 +69,11 @@ _ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
 
 ## Batch writes
 
-An empty batch succeeds. A nil event rejects the whole batch before any event is written. MongoDB can persist an ordered prefix on a write error.
-ClickHouse can retain completed chunks. Memory appends atomically. SQL makes storage-owned transactions atomic and requires the caller to roll back a
-failed caller-owned transaction.
+An empty batch succeeds. A nil event in `Store` or `StoreBatch` rejects the call with `coreerrs.ErrInvalidArgument` before any event is written.
+Replay idempotency in MongoDB and SQL is keyed by `Event.ID` only, so callers invoking `Storage` directly without `Auditor` must supply unique IDs.
+MongoDB writes unordered sub-batches (verifying duplicate `_id`s on the primary under `majority` read concern) and can retain valid events from any
+position in the batch when another element fails. ClickHouse can retain completed chunks. Memory appends atomically. SQL makes storage-owned
+transactions atomic and requires the caller to roll back a failed caller-owned transaction.
 
 ## Paging
 

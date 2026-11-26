@@ -36,10 +36,12 @@ The subsystem defaults to `DefaultMetricsSubsystem` (`async`) and can be changed
 
 Package: `audit`
 
-| Name                         | Type    | Labels | Description                               |
-|------------------------------|---------|--------|-------------------------------------------|
-| `audit_events_emitted_total` | Counter | --     | Audit events successfully emitted         |
-| `audit_events_dropped_total` | Counter | --     | Audit events dropped due to a full buffer |
+| Name                         | Type    | Labels   | Description                                                        |
+|------------------------------|---------|----------|--------------------------------------------------------------------|
+| `audit_events_emitted_total` | Counter | --       | Audit events successfully emitted                                  |
+| `audit_events_dropped_total` | Counter | `reason` | Audit events dropped before dispatch or rejected by the dispatcher |
+
+`reason` is one of `not_started`, `shutdown`, `dispatcher_closed`, `queue_full`, `wal_full`, or `rejected`.
 
 ---
 

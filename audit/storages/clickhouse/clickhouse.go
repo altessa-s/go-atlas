@@ -94,6 +94,10 @@ func New(ctx context.Context, conn Conn, opts ...Option) (*Storage, error) {
 // insert, which buffers it server-side into a shared block.
 // [Storage.StoreBatch] remains the hot path.
 func (s *Storage) Store(ctx context.Context, event *audit.Event) error {
+	if event == nil {
+		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+	}
+
 	asyncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{
 		"async_insert":          1,
 		"wait_for_async_insert": 1,

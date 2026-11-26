@@ -12,6 +12,24 @@ import (
 // explicit subsystem is provided via [WithMetricsSubsystem].
 const DefaultMetricsSubsystem = "audit"
 
+const labelReason = "reason"
+
+// Reason label values recorded on events_dropped_total.
+const (
+	// DropReasonNotStarted means [Auditor.Emit] ran before [Auditor.Start].
+	DropReasonNotStarted = "not_started"
+	// DropReasonShutdown means [Auditor.Emit] ran after [Auditor.Shutdown].
+	DropReasonShutdown = "shutdown"
+	// DropReasonDispatcherClosed means the underlying dispatcher was not started or already closed.
+	DropReasonDispatcherClosed = "dispatcher_closed"
+	// DropReasonQueueFull means the dispatcher's in-memory buffer had no capacity.
+	DropReasonQueueFull = "queue_full"
+	// DropReasonWALFull means the dispatcher's WAL reached its byte cap.
+	DropReasonWALFull = "wal_full"
+	// DropReasonRejected means the dispatcher rejected the event without a more specific reason.
+	DropReasonRejected = "rejected"
+)
+
 // auditMetrics holds Prometheus metrics for the Auditor facade.
 // Dispatch-level metrics (workers, flush duration, WAL) are provided
 // by the underlying [dispatch.Engine] and are not duplicated here.
@@ -39,8 +57,9 @@ func newAuditMetrics(c metrics.Meter, subsystem string) *auditMetrics {
 			Help: "Total number of audit events successfully submitted to the dispatcher.",
 		}),
 		eventsDropped: scoped.MustCounter(metrics.MetricOpts{
-			Name: "events_dropped_total",
-			Help: "Total number of audit events dropped due to a full buffer.",
+			Name:       "events_dropped_total",
+			Help:       "Total number of audit events dropped before dispatch or rejected by the dispatcher, partitioned by reason.",
+			LabelNames: []string{labelReason},
 		}),
 	}
 }

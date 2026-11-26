@@ -5,6 +5,10 @@
 package auditconfig_test
 
 import (
+	"errors"
+	"maps"
+	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +20,7 @@ import (
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 func key(n int) redacted.RedactedString {
@@ -119,6 +124,48 @@ func TestSQLTTLMatchesMongo(t *testing.T) {
 			sqlCfg.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeSQL, SQL: &sql}
 			require.NoError(t, mongoCfg.Validate())
 			require.NoError(t, sqlCfg.Validate())
+		})
+	}
+}
+
+func TestStorageMongo_ValidateTTL(t *testing.T) {
+	t.Parallel()
+
+	maxValid := time.Duration(math.MaxInt32) * time.Second
+	tests := []struct {
+		name    string
+		ttl     time.Duration
+		wantErr bool
+	}{
+		{name: "zero disabled", ttl: 0, wantErr: false},
+		{name: "sub-second 720ns rejected", ttl: 720 * time.Nanosecond, wantErr: true},
+		{name: "sub-second 999ms rejected", ttl: 999 * time.Millisecond, wantErr: true},
+		{name: "one second valid", ttl: time.Second, wantErr: false},
+		{name: "max int32 seconds valid", ttl: maxValid, wantErr: false},
+		{name: "overflow int32 seconds rejected", ttl: maxValid + time.Second, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validConfig()
+			cfg.Storage = auditconfig.Storage{
+				Type:  auditconfig.StorageTypeMongo,
+				Mongo: &auditconfig.StorageMongo{TTL: tc.ttl},
+			}
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				verrs, ok := errors.AsType[validation.Errors](err)
+				require.True(t, ok, "want validation.Errors, got %T: %v", err, err)
+				storageErrs, ok := errors.AsType[validation.Errors](verrs["Storage"])
+				require.True(t, ok, "want Storage validation.Errors, got %v", verrs)
+				mongoErrs, ok := errors.AsType[validation.Errors](storageErrs["Mongo"])
+				require.True(t, ok, "want Mongo validation.Errors, got %v", storageErrs)
+				require.Equal(t, []string{"TTL"}, slices.Collect(maps.Keys(mongoErrs)))
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

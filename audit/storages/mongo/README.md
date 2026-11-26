@@ -4,11 +4,15 @@
 import "github.com/altessa-s/go-atlas/audit/storages/mongo"
 ```
 
-Package `mongo` implements `audit.Storage` using MongoDB as the backing store. Supports batch writes, indexed queries, and TTL-based cleanup for
-durable audit trail persistence.
+Package `mongo` implements `audit.Storage` using MongoDB as the backing store. Supports unordered idempotent batch writes, indexed queries, and TTL-based
+cleanup for durable audit trail persistence.
 
-An empty batch succeeds. A nil event rejects the whole batch before any event is written. MongoDB can retain the inserted prefix when a later document
-fails.
+An empty batch succeeds. A nil event in `Store` or `StoreBatch` fails with `coreerrs.ErrInvalidArgument` before any event is written. Replay detection is
+keyed by `Event.ID` (`_id`) only — callers invoking `Storage` directly without `Auditor` must supply unique non-empty IDs. On code `11000`, `Store` and
+`StoreBatch` verify `_id` existence on the primary with `majority` read concern and acknowledge only verified replays. Write-concern failures from any
+sub-batch wrap `coreerrs.ErrUnavailable`, unverified unique-constraint violations wrap `coreerrs.ErrConflict`, and non-duplicate write rejections wrap
+`coreerrs.ErrFailedPrecondition`, always without raw MongoDB server text. Positive TTLs must be between `MinTTL` (`1s`) and `MaxTTL` (`math.MaxInt32`
+seconds).
 
 ## Indexes
 

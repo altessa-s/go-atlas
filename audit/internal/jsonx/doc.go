@@ -1,0 +1,7 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+// Package jsonx decodes audit JSON payloads while preserving exact number
+// literals in free-form maps.
+package jsonx

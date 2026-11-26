@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/internal/jsonx"
 	"github.com/altessa-s/go-atlas/internal/purgeloop"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
@@ -243,7 +244,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 				return
 			}
 			var e audit.Event
-			if err := json.Unmarshal(payload, &e); err != nil {
+			if err := jsonx.Decode(payload, &e); err != nil {
 				yield(nil, coreerrs.WrapOperation(err, "decode audit event"))
 				return
 			}

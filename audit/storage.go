@@ -12,17 +12,22 @@ import (
 
 // Storage defines the persistence interface for audit events.
 type Storage interface {
-	// Store persists a single audit event.
+	// Store persists a single audit event. A nil event is rejected with an error
+	// matching go-atlas-core/errors.ErrInvalidArgument. Idempotent backends
+	// (MongoDB, SQL) deduplicate by Event.ID only, so callers invoking Storage
+	// directly without [Auditor] must supply unique IDs.
 	Store(ctx context.Context, event *Event) error
 
 	// StoreBatch persists multiple audit events. An empty batch succeeds. A nil
 	// element rejects the whole batch before any write, with an error matching
 	// go-atlas-core/errors.ErrInvalidArgument.
 	//
-	// After a write error, MongoDB ordered inserts and ClickHouse chunked
-	// inserts can leave a prefix persisted. Memory appends atomically. SQL
-	// commits atomically in a storage-owned transaction; callers must roll
-	// back their own transaction on error.
+	// Replay idempotency in MongoDB and SQL is keyed by Event.ID only. After a
+	// write error, MongoDB unordered inserts can retain valid events from any
+	// position in the batch and ClickHouse chunked inserts can leave completed
+	// chunks persisted. Memory appends atomically. SQL commits atomically in a
+	// storage-owned transaction; callers must roll back their own transaction on
+	// error.
 	StoreBatch(ctx context.Context, events []*Event) error
 
 	// Query returns an iterator over events matching the given criteria.

@@ -17,6 +17,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var errBackend = errors.New("backend failure")
@@ -676,5 +678,14 @@ func TestStoreBatchNilEvent(t *testing.T) {
 	s, err := New(t.Context(), conn, WithMaxBatchSize(1))
 	require.NoError(t, err)
 	storagetest.NilBatchEvent(t, s)
+	require.Zero(t, conn.prepareCalls)
+}
+
+func TestStoreNilEvent(t *testing.T) {
+	t.Parallel()
+	conn := &mockConn{}
+	s, err := New(t.Context(), conn)
+	require.NoError(t, err)
+	require.ErrorIs(t, s.Store(t.Context(), nil), coreerrs.ErrInvalidArgument)
 	require.Zero(t, conn.prepareCalls)
 }
