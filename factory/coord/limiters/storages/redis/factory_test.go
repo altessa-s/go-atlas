@@ -29,8 +29,8 @@ func TestBuilder_BudgetEnforcesLimit(t *testing.T) {
 	l, err := budgetfactory.New(&limiterconfig.Budget{
 		Limit:   3,
 		Period:  time.Hour,
-		Storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis, Redis: &storageconfig.RedisConfig{KeysPrefix: "budget:"}},
-	}).UseStorage(storageconfig.BackendTypeRedis, factory.Builder(client)).Build(t.Context())
+		Storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis, Redis: &storageconfig.RedisConfig{KeysPrefix: "budget:"}},
+	}).UseStorage(limiterconfig.StorageTypeRedis, factory.Builder(client)).Build(t.Context())
 	require.NoError(t, err)
 
 	for i := range 3 {
@@ -49,11 +49,11 @@ func TestBuilder_TokenBucketEnforcesLimit(t *testing.T) {
 
 	l, err := tokenbucketfactory.New(&limiterconfig.TokenBucket{
 		IpCacheSize: 100,
-		Storage:     &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis, Redis: &storageconfig.RedisConfig{KeysPrefix: "tb:"}},
+		Storage:     &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis, Redis: &storageconfig.RedisConfig{KeysPrefix: "tb:"}},
 		Rules: &limiterconfig.TokenBucketRules{
 			Default: &limiterconfig.TokenBucketDefaultRule{Limit: 2, Period: time.Hour},
 		},
-	}).UseStorage(storageconfig.BackendTypeRedis, factory.Builder(client)).Build(t.Context())
+	}).UseStorage(limiterconfig.StorageTypeRedis, factory.Builder(client)).Build(t.Context())
 	require.NoError(t, err)
 
 	ctx := limiters.ContextWithClientIP(t.Context(), "10.0.0.9")
@@ -73,11 +73,11 @@ func TestBuilder_Errors(t *testing.T) {
 	t.Parallel()
 
 	_, err := factory.Builder(nil)(t.Context(),
-		&storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis, Redis: &storageconfig.RedisConfig{}}, nil)
+		&limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis, Redis: &storageconfig.RedisConfig{}})
 	require.ErrorIs(t, err, factory.ErrClientRequired)
 
 	client, _ := redistest.RedisClient(t)
-	_, err = factory.Builder(client)(t.Context(), &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis}, nil)
+	_, err = factory.Builder(client)(t.Context(), &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	redisstorage "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -33,7 +32,7 @@ var (
 // UseStorage of the budget and token-bucket limiter factories. The storage
 // keeps counters through client under the configured keysPrefix.
 func Builder(client redis.UniversalClient) storagesfactory.StorageFunc {
-	return func(_ context.Context, cfg *storageconfig.BackendConfig, _ *limiterconfig.NATSContention) (storages.Storage, error) {
+	return func(_ context.Context, cfg *limiterconfig.StorageConfig) (storages.Storage, error) {
 		if client == nil {
 			return nil, ErrClientRequired
 		}

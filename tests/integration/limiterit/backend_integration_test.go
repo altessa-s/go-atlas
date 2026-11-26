@@ -5,15 +5,12 @@
 package limiterit_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
-	natslimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 	redislimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 )
 
@@ -77,44 +74,4 @@ func TestRedis_SubSecondWindow(t *testing.T) {
 		_, err := store.Allow(ctx, "burst", 2, period)
 		return err == nil
 	}, 2*time.Second, 25*time.Millisecond, "the sub-second window never reopened")
-}
-
-// TestNATS_ResetRecreatesDeletedKey asserts the CAS path across a Reset on a
-// real bucket: Reset leaves a delete marker, and the next admission must
-// create the key again rather than fail on the tombstone's revision — from
-// another replica too.
-func TestNATS_ResetRecreatesDeletedKey(t *testing.T) {
-	t.Parallel()
-
-	replica := openNATS(t)
-	first, second := replica(), replica()
-	ctx := t.Context()
-
-	for range 2 {
-		_, err := first.Allow(ctx, "tombstoned", 2, time.Minute)
-		require.NoError(t, err)
-	}
-	require.NoError(t, second.Reset(ctx, "tombstoned"))
-	require.NoError(t, second.Reset(ctx, "tombstoned"), "resetting a deleted key again")
-
-	info, err := first.Allow(ctx, "tombstoned", 2, time.Minute)
-	require.NoError(t, err, "admission after a reset by another replica")
-	require.Equal(t, int64(1), info.Remaining)
-}
-
-// TestNATS_BucketTTLMismatchIsRefused asserts that a replica configured with
-// another key TTL cannot silently re-time a bucket every replica shares.
-func TestNATS_BucketTTLMismatchIsRefused(t *testing.T) {
-	t.Parallel()
-
-	bucket := namespace(t)
-	admin, err := jetstream.New(natsConn(t))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = admin.DeleteKeyValue(context.Background(), bucket) })
-
-	_, err = natslimiter.New(t.Context(), admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
-	require.NoError(t, err)
-
-	_, err = natslimiter.New(t.Context(), admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Minute))
-	require.ErrorIs(t, err, natslimiter.ErrBucketTTLMismatch)
 }

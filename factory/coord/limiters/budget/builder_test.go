@@ -14,14 +14,10 @@ import (
 
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
-	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
-	limitnats "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
-	natsfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
@@ -31,19 +27,21 @@ func validConfig() *limiterconfig.Budget {
 	return &limiterconfig.Budget{
 		Limit:  1000,
 		Period: time.Hour,
-		Storage: &storageconfig.BackendConfig{
-			Type:   storageconfig.BackendTypeMemory,
+		Storage: &limiterconfig.StorageConfig{
+			Type:   limiterconfig.StorageTypeMemory,
 			Memory: &storageconfig.MemoryConfig{},
 		},
 	}
 }
 
 func TestBuild_NilConfig(t *testing.T) {
+	t.Parallel()
 	_, err := factory.New(nil).Build(t.Context())
 	require.Error(t, err, "Build() with nil config should return error")
 }
 
 func TestBuild_NilStorage(t *testing.T) {
+	t.Parallel()
 	cfg := validConfig()
 	cfg.Storage = nil
 
@@ -52,6 +50,7 @@ func TestBuild_NilStorage(t *testing.T) {
 }
 
 func TestBuild_MemoryStorage(t *testing.T) {
+	t.Parallel()
 	l, err := factory.New(validConfig()).Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, l, "Build() returned nil")
@@ -60,41 +59,47 @@ func TestBuild_MemoryStorage(t *testing.T) {
 func TestBuild_DriverStorageNotRegistered(t *testing.T) {
 	t.Parallel()
 
-	for _, typ := range []storageconfig.BackendType{storageconfig.BackendTypeRedis, storageconfig.BackendTypeNATS} {
-		cfg := validConfig()
-		cfg.Storage = &storageconfig.BackendConfig{Type: typ}
+	cfg := validConfig()
+	cfg.Storage = &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
 
-		_, err := factory.New(cfg).Build(t.Context())
-		require.Error(t, err, "Build() with an unregistered %s storage should return error", typ)
-	}
+	_, err := factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrNotRegistered)
+}
+
+func TestBuild_NATSStorageUnsupported(t *testing.T) {
+	t.Parallel()
+
+	cfg := validConfig()
+	cfg.Storage = &limiterconfig.StorageConfig{Type: "nats"}
+
+	_, err := factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }
 
 func TestUseStorage(t *testing.T) {
 	t.Parallel()
 	cfg := validConfig()
-	cfg.Storage = &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis}
-	cfg.NATSContention = &limiterconfig.NATSContention{MaxCASAttempts: 3}
+	cfg.Storage = &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
 
-	_, err := factory.New(cfg).UseStorage(storageconfig.BackendTypeRedis, nil).Build(t.Context())
+	_, err := factory.New(cfg).UseStorage(limiterconfig.StorageTypeRedis, nil).Build(t.Context())
 	require.Error(t, err)
 
-	failing := func(context.Context, *storageconfig.BackendConfig, *limiterconfig.NATSContention) (storages.Storage, error) {
+	failing := func(context.Context, *limiterconfig.StorageConfig) (storages.Storage, error) {
 		return nil, errBuild
 	}
-	_, err = factory.New(cfg).UseStorage(storageconfig.BackendTypeRedis, failing).Build(t.Context())
+	_, err = factory.New(cfg).UseStorage(limiterconfig.StorageTypeRedis, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
 	var called bool
-	registered := func(ctx context.Context, got *storageconfig.BackendConfig, contention *limiterconfig.NATSContention) (storages.Storage, error) {
+	registered := func(ctx context.Context, got *limiterconfig.StorageConfig) (storages.Storage, error) {
 		called = true
 		require.NotNil(t, ctx)
 		require.Same(t, cfg.Storage, got)
-		require.Same(t, cfg.NATSContention, contention)
 		return memorystorage.New(), nil
 	}
 	l, err := factory.New(cfg).
-		UseStorage(storageconfig.BackendTypeRedis, failing).
-		UseStorage(storageconfig.BackendTypeRedis, registered).
+		UseStorage(limiterconfig.StorageTypeRedis, failing).
+		UseStorage(limiterconfig.StorageTypeRedis, registered).
 		Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, l)
@@ -102,14 +107,16 @@ func TestUseStorage(t *testing.T) {
 }
 
 func TestBuild_UnsupportedStorageType(t *testing.T) {
+	t.Parallel()
 	cfg := validConfig()
-	cfg.Storage = &storageconfig.BackendConfig{Type: "unknown"}
+	cfg.Storage = &limiterconfig.StorageConfig{Type: "unknown"}
 
 	_, err := factory.New(cfg).Build(t.Context())
-	require.Error(t, err, "Build() with unsupported storage type should return error")
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }
 
 func TestBuild_WithLogger(t *testing.T) {
+	t.Parallel()
 	l, err := factory.New(validConfig()).
 		UseDefaultLogger().
 		Build(t.Context())
@@ -120,9 +127,9 @@ func TestBuild_WithLogger(t *testing.T) {
 func TestBuildCustomBackend(t *testing.T) {
 	t.Parallel()
 	cfg := validConfig()
-	cfg.Storage = &storageconfig.BackendConfig{Type: "custom"}
+	cfg.Storage = &limiterconfig.StorageConfig{Type: "custom"}
 
-	build := func(context.Context, *storageconfig.BackendConfig, *limiterconfig.NATSContention) (storages.Storage, error) {
+	build := func(context.Context, *limiterconfig.StorageConfig) (storages.Storage, error) {
 		return memorystorage.New(), nil
 	}
 	b := factory.New(cfg).UseStorage("custom", build)
@@ -133,23 +140,4 @@ func TestBuildCustomBackend(t *testing.T) {
 	require.NotNil(t, got)
 	_, err = factory.New(cfg).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
-}
-
-func TestBuild_RejectsNATSWindowLongerThanRetention(t *testing.T) {
-	t.Parallel()
-	ns := natstest.StartNATSServer(t)
-	_, js := natstest.ConnectJetStream(t, ns)
-	const bucket = "budget-period"
-	const ttl = 48 * time.Hour
-	_, err := limitnats.New(t.Context(), js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(ttl))
-	require.NoError(t, err)
-	cfg := validConfig()
-	cfg.Period = 25 * time.Hour
-	cfg.Storage = &storageconfig.BackendConfig{
-		Type: storageconfig.BackendTypeNATS,
-		NATS: &storageconfig.NATSConfig{Bucket: bucket, MigrateBucketTTL: true},
-	}
-	_, err = factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, natsfactory.Builder(js)).Build(t.Context())
-	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-	require.Equal(t, ttl, natstest.KVBucketTTL(t, js, bucket))
 }

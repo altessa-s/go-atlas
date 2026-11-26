@@ -10,20 +10,18 @@ bucket, budget) to supply the underlying rate tracking mechanism.
 
 ## Key types
 
-| Type / Interface         | Description                                                                       |
-|--------------------------|-----------------------------------------------------------------------------------|
-| `Storage`                | Interface: Allow, Reset                                                           |
-| `PeriodValidator`        | Optional interface for backend period constraints checked at limiter construction |
-| `LimitValidator`         | Optional interface for backend quota constraints checked at limiter construction  |
-| `MultiStorage`           | Optional interface: `Storage` plus `AllowAll`, atomic admission against many keys |
-| `Limit`                  | One key of a multi-key admission: `Key`, `Limit`, `Period`                        |
-| `LimitInfo`              | Rate limit state with Remaining count and Reset timestamp                         |
-| `KeyError`               | Failure of one limit of a multi-key call: `Index`, `Key`, wrapped cause           |
-| `AllowAll(ctx, s, l...)` | Calls `MultiStorage.AllowAll`; `ErrMultiKeyUnsupported` when `s` lacks it         |
-| `ValidateLimits`         | Argument check for `AllowAll` implementations                                     |
-| `limiters.ErrLimitExceeded`       | Sentinel error returned when the request rate exceeds the limit                   |
-| `ErrMultiKeyUnsupported` | `AllowAll` on a storage that cannot admit several keys atomically                 |
-| `ErrDuplicateKey`        | A multi-key call names one key twice                                              |
+| Type / Interface            | Description                                                                        |
+|-----------------------------|------------------------------------------------------------------------------------|
+| `Storage`                   | Interface: Allow, Reset                                                            |
+| `MultiStorage`              | Optional interface: `Storage` plus `AllowAll`, atomic admission against many keys  |
+| `Limit`                     | One key of a multi-key admission: `Key`, `Limit`, `Period`                         |
+| `LimitInfo`                 | Rate limit state with Remaining count and Reset timestamp                          |
+| `KeyError`                  | Failure of one limit of a multi-key call: `Index`, `Key`, wrapped cause            |
+| `AllowAll(ctx, s, l...)`    | Calls `MultiStorage.AllowAll`; `ErrMultiKeyUnsupported` when `s` lacks it          |
+| `ValidateLimits`            | Argument check for `AllowAll` implementations                                      |
+| `limiters.ErrLimitExceeded` | Sentinel error returned when the request rate exceeds the limit                    |
+| `ErrMultiKeyUnsupported`    | `AllowAll` on a storage that cannot admit several keys atomically                  |
+| `ErrDuplicateKey`           | A multi-key call names one key twice                                               |
 
 ## Multi-key admission
 
@@ -49,11 +47,10 @@ if keyErr, ok := errors.AsType[*storages.KeyError](err); ok && errors.Is(err, li
 }
 ```
 
-| Backend            | `MultiStorage` | Atomicity                                                                                   |
-|--------------------|----------------|---------------------------------------------------------------------------------------------|
-| [memory](./memory) | yes            | Locks the shards of the keys in index order                                                 |
-| [redis](./redis)   | yes            | One Lua script; on Cluster and Ring clients the keys must share one `{hash tag}`            |
-| [nats](./nats)     | no             | KeyValue cannot update several keys atomically; `AllowAll` returns `ErrMultiKeyUnsupported` |
+| Backend            | `MultiStorage` | Atomicity                                                                        |
+|--------------------|----------------|----------------------------------------------------------------------------------|
+| [memory](./memory) | yes            | Locks the shards of the keys in index order                                      |
+| [redis](./redis)   | yes            | One Lua script; on Cluster and Ring clients the keys must share one `{hash tag}` |
 
 The token-bucket and budget limiters and
 [`go-atlas-net/http/client/limiters.Chain`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client/limiters) still take one key per
@@ -65,6 +62,5 @@ call; call `AllowAll` directly where one request must pass several limits. Confo
 | Package                      | Description                        |
 |------------------------------|------------------------------------|
 | [memory](./memory)           | In-memory backend with TTL         |
-| [nats](./nats)               | NATS JetStream storage             |
 | [redis](./redis)             | Distributed Redis storage          |
 | [storagetest](./storagetest) | Conformance kit for `MultiStorage` |

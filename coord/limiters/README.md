@@ -30,4 +30,4 @@ read those values; missing values return an empty string.
 |------------------------------|--------------------------------------------------|
 | [tokenbucket](./tokenbucket) | Token bucket rate limiting with rules            |
 | [budget](./budget)           | Distributed budget limiter for outbound requests |
-| [storages](./storages)       | Shared storage backends (memory, Redis, NATS)    |
+| [storages](./storages)       | Shared storage backends (memory, Redis)          |

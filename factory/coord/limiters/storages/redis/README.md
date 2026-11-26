@@ -11,7 +11,7 @@ Maps the `redis` block of the limiter storage configuration to a [Redis limiter 
 
 ```go
 limiter, err := tokenbucketfactory.New(cfg.TokenBucketLimiter).
-    UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+    UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
     Build(ctx)
 ```
 

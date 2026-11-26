@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/coord/limiters/budget"
 ```
 
 Package `budget` implements a distributed budget limiter for outbound requests. It tracks the total number of requests per key within a configurable
-time period, rejecting requests that exceed the budget with `ErrBudgetExhausted`. Reuses storage backends from `storages` (memory, Redis, NATS) for
+time period, rejecting requests that exceed the budget with `ErrBudgetExhausted`. Reuses storage backends from `storages` (memory, Redis) for
 consistent budget enforcement across multiple service replicas.
 
 ## Key types
@@ -19,8 +19,6 @@ consistent budget enforcement across multiple service replicas.
 | `ErrNilStorage`      | `New` got a nil storage                                      |
 
 `New(limit, period, storage, opts...)` takes the mandatory budget as positional arguments.
-
-With NATS storage, the budget period must fit within the bucket retention.
 
 ## Options
 

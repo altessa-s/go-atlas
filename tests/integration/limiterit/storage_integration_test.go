@@ -222,9 +222,8 @@ func replicasShareOneLimit(t *testing.T, replica replicaFunc) {
 }
 
 // assertNeverExceeded checks the outcome of a race on one key: never more
-// than limit admitted, every call ends in a decision (the NATS provider
-// absorbs CAS conflicts with retries), and sequential calls afterwards fill
-// the window to exactly limit.
+// than limit admitted, every call ends in a decision, and sequential calls
+// afterwards fill the window to exactly limit.
 func assertNeverExceeded(t *testing.T, res *tally, limit int64, allow func() error) {
 	t.Helper()
 

@@ -114,6 +114,7 @@ var templateCases = map[string][]templateRoot{
 	"idempotency.yaml":                       {root[idempotencyconfig.Config]("idempotency")},
 	"leaderelect.yaml":                       {root[lockconfig.LeaderElector]("leaderElector")},
 	"limiter_budget.yaml":                    {root[limiterconfig.Budget]("budgetLimiter")},
+	"limiter_storage.yaml":                   {root[limiterconfig.StorageConfig]("storage")},
 	"limiter_tokenbucket.yaml":               {root[limiterconfig.TokenBucket]("tokenBucketLimiter")},
 	"logger.yaml":                            {root[observabilityconfig.Logger]("logger")},
 	"meilisearch.yaml":                       {root[meilisearchconfig.Config]("meilisearch")},

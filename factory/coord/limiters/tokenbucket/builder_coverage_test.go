@@ -20,7 +20,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -102,14 +101,14 @@ func TestBuild_StorageConfigErrors(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		storage *storageconfig.BackendConfig
+		storage *limiterconfig.StorageConfig
 		wantErr error
 	}{
 		{name: "nil storage", storage: nil, wantErr: corefactory.ErrConfigRequired},
-		{name: "unsupported", storage: &storageconfig.BackendConfig{Type: "etcd"}, wantErr: corefactory.ErrUnsupported},
-		{name: "memory without section", storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory}, wantErr: corefactory.ErrConfigRequired},
-		{name: "redis not registered", storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis}, wantErr: corefactory.ErrNotRegistered},
-		{name: "nats not registered", storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeNATS}, wantErr: corefactory.ErrNotRegistered},
+		{name: "unsupported", storage: &limiterconfig.StorageConfig{Type: "etcd"}, wantErr: corefactory.ErrUnsupported},
+		{name: "memory without section", storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory}, wantErr: corefactory.ErrConfigRequired},
+		{name: "redis not registered", storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}, wantErr: corefactory.ErrNotRegistered},
+		{name: "nats unsupported", storage: &limiterconfig.StorageConfig{Type: "nats"}, wantErr: corefactory.ErrUnsupported},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,27 +125,25 @@ func TestUseStorage(t *testing.T) {
 	t.Parallel()
 	cfg := validConfig()
 	cfg.Rules.Default.Limit = 2
-	cfg.Storage = &storageconfig.BackendConfig{Type: storageconfig.BackendTypeNATS}
-	cfg.NATSContention = &limiterconfig.NATSContention{MaxCASAttempts: 3}
+	cfg.Storage = &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
 
-	_, err := factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, nil).Build(t.Context())
+	_, err := factory.New(cfg).UseStorage(limiterconfig.StorageTypeRedis, nil).Build(t.Context())
 	require.Error(t, err)
 
-	failing := func(context.Context, *storageconfig.BackendConfig, *limiterconfig.NATSContention) (storages.Storage, error) {
+	failing := func(context.Context, *limiterconfig.StorageConfig) (storages.Storage, error) {
 		return nil, errBuild
 	}
-	_, err = factory.New(cfg).UseStorage(storageconfig.BackendTypeNATS, failing).Build(t.Context())
+	_, err = factory.New(cfg).UseStorage(limiterconfig.StorageTypeRedis, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
-	registered := func(ctx context.Context, got *storageconfig.BackendConfig, contention *limiterconfig.NATSContention) (storages.Storage, error) {
+	registered := func(ctx context.Context, got *limiterconfig.StorageConfig) (storages.Storage, error) {
 		require.NotNil(t, ctx)
 		require.Same(t, cfg.Storage, got)
-		require.Same(t, cfg.NATSContention, contention)
 		return memorystorage.New(), nil
 	}
 	l, err := factory.New(cfg).
-		UseStorage(storageconfig.BackendTypeNATS, failing).
-		UseStorage(storageconfig.BackendTypeNATS, registered).
+		UseStorage(limiterconfig.StorageTypeRedis, failing).
+		UseStorage(limiterconfig.StorageTypeRedis, registered).
 		Build(t.Context())
 	require.NoError(t, err)
 	requireIPExhaustsAfter(t, l, "10.0.0.7", 2)
@@ -161,9 +158,9 @@ func TestBuild_NilConfig(t *testing.T) {
 func TestBuildCustomBackend(t *testing.T) {
 	t.Parallel()
 	cfg := validConfig()
-	cfg.Storage = &storageconfig.BackendConfig{Type: "custom"}
+	cfg.Storage = &limiterconfig.StorageConfig{Type: "custom"}
 
-	build := func(context.Context, *storageconfig.BackendConfig, *limiterconfig.NATSContention) (storages.Storage, error) {
+	build := func(context.Context, *limiterconfig.StorageConfig) (storages.Storage, error) {
 		return memorystorage.New(), nil
 	}
 	b := factory.New(cfg).UseStorage("custom", build)

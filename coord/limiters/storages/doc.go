@@ -3,8 +3,7 @@
 // the LICENSE file.
 
 // Package storages defines the Storage interface for rate limiting.
-// Implementations are in subpackages: memory, redis, nats.
-// Backends can implement [PeriodValidator] and [LimitValidator] to check configured periods and quotas at limiter construction.
+// Implementations are in subpackages: memory, redis.
 //
 // Example:
 //
@@ -28,9 +27,8 @@
 //	}
 //
 // [AllowAll] fails with [ErrMultiKeyUnsupported] for a storage without the
-// interface and never falls back to sequential Allow calls. The memory and
-// redis storages implement it; NATS KeyValue cannot update several keys
-// atomically, so the nats storage does not. A call that names one key twice
+// interface and never falls back to sequential Allow calls. Both the memory and
+// redis storages implement it. A call that names one key twice
 // fails with [ErrDuplicateKey]. Third-party storages keep compiling: the
 // [Storage] interface is unchanged, and [ValidateLimits] checks the
 // arguments for an implementation.

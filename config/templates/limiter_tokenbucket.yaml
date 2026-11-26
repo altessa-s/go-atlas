@@ -15,8 +15,8 @@
 #  insecureEvictLRU: false
 #
 #  # <object> Storage configuration for rate limit counters.
-#  # Supports multiple storage backends with provider-specific settings.
-#  !include storage_backend.yaml
+#  # Supports memory and Redis storage backends with provider-specific settings.
+#  !include limiter_storage.yaml
 #
 #  # <object> Rate limiting rules configuration.
 #  # Defines default and target-specific rate limits.
@@ -52,15 +52,3 @@
 #        limit: 10000
 #        # <duration> The time window for the limit.
 #        period: "1h"
-#
-#
-#  # <object> Compare-and-swap retry tuning for the NATS storage; ignored by other storages.
-#  # Default value: not set (storage defaults apply)
-#  natsContention:
-#    # <int> Read-modify-write attempts per check before it fails with a contention error.
-#    # Default value: 64
-#    maxCASAttempts: 64
-#
-#    # <duration> Ceiling of the randomized pause after a revision conflict.
-#    # Default value: 20ms
-#    maxCASBackoff: "20ms"

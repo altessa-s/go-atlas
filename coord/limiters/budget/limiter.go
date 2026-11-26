@@ -42,18 +42,6 @@ func New(limit int64, period time.Duration, storage storages.Storage, opts ...Op
 		return nil, ErrNilStorage
 	}
 
-	if validator, ok := storage.(storages.PeriodValidator); ok {
-		if err := validator.ValidatePeriod(period); err != nil {
-			return nil, err
-		}
-	}
-
-	if validator, ok := storage.(storages.LimitValidator); ok {
-		if err := validator.ValidateLimit(limit); err != nil {
-			return nil, err
-		}
-	}
-
 	o := newOptions(opts...)
 
 	return &Limiter{

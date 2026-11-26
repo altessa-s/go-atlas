@@ -10,6 +10,6 @@
 // for the redis type:
 //
 //	limiter, err := tokenbucketfactory.New(cfg.TokenBucketLimiter).
-//		UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+//		UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
 //		Build(ctx)
 package factory

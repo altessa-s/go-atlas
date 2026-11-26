@@ -16,7 +16,6 @@ import (
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -34,11 +33,10 @@ const (
 // Create instances with [New]. Errors are accumulated and reported at [TokenBucketLimiterBuilder.Build] time.
 // The builder is not safe for concurrent use.
 //
-// The builder builds only the in-memory storage. The Redis and NATS ones
-// register their [storagesfactory.StorageFunc] with
-// [TokenBucketLimiterBuilder.UseStorage] from
-// factory/coord/limiters/storages/redis and factory/coord/limiters/storages/nats;
-// a configured type without one fails at Build naming the package to add.
+// The builder builds only the in-memory storage. The Redis one registers its
+// [storagesfactory.StorageFunc] with [TokenBucketLimiterBuilder.UseStorage]
+// from factory/coord/limiters/storages/redis; a configured type without one
+// fails at Build naming the package to add.
 type TokenBucketLimiterBuilder struct {
 	corefactory.Base
 	cfg  *limiterconfig.TokenBucket
@@ -49,7 +47,7 @@ type TokenBucketLimiterBuilder struct {
 	collector     metrics.Meter
 	clientService tokenbucket.ClientService
 
-	storages map[storageconfig.BackendType]storagesfactory.StorageFunc
+	storages map[limiterconfig.StorageType]storagesfactory.StorageFunc
 }
 
 // New creates a [TokenBucketLimiterBuilder] for the given limiter config.
@@ -63,8 +61,7 @@ func New(cfg *limiterconfig.TokenBucket) *TokenBucketLimiterBuilder {
 
 // Build assembles the rate limiter. It creates the storage from config internally,
 // then creates the limiter. Errors from fluent methods are accumulated
-// and reported here via [errors.Join]. ctx bounds storage provisioning
-// (the NATS KeyValue bucket is created on it).
+// and reported here via [errors.Join]. ctx bounds storage provisioning.
 func (b *TokenBucketLimiterBuilder) Build(ctx context.Context) (*tokenbucket.RuleLimiter, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -74,12 +71,12 @@ func (b *TokenBucketLimiterBuilder) Build(ctx context.Context) (*tokenbucket.Rul
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	defaults, rules := convertConfig(b.cfg)
-	storage, err := b.createStorage(ctx, defaults, rules)
+	storage, err := b.createStorage(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	defaults, rules := convertConfig(b.cfg)
 	opts := b.applyDefaults([]tokenbucket.Option{
 		tokenbucket.WithIPCacheSize(b.cfg.IpCacheSize),
 		tokenbucket.WithRules(rules...),
@@ -90,28 +87,15 @@ func (b *TokenBucketLimiterBuilder) Build(ctx context.Context) (*tokenbucket.Rul
 }
 
 // createStorage creates a storage backend based on configuration.
-func (b *TokenBucketLimiterBuilder) createStorage(
-	ctx context.Context, defaults tokenbucket.RateLimitSettings, rules []*tokenbucket.RateLimitRule,
-) (storages.Storage, error) {
+func (b *TokenBucketLimiterBuilder) createStorage(ctx context.Context) (storages.Storage, error) {
 	if b.cfg.Storage == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	if b.cfg.Storage.Type == storageconfig.BackendTypeMemory {
+	if b.cfg.Storage.Type == limiterconfig.StorageTypeMemory {
 		return b.createMemoryStorage() //nolint:contextcheck // the memory cleanup task is process-scoped, not tied to the startup ctx
 	}
-	var longestPeriod time.Duration
-	if b.cfg.Storage.Type == storageconfig.BackendTypeNATS {
-		if !defaults.IsUnlimited() {
-			longestPeriod = defaults.Period
-		}
-		for _, rule := range rules {
-			if !rule.IsUnlimited() {
-				longestPeriod = max(longestPeriod, rule.Period)
-			}
-		}
-	}
-	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "token-bucket", longestPeriod)
+	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.storages, "token-bucket")
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.

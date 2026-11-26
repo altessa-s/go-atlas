@@ -12,6 +12,7 @@ import (
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
@@ -31,6 +32,8 @@ import (
 	dlockmongofactory "github.com/altessa-s/go-atlas/factory/coord/dlock/providers/mongo"
 	dlocknatsfactory "github.com/altessa-s/go-atlas/factory/coord/dlock/providers/nats"
 	leadelectfactory "github.com/altessa-s/go-atlas/factory/coord/leadelect"
+	budgetfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
+	tokenbucketfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	tracingfactory "github.com/altessa-s/go-atlas/factory/observability/tracing"
 	vaultfactory "github.com/altessa-s/go-atlas/factory/security/vault"
@@ -312,6 +315,48 @@ func TestFactorySentinels(t *testing.T) {
 			name: "leadelect unsupported provider",
 			call: func(ctx context.Context) error {
 				_, err := leadelectfactory.New(&lockconfig.LeaderElector{Provider: "etcd"}).WithNodeId("node-1").Build(ctx)
+				return err
+			},
+			want: []error{corefactory.ErrUnsupported},
+		},
+		{
+			name: "budget limiter unregistered redis storage",
+			call: func(ctx context.Context) error {
+				cfg := limiterconfig.DefaultBudget()
+				cfg.Limit = 10
+				cfg.Storage = &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
+				_, err := budgetfactory.New(&cfg).Build(ctx)
+				return err
+			},
+			want: []error{corefactory.ErrNotRegistered},
+		},
+		{
+			name: "budget limiter unsupported nats storage",
+			call: func(ctx context.Context) error {
+				cfg := limiterconfig.DefaultBudget()
+				cfg.Limit = 10
+				cfg.Storage = &limiterconfig.StorageConfig{Type: "nats"}
+				_, err := budgetfactory.New(&cfg).Build(ctx)
+				return err
+			},
+			want: []error{corefactory.ErrUnsupported},
+		},
+		{
+			name: "token-bucket limiter unregistered redis storage",
+			call: func(ctx context.Context) error {
+				cfg := limiterconfig.DefaultTokenBucket()
+				cfg.Storage = &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeRedis}
+				_, err := tokenbucketfactory.New(&cfg).Build(ctx)
+				return err
+			},
+			want: []error{corefactory.ErrNotRegistered},
+		},
+		{
+			name: "token-bucket limiter unsupported nats storage",
+			call: func(ctx context.Context) error {
+				cfg := limiterconfig.DefaultTokenBucket()
+				cfg.Storage = &limiterconfig.StorageConfig{Type: "nats"}
+				_, err := tokenbucketfactory.New(&cfg).Build(ctx)
 				return err
 			},
 			want: []error{corefactory.ErrUnsupported},

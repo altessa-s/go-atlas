@@ -16,7 +16,7 @@ by the component factories, which map them to generated options; runtime package
 | `NATSConfig`         | Defines common NATS-specific configuration for storage backends.                    |
 | `RedisConfig`        | Defines common Redis-specific configuration for storage backends.                   |
 | `MemoryConfig`       | Defines common in-memory storage configuration.                                     |
-| `BackendType`        | Selects a memory, Redis or NATS KeyValue backend (limiters, Mongo cursor storage).  |
+| `BackendType`        | Selects a memory, Redis or NATS KeyValue backend (Mongo cursor storage).            |
 | `BackendConfig`      | Backend configuration with type selector: `memory`, `redis`, `nats`.                |
 | `CacheStorageType`   | Selects the storage backend of the cache and its generation store.                  |
 | `CacheStorageConfig` | Cache storage configuration with type selector: `memory`, `redis`.                  |

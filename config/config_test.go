@@ -5,16 +5,19 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
 func TestStorageNATSConfig_Validate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		cfg       storageconfig.NATSConfig
@@ -39,6 +42,7 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
@@ -50,6 +54,7 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 }
 
 func TestStorageRedisConfig_Validate(t *testing.T) {
+	t.Parallel()
 	validPrefix := "valid_prefix"
 	invalidPrefix := make([]byte, 65) // Max 64
 	for i := range invalidPrefix {
@@ -80,6 +85,7 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
@@ -91,6 +97,7 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 }
 
 func TestCacheStorageConfig_Validate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		cfg       storageconfig.CacheStorageConfig
@@ -139,6 +146,7 @@ func TestCacheStorageConfig_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := tc.cfg.Validate()
 			if tc.wantValid {
 				require.NoError(t, err)
@@ -186,25 +194,45 @@ func TestBackendConfig_Validate(t *testing.T) {
 	}
 }
 
-// TestLimiters_AcceptNATSStorage pins that the rate limiters keep the NATS
-// storage backend the cache storage config rejects.
-func TestLimiters_AcceptNATSStorage(t *testing.T) {
+// TestLimiters_RejectNATSStorage pins that rate limiters have no NATS storage
+// backend or NATS contention tuning: validation rejects type "nats", and strict
+// YAML decoding rejects the removed nats and natsContention sections.
+func TestLimiters_RejectNATSStorage(t *testing.T) {
 	t.Parallel()
 
-	storage := &storageconfig.BackendConfig{
-		Type: storageconfig.BackendTypeNATS,
-		NATS: &storageconfig.NATSConfig{Bucket: "limits", Replicas: 1},
-	}
+	t.Run("budget validation rejects nats type", func(t *testing.T) {
+		t.Parallel()
+		budget := limiterconfig.DefaultBudget()
+		budget.Limit = 10
+		require.NoError(t, yaml.Unmarshal([]byte("storage:\n  type: nats\n"), &budget))
+		require.Error(t, budget.Validate())
+	})
 
-	budget := limiterconfig.DefaultBudget()
-	budget.Limit = 10
-	budget.Storage = storage
-	require.NoError(t, budget.Validate())
+	t.Run("token bucket validation rejects nats type", func(t *testing.T) {
+		t.Parallel()
+		bucket := limiterconfig.DefaultTokenBucket()
+		bucket.Rules = &limiterconfig.TokenBucketRules{
+			Default: &limiterconfig.TokenBucketDefaultRule{Limit: 10, Period: time.Minute},
+		}
+		require.NoError(t, yaml.Unmarshal([]byte("storage:\n  type: nats\n"), &bucket))
+		require.Error(t, bucket.Validate())
+	})
 
-	bucket := limiterconfig.DefaultTokenBucket()
-	bucket.Storage = storage
-	bucket.Rules = &limiterconfig.TokenBucketRules{
-		Default: &limiterconfig.TokenBucketDefaultRule{Limit: 10, Period: time.Minute},
-	}
-	require.NoError(t, bucket.Validate())
+	t.Run("strict decode rejects storage.nats and natsContention", func(t *testing.T) {
+		t.Parallel()
+		for _, snippet := range []string{
+			"storage:\n  type: memory\n  nats:\n    bucket: limits\n",
+			"natsContention:\n  maxCASAttempts: 8\n",
+		} {
+			dec := yaml.NewDecoder(strings.NewReader(snippet))
+			dec.KnownFields(true)
+			var budget limiterconfig.Budget
+			require.Error(t, dec.Decode(&budget), snippet)
+
+			dec = yaml.NewDecoder(strings.NewReader(snippet))
+			dec.KnownFields(true)
+			var bucket limiterconfig.TokenBucket
+			require.Error(t, dec.Decode(&bucket), snippet)
+		}
+	})
 }

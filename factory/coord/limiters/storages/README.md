@@ -11,17 +11,16 @@ build only the in-memory storage; a driver storage registers its `StorageFunc` f
 
 ```go
 limiter, err := budgetfactory.New(cfg.BudgetLimiter).
-    UseStorage(storageconfig.BackendTypeRedis, redisfactory.Builder(redisClient)).
+    UseStorage(limiterconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
     Build(ctx)
 ```
 
-| Symbol        | Description                                                                                       |
-|---------------|---------------------------------------------------------------------------------------------------|
-| `StorageFunc` | Builds the storage of one type from the storage block and the limiter's `natsContention` settings |
+| Symbol        | Description                                                   |
+|---------------|---------------------------------------------------------------|
+| `StorageFunc` | Builds the storage of one type from the limiter storage block |
 
 ## Storage builders
 
-| Type    | Package                                         |
-|---------|-------------------------------------------------|
+| Type    | Package                                          |
+|---------|--------------------------------------------------|
 | `redis` | [`factory/coord/limiters/storages/redis`](redis) |
-| `nats`  | [`factory/coord/limiters/storages/nats`](nats)   |

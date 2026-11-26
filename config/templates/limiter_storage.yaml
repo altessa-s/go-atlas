@@ -1,0 +1,32 @@
+# Limiter storage configuration template.
+# Storage settings for rate limiters (token-bucket and budget), using limiterconfig.StorageConfig.
+# Include it via !include directive where a rate limiter storage block is needed.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#storage:
+#  # <string> Type of storage backend.
+#  # Determines which storage system to use for rate limit counters.
+#  # Supported values: memory, redis
+#  # Default value: not set (required)
+#  type: redis
+#
+#  # <object> In-memory storage configuration.
+#  # Contains settings for memory-based storage.
+#  # Required when type is set to 'memory'.
+#  memory:
+#    # <string> Cron schedule for the cleanup task.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # (e.g., "0 */5 * * * *") or descriptor format (e.g., "@every 5m").
+#    # Example: "0 */5 * * * *" (every 5 minutes)
+#    # Default value: @every 5m
+#    cleanupSchedule: "@every 5m"
+#
+#  # <object> Redis-specific configuration for storage.
+#  # Redis-specific settings for key storage.
+#  # Required when type is set to 'redis'.
+#  redis:
+#    # <string> Prefix for all keys in storage.
+#    # Namespace prefix to avoid key conflicts.
+#    # Default value: not set (empty string)
+#    keysPrefix: ""

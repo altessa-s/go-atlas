@@ -179,7 +179,7 @@ var driverBackends = map[string][]string{
 	},
 	"cache/probfilter/internal/redisfilter": {"cache/probfilter/bloom/storages/redis", "cache/probfilter/cuckoo/storages/redis"},
 	"internal/nats": {
-		"reliability/idempotency/storages/nats", "coord/leadelect/providers/nats", "coord/limiters/storages/nats",
+		"reliability/idempotency/storages/nats", "coord/leadelect/providers/nats",
 		"reliability/requestidstore/storages/nats",
 		"coord/dlock/providers/nats", "store/mongo/storages/nats",
 		"reliability/saga/storages/nats",
@@ -201,7 +201,6 @@ var backendFactories = map[string]string{
 	"reliability/idempotency/storages/redis":    "factory/reliability/idempotency/storages/redis",
 	"reliability/requestidstore/storages/redis": "factory/reliability/requestidstore/storages/redis",
 	"coord/leadelect/providers/nats":            "factory/coord/leadelect/providers/nats",
-	"coord/limiters/storages/nats":              "factory/coord/limiters/storages/nats",
 	"coord/limiters/storages/redis":             "factory/coord/limiters/storages/redis",
 	"coord/dlock/providers/mongo":               "factory/coord/dlock/providers/mongo",
 	"coord/dlock/providers/nats":                "factory/coord/dlock/providers/nats",

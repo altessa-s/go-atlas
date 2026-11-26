@@ -12,8 +12,8 @@
 // # Features
 //
 //   - Rule-based limiting: support for default, CIDR, and specific client rules.
-//   - Unlimited token and IP rules bypass storage. Ordinary NATS-backed windows must fit within the bucket retention.
-//   - Pluggable storage: memory (single-instance) or Redis/NATS (distributed).
+//   - Unlimited token and IP rules bypass storage.
+//   - Pluggable storage: memory (single-instance) or Redis (distributed).
 //   - Advanced matching: prioritizes more specific rules over broader ones.
 //   - Performance: uses LRU cache for IP classification to minimize storage hits.
 //   - Storage keys: IPv6 clients share a bucket per [WithIPv6KeyPrefixBits]

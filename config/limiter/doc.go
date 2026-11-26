@@ -10,7 +10,7 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options. InsecureEvictLRU opts memory storage into live-window eviction.
 //
-// Key types: [Budget], [TokenBucketDefaultRule],
-// [TokenBucketTargetRule], [TokenBucketRules],
+// Key types: [StorageType], [StorageConfig], [Budget],
+// [TokenBucketDefaultRule], [TokenBucketTargetRule], [TokenBucketRules],
 // [TokenBucket], [RequestRate].
 package limiterconfig

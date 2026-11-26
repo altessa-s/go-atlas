@@ -14,7 +14,6 @@ import (
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -25,11 +24,10 @@ import (
 // Create instances with [New]. Errors are accumulated and reported at [BudgetLimiterBuilder.Build] time.
 // The builder is not safe for concurrent use.
 //
-// The builder builds only the in-memory storage. The Redis and NATS ones
-// register their [storagesfactory.StorageFunc] with
-// [BudgetLimiterBuilder.UseStorage] from factory/coord/limiters/storages/redis
-// and factory/coord/limiters/storages/nats; a configured type without one
-// fails at Build naming the package to add.
+// The builder builds only the in-memory storage. The Redis one registers its
+// [storagesfactory.StorageFunc] with [BudgetLimiterBuilder.UseStorage] from
+// factory/coord/limiters/storages/redis; a configured type without one fails at
+// Build naming the package to add.
 type BudgetLimiterBuilder struct {
 	corefactory.Base
 	cfg  *limiterconfig.Budget
@@ -39,7 +37,7 @@ type BudgetLimiterBuilder struct {
 	scheduler schedtask.Registrar
 	collector metrics.Meter
 
-	storages map[storageconfig.BackendType]storagesfactory.StorageFunc
+	storages map[limiterconfig.StorageType]storagesfactory.StorageFunc
 }
 
 // New creates a [BudgetLimiterBuilder] for the given budget limiter config.
@@ -53,8 +51,7 @@ func New(cfg *limiterconfig.Budget) *BudgetLimiterBuilder {
 
 // Build assembles the budget limiter. It creates the storage from config internally,
 // then creates the limiter. Errors from fluent methods are accumulated
-// and reported here via [errors.Join]. ctx bounds storage provisioning
-// (the NATS KeyValue bucket is created on it).
+// and reported here via [errors.Join]. ctx bounds storage provisioning.
 func (b *BudgetLimiterBuilder) Build(ctx context.Context) (*budget.Limiter, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -85,10 +82,10 @@ func (b *BudgetLimiterBuilder) createStorage(ctx context.Context) (storages.Stor
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "storage configuration is required")
 	}
 
-	if b.cfg.Storage.Type == storageconfig.BackendTypeMemory {
+	if b.cfg.Storage.Type == limiterconfig.StorageTypeMemory {
 		return b.createMemoryStorage() //nolint:contextcheck // the memory cleanup task is process-scoped, not tied to the startup ctx
 	}
-	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.cfg.NATSContention, b.storages, "budget", b.cfg.Period)
+	return storagesfactory.BuildRegistered(ctx, b.cfg.Storage, b.storages, "budget")
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.

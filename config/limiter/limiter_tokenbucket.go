@@ -7,7 +7,6 @@ package limiterconfig
 import (
 	"time"
 
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -107,7 +106,7 @@ func (r *TokenBucketRules) Validate() error {
 // Example:
 //
 //	limiter := &limiterconfig.TokenBucket{
-//		Storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory},
+//		Storage: &limiterconfig.StorageConfig{Type: limiterconfig.StorageTypeMemory},
 //		Rules:   &limiterconfig.TokenBucketRules{Default: &limiterconfig.TokenBucketDefaultRule{Limit: 1000, Period: time.Hour}},
 //	}
 type TokenBucket struct {
@@ -116,8 +115,8 @@ type TokenBucket struct {
 	IpCacheSize int `yaml:"ipCacheSize" default:"1000"`
 
 	// Storage defines the storage configuration for rate limit counters.
-	// Required, specifies backend and settings.
-	Storage *storageconfig.BackendConfig `yaml:"storage"`
+	// Required, specifies backend and settings (memory or redis).
+	Storage *StorageConfig `yaml:"storage"`
 
 	// Rules contains the rate limiting rules configuration.
 	// Includes default settings and specific rules for targeted clients.
@@ -126,10 +125,6 @@ type TokenBucket struct {
 	// InsecureEvictLRU lets memory storage evict a live window at its key cap.
 	// Key churn can reset another key's quota before it expires.
 	InsecureEvictLRU bool `yaml:"insecureEvictLRU"`
-
-	// NATSContention tunes compare-and-swap retries of the NATS storage.
-	// Optional; ignored by other storages.
-	NATSContention *NATSContention `yaml:"natsContention"`
 }
 
 // DefaultTokenBucket returns a TokenBucket configuration with default values.
@@ -137,6 +132,14 @@ type TokenBucket struct {
 func DefaultTokenBucket() TokenBucket {
 	return TokenBucket{
 		IpCacheSize: defaultTokenBucketLimiterIpCacheSize,
+	}
+}
+
+// Normalize prepares nested config for validation by allocating the
+// storage sub-config implied by its type. Call before [TokenBucket.Validate].
+func (l *TokenBucket) Normalize() {
+	if l.Storage != nil {
+		l.Storage.Normalize()
 	}
 }
 
@@ -148,6 +151,5 @@ func (l *TokenBucket) Validate() error {
 		validation.Field(&l.IpCacheSize, validation.Min(0)),
 		validation.Field(&l.Storage, validation.Required),
 		validation.Field(&l.Rules, validation.Required),
-		validation.Field(&l.NATSContention),
 	)
 }
