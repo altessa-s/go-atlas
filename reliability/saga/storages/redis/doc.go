@@ -36,10 +36,24 @@
 // address an instance by ID alone (Get, Delete) resolve its definition through
 // a plain key "<prefix>id:<id>", which also keeps IDs unique across
 // definitions; a set "<prefix>definitions" lists the definitions for calls with
-// an empty definition. Neither key is touched by a script. A lookup left behind
-// by a crash reads as "not found" and is taken over by the next create.
+// an empty definition. Both live outside the one-slot instance scripts. Create
+// claims the ID in the lookup, writes the instance, then re-checks the claim and
+// rolls back when another definition won it, so IDs stay unique across
+// definitions; Delete and retention remove the lookup before the instance. A
+// lookup left behind by a crash reads as "not found" and is taken over by the
+// next create. With a TTL the lookup of a terminal instance expires with it on a
+// best-effort basis; a live instance's next write repairs an early expiry.
 //
-// Keys written by earlier versions, which had no definition tag, are not read.
+// An instance cannot change its definition: Update with another Definition
+// fails with an error matching ErrInvalidArgument. A key prefix containing a
+// brace is rejected by New, because it would take over the hash tag.
+//
+// # Upgrade
+//
+// Keys written by earlier versions ("<prefix>i:*", "<prefix>index:*") have no
+// definition tag and are ignored: instances in flight under them are neither
+// recovered nor listed. Finish or compensate in-flight sagas before upgrading,
+// then delete the old keys.
 //
 // # Usage
 //

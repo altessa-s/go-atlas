@@ -441,8 +441,14 @@ namespace, e.g. `myapp_saga_started_total`).
   field or use a separate stage.
 - **Terminal instances are deleted after 30 days by default.** Completed and failed instances stay in the store for inspection for the retention
   window (`WithRetention`, YAML `retention`, default `720h`); a scheduled cycle then deletes them through `Storage.DeleteTerminal`. Retention needs a
-  scheduler and a named definition. Disable it explicitly with `WithRetention(0)` (YAML `retention: 0s`) to keep instances forever; a TTL
+  scheduler. The default applies to named definitions only: an unnamed definition keeps retention off, and setting a retention explicitly on an
+  unnamed one fails with `ErrEmptyDefinitionName`. Retention also deletes the ID's record, so a `Start` with the same ID after expiry runs the
+  saga again instead of being deduplicated. Disable it explicitly with `WithRetention(0)` (YAML `retention: 0s`) to keep instances forever; a TTL
   (redis/nats) is the alternative.
+
+- **Redis upgrade.** The Redis store keys each definition under its own hash tag; keys of earlier versions (`<prefix>i:*`, `<prefix>index:*`) are
+  ignored. Finish or compensate in-flight sagas before upgrading, then delete the old keys. The ID lookup of a terminal instance expires with its
+  TTL on a best-effort basis.
 - **The pivot is a deliberate, one-time marker.** There should be at most one. Everything before it is reversible; everything at or after it
   rolls forward.
 

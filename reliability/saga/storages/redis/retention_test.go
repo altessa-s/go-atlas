@@ -121,7 +121,7 @@ func TestFetchRecoverableReportsCorruptRecordOnce(t *testing.T) {
 	require.True(t, stub.Corrupt)
 
 	// The quarantine write is version-checked and removes it from the scan.
-	stale := &saga.Instance{ID: stub.ID, Version: stub.Version - 1, Status: saga.StatusFailed}
+	stale := &saga.Instance{ID: stub.ID, Version: stub.Version - 1, Status: saga.StatusFailed, Definition: "place-order"}
 	require.ErrorIs(t, s.Update(ctx, stale), saga.ErrVersionConflict)
 	require.NoError(t, s.Update(ctx, &saga.Instance{ID: stub.ID, Version: stub.Version, Status: saga.StatusFailed, Definition: "place-order"}))
 	rec, err = s.FetchRecoverable(ctx, "place-order", baseTime, 10)

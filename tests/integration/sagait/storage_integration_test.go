@@ -165,13 +165,23 @@ func newRedisClusterStore(tb testing.TB) saga.Storage {
 	}
 	prefix := tableName(tb) + ":"
 	tb.Cleanup(func() {
-		_ = client.ForEachMaster(context.Background(), func(ctx context.Context, node *goredis.Client) error {
-			keys, _ := node.Keys(ctx, prefix+"*").Result()
-			if len(keys) > 0 {
-				_ = node.Del(ctx, keys...).Err()
+		// Keys of different slots live on one primary, so each is deleted on
+		// its own: a multi-key DEL across slots fails with CROSSSLOT.
+		err := client.ForEachMaster(context.Background(), func(ctx context.Context, node *goredis.Client) error {
+			keys, err := node.Keys(ctx, prefix+"*").Result()
+			if err != nil {
+				return err
+			}
+			for _, key := range keys {
+				if err := node.Del(ctx, key).Err(); err != nil {
+					return err
+				}
 			}
 			return nil
 		})
+		if err != nil {
+			tb.Errorf("clean up Redis Cluster test keys: %v", err)
+		}
 		_ = client.Close()
 	})
 	store, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))

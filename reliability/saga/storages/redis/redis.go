@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -154,6 +155,20 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]) end
 return 1
 `)
 
+// rollbackScript removes an instance created by a Create that then lost its ID
+// to another definition, only while it is still the version that Create wrote.
+//
+// KEYS[1]=instance hash, KEYS[2]=recoverable ZSET, KEYS[3]=terminal ZSET.
+// ARGV: 1=member(id), 2=version.
+var rollbackScript = redis.NewScript(`
+local v = redis.call('HGET', KEYS[1], 'v')
+if not v or tonumber(v) ~= tonumber(ARGV[2]) then return 0 end
+redis.call('DEL', KEYS[1])
+redis.call('ZREM', KEYS[2], ARGV[1])
+redis.call('ZREM', KEYS[3], ARGV[1])
+return 1
+`)
+
 // Store is a durable [saga.Storage] backed by Redis. Each instance is a hash
 // keyed by its ID holding the serialized payload and a monotonically
 // increasing version field used as the optimistic-concurrency token, so two
@@ -174,8 +189,11 @@ return 1
 // definitions spread across slots. Storage calls address an instance by ID
 // alone, so a plain string key per ID ("<prefix>id:<ID>", its own slot) names the
 // definition that owns it, and a set ("<prefix>definitions") lists the
-// definitions for calls that span all of them. Those two are never touched by
-// a script. IDs stay unique across definitions.
+// definitions for calls that span all of them. Those two live outside the
+// one-slot instance scripts; each is touched by single-key scripts or commands
+// only. Create claims the ID there, writes the instance, then re-checks the
+// claim and rolls back when another definition won it, so IDs stay unique across
+// definitions. Delete and retention drop the claim before the instance.
 type Store struct {
 	redisbase.Base
 	opts *options
@@ -185,14 +203,19 @@ var _ saga.Storage = (*Store)(nil)
 
 // New creates a Store with the given Redis client, standalone or Redis
 // Cluster. It panics if client is nil. The key prefix needs no hash tag: the
-// store tags the keys of each definition itself. A prefix that does contain a
-// hash tag still works, but places every key in one slot.
+// store tags the keys of each definition itself. A prefix containing a brace
+// fails with an error matching [coreerrs.ErrInvalidArgument], because it would
+// take over the hash tag.
 //
 // Example:
 //
 //	store, err := redis.New(rdb, redis.WithKeyPrefix("saga:"))
 func New(client redis.UniversalClient, opt ...Option) (*Store, error) {
 	opts := newOptions(opt...)
+	if strings.ContainsAny(opts.keyPrefix, "{}") {
+		return nil, fmt.Errorf("%w: key prefix %q contains a brace, which would override the per-definition hash tag",
+			coreerrs.ErrInvalidArgument, opts.keyPrefix)
+	}
 	return &Store{
 		Base: redisbase.NewBase(client, opts.keyPrefix),
 		opts: opts,
@@ -220,11 +243,11 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 	score, indexed := recoverScore(inst)
 	terminal, terminalScore := terminalArgs(inst)
 
-	if err = s.Client().SAdd(ctx, s.definitionsKey(), inst.Definition).Err(); err != nil {
-		return coreerrs.WrapOperation(err, "register saga definition in Redis")
-	}
 	if err = s.claimID(ctx, inst.Definition, inst.ID); err != nil {
 		return err
+	}
+	if err = s.Client().SAdd(ctx, s.definitionsKey(), inst.Definition).Err(); err != nil {
+		return coreerrs.WrapOperation(err, "register saga definition in Redis")
 	}
 	res, err := createScript.Run(ctx, s.Client(),
 		[]string{s.instanceKey(inst.Definition, inst.ID), s.indexKey(inst.Definition), s.terminalKey(inst.Definition)},
@@ -236,7 +259,17 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 	if res == 0 {
 		return saga.ErrInstanceExists
 	}
-	s.expireLookup(ctx, inst.ID, terminal)
+	// Another definition may have taken the claim over while the instance was
+	// being written; re-asserting it also restores a lookup a cleanup removed.
+	if err = s.claimID(ctx, inst.Definition, inst.ID); err != nil {
+		if errors.Is(err, saga.ErrInstanceExists) {
+			_ = rollbackScript.Run(ctx, s.Client(),
+				[]string{s.instanceKey(inst.Definition, inst.ID), s.indexKey(inst.Definition), s.terminalKey(inst.Definition)},
+				inst.ID, inst.Version).Err() // Best effort: the hash is unreachable without the claim.
+		}
+		return err
+	}
+	s.syncLookupExpiry(ctx, inst.ID, terminal)
 	return nil
 }
 
@@ -283,24 +316,33 @@ func (s *Store) definitionOf(ctx context.Context, id string) (string, error) {
 	return def, nil
 }
 
-// expireLookup gives the ID lookup of a terminal instance the same TTL as its
-// hash. It is best effort: a failure leaves a lookup without a hash, which
-// reads as not found and is taken over by a later create.
-func (s *Store) expireLookup(ctx context.Context, id, terminal string) {
-	if terminal != "1" || s.opts.ttl <= 0 {
+// syncLookupExpiry keeps the TTL of the ID lookup in step with its instance: a
+// terminal instance expires with its hash, a live one persists. It is best
+// effort: a failure leaves a lookup that outlives an expired hash (it reads as
+// not found and the next create of the ID takes it over) or one that expires
+// early, which the next write of a live instance repairs.
+func (s *Store) syncLookupExpiry(ctx context.Context, id, terminal string) {
+	if s.opts.ttl <= 0 {
 		return
 	}
-	if err := s.Client().PExpire(ctx, s.lookupKey(id), s.opts.ttl).Err(); err != nil {
-		s.opts.logger.WarnContext(ctx, "saga: cannot expire instance id lookup", slog.String("class", "lookup expiry"))
+	var err error
+	if terminal == "1" {
+		err = s.Client().PExpire(ctx, s.lookupKey(id), s.opts.ttl).Err()
+	} else {
+		err = s.Client().Persist(ctx, s.lookupKey(id)).Err()
+	}
+	if err != nil {
+		s.opts.logger.WarnContext(ctx, "saga: cannot sync instance id lookup expiry", slog.String("class", "lookup expiry"))
 	}
 }
 
-// unlinkLookup drops the ID lookup after the instance was deleted. It is best
-// effort for the same reason as [Store.expireLookup].
-func (s *Store) unlinkLookup(ctx context.Context, definition, id string) {
+// unlinkLookup drops the ID lookup. It runs before the instance is deleted, so a
+// create of the same ID that follows the delete is never unlinked by it.
+func (s *Store) unlinkLookup(ctx context.Context, definition, id string) error {
 	if err := unlinkScript.Run(ctx, s.Client(), []string{s.lookupKey(id)}, definition).Err(); err != nil {
-		s.opts.logger.WarnContext(ctx, "saga: cannot remove instance id lookup", slog.String("class", "lookup removal"))
+		return coreerrs.WrapOperation(err, "remove saga instance id lookup from Redis")
 	}
+	return nil
 }
 
 // Get loads an instance by ID, returning [saga.ErrInstanceNotFound] when
@@ -349,21 +391,22 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		return err
 	}
 	if res == -1 {
-		// The instance is not under the definition the caller names. It may
-		// still exist under the one that owns the ID, which stays the home of
-		// its keys even when a write renames the definition.
+		// Absent under the named definition. An instance of another definition
+		// is a rename, which would move its keys across slots: reject it.
 		owner, lerr := s.definitionOf(ctx, inst.ID)
-		if lerr != nil || owner == inst.Definition {
-			return saga.ErrInstanceNotFound
+		if lerr != nil {
+			return lerr
 		}
-		if res, err = s.runUpdate(ctx, owner, inst, data, newVersion, score, indexed, terminal, terminalScore); err != nil {
-			return err
+		if owner != inst.Definition {
+			return fmt.Errorf("%w: a saga instance cannot change its definition (stored %q, got %q)",
+				coreerrs.ErrInvalidArgument, owner, inst.Definition)
 		}
+		return saga.ErrInstanceNotFound
 	}
 	switch res {
 	case 1:
 		inst.Version = newVersion
-		s.expireLookup(ctx, inst.ID, terminal)
+		s.syncLookupExpiry(ctx, inst.ID, terminal)
 		return nil
 	case 0:
 		return saga.ErrVersionConflict
@@ -467,10 +510,11 @@ func (s *Store) page(ctx context.Context, key string, maxScore int64, exclusive 
 // mid-compensation or past their deadline, restricted to definition when it is
 // non-empty. A non-positive limit means no cap.
 //
-// The index is shared by every definition and also holds candidates whose
-// lease is still active, so an entry counts toward limit only once it matches
-// definition and is recoverable at now; otherwise non-matching entries could
-// fill every batch and starve the rest. The due ids are read in pages of at
+// Each definition has its own index, which also holds candidates whose lease is
+// still active, so an entry counts toward limit only once it is recoverable at
+// now; otherwise such entries could fill every batch and starve the rest. With
+// an empty definition the registered definitions are walked in name order, so a
+// busy early one can use the whole limit. The due ids are read in pages of at
 // least pageSize members after a cursor, so the transfer is bounded by the
 // pages needed to fill limit, not by the backlog. An entry that cannot be
 // decoded is skipped and logged by class so it cannot stop the scan.
@@ -634,20 +678,22 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		}
 		return err
 	}
+	if err := s.unlinkLookup(ctx, def, id); err != nil {
+		return err
+	}
 	if err := deleteScript.Run(ctx, s.Client(),
 		[]string{s.instanceKey(def, id), s.indexKey(def), s.terminalKey(def)}, id,
 	).Err(); err != nil {
 		return coreerrs.WrapOperation(err, "delete saga instance from Redis")
 	}
-	s.unlinkLookup(ctx, def, id)
 	return nil
 }
 
 // DeleteTerminal removes up to limit terminal instances last updated before
 // olderThan, restricted to definition when it is non-empty, and returns how
-// many it removed. A non-positive limit means no cap. The terminal index holds
-// every definition, so entries of other definitions are read and skipped. The
-// last update is compared at millisecond granularity.
+// many it removed. A non-positive limit means no cap. Each definition has
+// its own terminal index; with an empty definition they are walked in name
+// order and limit spans them. The last update is compared at millisecond granularity.
 func (s *Store) DeleteTerminal(ctx context.Context, definition string, olderThan time.Time, limit int) (int, error) {
 	defs, err := s.scanDefinitions(ctx, definition)
 	if err != nil {
@@ -700,20 +746,15 @@ func (s *Store) deleteTerminal(ctx context.Context, definition string, olderThan
 				after = members[i]
 				continue
 			}
-			// The delete rechecks the cutoff, definition and version atomically, so
-			// a record replaced since it was read is kept.
-			n, err := deleteEligibleScript.Run(ctx, s.Client(),
-				[]string{s.instanceKey(definition, inst.ID), s.indexKey(definition), s.terminalKey(definition)},
-				inst.ID, inst.Version, olderThan.UnixMilli(), definition).Int64()
+			ok, err := s.deleteEligible(ctx, definition, inst, olderThan)
 			if err != nil {
-				return deleted, coreerrs.WrapOperation(err, "delete terminal saga instance from Redis")
+				return deleted, err
 			}
-			if n == 0 {
+			if !ok {
 				after = members[i]
 				continue
 			}
 			deleted++
-			s.unlinkLookup(ctx, definition, inst.ID)
 		}
 		if (limit > 0 && deleted == limit) || len(members) < count {
 			break
@@ -721,6 +762,30 @@ func (s *Store) deleteTerminal(ctx context.Context, definition string, olderThan
 	}
 	s.removeStale(ctx, definition, s.terminalKey(definition), stale)
 	return deleted, nil
+}
+
+// deleteEligible removes one terminal instance for retention and reports whether
+// it did. The lookup goes first so a create of the ID after the delete is not
+// unlinked by it. The delete rechecks the cutoff, definition and version
+// atomically, so a record replaced since it was read is kept, and its lookup is
+// restored.
+func (s *Store) deleteEligible(ctx context.Context, definition string, inst *saga.Instance, olderThan time.Time) (bool, error) {
+	if err := s.unlinkLookup(ctx, definition, inst.ID); err != nil {
+		return false, err
+	}
+	n, err := deleteEligibleScript.Run(ctx, s.Client(),
+		[]string{s.instanceKey(definition, inst.ID), s.indexKey(definition), s.terminalKey(definition)},
+		inst.ID, inst.Version, olderThan.UnixMilli(), definition).Int64()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "delete terminal saga instance from Redis")
+	}
+	if n == 0 {
+		if err := s.claimID(ctx, definition, inst.ID); err != nil && !errors.Is(err, saga.ErrInstanceExists) {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 // defKey builds a key of one definition. The definition name is the hash tag,

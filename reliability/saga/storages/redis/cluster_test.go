@@ -6,6 +6,7 @@ package redis_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	sagaredis "github.com/altessa-s/go-atlas/reliability/saga/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -256,4 +258,220 @@ func TestTerminalInstanceExpiresWithItsLookup(t *testing.T) {
 	require.True(t, mr.Exists("saga:id:done"))
 	mr.FastForward(2 * time.Second)
 	require.False(t, mr.Exists("saga:id:done"), "the lookup must not outlive the instance it names")
+}
+
+// hookFunc adapts a function to a go-redis hook that runs after each command.
+type hookFunc func(ctx context.Context, cmd goredis.Cmder)
+
+func (hookFunc) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h hookFunc) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		err := next(ctx, cmd)
+		if err == nil {
+			h(ctx, cmd)
+		}
+		return err
+	}
+}
+
+func (hookFunc) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+// scriptArgs reports whether cmd is a script call and returns its keys and
+// arguments.
+func scriptArgs(cmd goredis.Cmder) (keys, argv []string, ok bool) {
+	name := strings.ToLower(cmd.Name())
+	if name != "eval" && name != "evalsha" {
+		return nil, nil, false
+	}
+	args := cmd.Args()
+	n, err := strconv.Atoi(fmt.Sprint(args[2]))
+	if err != nil {
+		return nil, nil, false
+	}
+	for i, a := range args[3:] {
+		if i < n {
+			keys = append(keys, fmt.Sprint(a))
+		} else {
+			argv = append(argv, fmt.Sprint(a))
+		}
+	}
+	return keys, argv, true
+}
+
+// Two definitions creating one ID at once: A claims the ID and pauses before it
+// writes; B finds A's hash absent, takes the claim over and writes. A must not
+// then succeed too.
+func TestConcurrentCreateAcrossDefinitionsKeepsOneOwner(t *testing.T) {
+	t.Parallel()
+	client, mr := redistest.RedisClient(t)
+	s, err := sagaredis.New(client)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	var once sync.Once
+	var bErr error
+	client.AddHook(hookFunc(func(ctx context.Context, cmd goredis.Cmder) {
+		keys, argv, ok := scriptArgs(cmd)
+		if !ok || len(keys) != 1 || keys[0] != "saga:id:race" || len(argv) != 1 || argv[0] != "place-order" {
+			return
+		}
+		once.Do(func() {
+			b := instance("race", saga.StatusRunning, time.Time{})
+			b.Definition = "ship-order"
+			bErr = s.Create(ctx, b) // Runs while A is paused after its claim.
+		})
+	}))
+
+	a := instance("race", saga.StatusRunning, time.Time{})
+	require.ErrorIs(t, s.Create(ctx, a), saga.ErrInstanceExists, "A lost the ID to B")
+	require.NoError(t, bErr)
+
+	got, err := s.Get(ctx, "race")
+	require.NoError(t, err)
+	require.Equal(t, "ship-order", got.Definition)
+	require.False(t, mr.Exists("saga:{d:place-order}:i:race"), "the loser's hash is rolled back")
+	members, _ := mr.ZMembers("saga:{d:place-order}:index:recoverable")
+	require.Empty(t, members)
+}
+
+// Delete and retention remove the ID lookup before the instance, so an
+// immediate re-create of the ID is never unlinked by the cleanup that preceded it.
+func TestRecreateDuringCleanupKeepsLookup(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		trigger func(keys, argv []string) bool
+		clean   func(ctx context.Context, s *sagaredis.Store) error
+	}{
+		{
+			name:    "delete",
+			trigger: func(keys, argv []string) bool { return len(keys) == 3 && len(argv) == 1 && argv[0] == "re" },
+			clean:   func(ctx context.Context, s *sagaredis.Store) error { return s.Delete(ctx, "re") },
+		},
+		{
+			name:    "retention",
+			trigger: func(keys, argv []string) bool { return len(keys) == 3 && len(argv) == 4 && argv[0] == "re" },
+			clean: func(ctx context.Context, s *sagaredis.Store) error {
+				n, err := s.DeleteTerminal(ctx, "place-order", time.Now(), 10)
+				if err == nil && n != 1 {
+					err = fmt.Errorf("deleted %d, want 1", n)
+				}
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client, _ := redistest.RedisClient(t)
+			s, err := sagaredis.New(client)
+			require.NoError(t, err)
+			ctx := t.Context()
+			require.NoError(t, s.Create(ctx, instance("re", saga.StatusCompleted, time.Time{})))
+
+			var once sync.Once
+			var reErr error
+			client.AddHook(hookFunc(func(ctx context.Context, cmd goredis.Cmder) {
+				keys, argv, ok := scriptArgs(cmd)
+				if !ok || !tc.trigger(keys, argv) {
+					return
+				}
+				once.Do(func() { reErr = s.Create(ctx, instance("re", saga.StatusRunning, time.Time{})) })
+			}))
+
+			require.NoError(t, tc.clean(ctx, s))
+			require.NoError(t, reErr)
+			got, err := s.Get(ctx, "re")
+			require.NoError(t, err, "the re-created instance must stay addressable by ID")
+			require.Equal(t, saga.StatusRunning, got.Status)
+		})
+	}
+}
+
+// A terminal instance that goes live again must not lose its lookup to the TTL
+// it received while terminal.
+func TestTerminalToLiveUpdateKeepsLookup(t *testing.T) {
+	t.Parallel()
+	client, mr := redistest.RedisClient(t)
+	s, err := sagaredis.New(client, sagaredis.WithTTL(time.Second))
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	inst := instance("again", saga.StatusCompleted, time.Time{})
+	require.NoError(t, s.Create(ctx, inst))
+	inst.Status = saga.StatusRunning
+	require.NoError(t, s.Update(ctx, inst))
+
+	mr.FastForward(2 * time.Second)
+	got, err := s.Get(ctx, "again")
+	require.NoError(t, err)
+	require.Equal(t, saga.StatusRunning, got.Status)
+}
+
+func TestUpdateRejectsDefinitionChange(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := t.Context()
+	inst := instance("fixed", saga.StatusRunning, time.Time{})
+	require.NoError(t, s.Create(ctx, inst))
+
+	moved := *inst
+	moved.Definition = "ship-order"
+	require.ErrorIs(t, s.Update(ctx, &moved), coreerrs.ErrInvalidArgument)
+
+	got, err := s.Get(ctx, "fixed")
+	require.NoError(t, err)
+	require.Equal(t, "place-order", got.Definition)
+	require.Equal(t, inst.Version, got.Version)
+}
+
+func TestUpdatePropagatesLookupFailure(t *testing.T) {
+	t.Parallel()
+	client, _ := redistest.RedisClient(t)
+	s, err := sagaredis.New(client)
+	require.NoError(t, err)
+
+	boom := errors.New("redis down")
+	client.AddHook(failGet{key: "saga:id:ghost", err: boom})
+	err = s.Update(t.Context(), instance("ghost", saga.StatusRunning, time.Time{}))
+	require.ErrorIs(t, err, boom)
+	require.NotErrorIs(t, err, saga.ErrInstanceNotFound)
+
+	err = s.Update(t.Context(), instance("absent", saga.StatusRunning, time.Time{}))
+	require.ErrorIs(t, err, saga.ErrInstanceNotFound, "a confirmed absence stays not found")
+}
+
+type failGet struct {
+	key string
+	err error
+}
+
+func (failGet) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h failGet) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		if strings.EqualFold(cmd.Name(), "get") && cmd.Args()[1] == h.key {
+			return h.err
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (failGet) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+// A brace in the prefix would take over the hash tag: the definition tag must
+// be the first effective tag of every key.
+func TestNewRejectsPrefixWithBraces(t *testing.T) {
+	t.Parallel()
+	client, _ := redistest.RedisClient(t)
+	for _, prefix := range []string{"{}saga:", "{saga}:", "saga{:", "}saga:", "a{b}c:"} {
+		_, err := sagaredis.New(client, sagaredis.WithKeyPrefix(prefix))
+		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, prefix)
+	}
+	_, err := sagaredis.New(client, sagaredis.WithKeyPrefix("orders:saga:"))
+	require.NoError(t, err)
 }

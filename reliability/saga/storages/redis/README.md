@@ -56,7 +56,15 @@ The `{d:<definition>}` hash tag puts the instance hash and both indexes of one d
 of a single slot, and different definitions spread across slots. Braces in a definition name are percent-escaped. `Get` and `Delete` receive only an
 ID, so they read `id:<id>` first; it also keeps IDs unique across definitions. `FetchRecoverable` and `DeleteTerminal` with an empty definition walk
 the `definitions` set. Neither key is touched by a script. A lookup left by a crash reads as not found and is taken over by the next `Create`; with
-`WithTTL` the lookup of a terminal instance expires with it. Keys written by earlier versions, which carried no definition tag, are not read.
+`WithTTL` the lookup of a terminal instance expires with it. Create claims the ID in the lookup, writes the instance, then re-checks the claim and rolls back (returning `ErrInstanceExists`) when another definition
+won it; `Delete` and retention remove the lookup before the instance. A key prefix containing a brace is rejected by `New`
+(`ErrInvalidArgument`), and `Update` rejects a changed `Definition` (`ErrInvalidArgument`).
+
+## Upgrade
+
+Keys written by earlier versions (`<prefix>i:*`, `<prefix>index:*`) carry no definition tag and are ignored: instances in flight under them are neither
+recovered nor listed. Finish or compensate in-flight sagas before upgrading, then delete the old keys. With `WithTTL` the lookup of a terminal instance
+expires with it on a best-effort basis; a live instance's next write repairs an early expiry.
 
 ## Retention
 
