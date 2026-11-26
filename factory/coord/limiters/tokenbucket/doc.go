@@ -16,7 +16,8 @@
 // The builder builds only the in-memory storage; the Redis and NATS ones
 // register from factory/coord/limiters/storages/redis and
 // factory/coord/limiters/storages/nats, and a configured type without one
-// fails at Build naming the package to add.
+// fails at Build naming the package to add. InsecureEvictLRU opts memory storage
+// into live-window eviction.
 //
 // [TokenBucketLimiterBuilder.UseStorage] accepts custom backend names. For standalone schema
 // validation, pass [TokenBucketLimiterBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.

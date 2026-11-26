@@ -67,8 +67,9 @@ type shard struct {
 // Keys are spread over shards so concurrent Allow calls on existing keys do
 // not share a lock. Below the bucket cap a new key is inserted under its own
 // shard lock; at the cap the insert locks every shard, reclaims expired
-// windows, and then applies [WithEviction]: the evicted bucket is exactly the
-// least recently used one across the whole provider.
+// windows, and refuses new keys when only live windows remain.
+// [WithInsecureEvictLRU] instead allows evicting the globally least recently
+// used bucket.
 //
 // Provider implements [storages.MultiStorage]: [Provider.AllowAll] locks the
 // shards of its keys in index order, so overlapping calls cannot deadlock.

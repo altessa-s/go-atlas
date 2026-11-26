@@ -13,7 +13,7 @@ tests, and local development. Idle buckets whose windows have expired are remove
 | Option                | Default                           | Description                                               |
 |-----------------------|-----------------------------------|-----------------------------------------------------------|
 | `WithMaxBuckets`      | `DefaultMaxBuckets`               | Global cap on tracked keys; see [Capacity](#capacity)     |
-| `WithEviction`        | `DefaultEviction` (`EvictionLRU`) | What a new key gets at the cap once no window has expired |
+| `WithInsecureEvictLRU` | Disabled                         | Allows live-window eviction when the key cap is full      |
 | `WithMaxIdleTime`     | `DefaultMaxIdleTime`              | Minimum idle time for cleanup of an expired bucket            |
 | `WithShards`          | `DefaultShards` (1)               | Independently locked key shards; see below                |
 | `WithCleanupSchedule` | —                                 | Cron schedule for cleanup when a scheduler is set         |
@@ -27,15 +27,12 @@ The clock must not go backwards: a window keeps its request timestamps in non-de
 A new key at `MaxBuckets` first reclaims an expired window. Each shard indexes its windows by expiry, so admissions inspect only the first entry
 in each shard and remove only as many expired windows as needed. The provider tracks a lower bound on the earliest expiry to skip reclamation
 when every window is still live.
-When nothing has expired, `WithEviction` decides:
+When every window is live, the default `EvictionReject` returns `ErrCapacityExceeded` with nil `LimitInfo` for new keys. Tracked keys keep
+working. With `WithInsecureEvictLRU()`, a new key evicts the globally least recently used window. Key churn can then reset another key's quota
+before its window expires. Both limiter factories expose this opt-in as `insecureEvictLRU: true` in their limiter settings.
 
-| Policy           | New key at the cap                              | Trade-off                                                                        |
-|------------------|-------------------------------------------------|----------------------------------------------------------------------------------|
-| `EvictionLRU`    | Evicts the least recently used live window      | Never refuses; a stream of new keys can push out a busy key and reset its limit  |
-| `EvictionReject` | Fails with `ErrCapacityExceeded`, nil LimitInfo | No key loses its limit to churn; new keys wait until a window expires or cleanup |
-
-Tracked keys keep working under both policies. `ErrCapacityExceeded` is not `ErrLimitExceeded`, so the token-bucket and budget limiters count it as a
-storage error rather than a rate-limit rejection. In reject mode a refused new key costs one shard lock, not the all-shard lock.
+The token-bucket and budget limiters report `ErrCapacityExceeded` as a storage error. In reject mode, a new-key refusal ordinarily takes one
+shard lock.
 
 ## Multi-key admission
 

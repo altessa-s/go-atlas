@@ -37,8 +37,8 @@ const (
 	// keys arriving, because evicting at the cap locks every shard.
 	DefaultShards = 1
 
-	// DefaultEviction keeps the least-recently-used policy at the cap.
-	DefaultEviction = EvictionLRU
+	// DefaultEviction preserves live windows and rejects new keys at the cap.
+	DefaultEviction = EvictionReject
 )
 
 // Eviction selects what a new key gets once the provider holds MaxBuckets
@@ -47,28 +47,25 @@ const (
 type Eviction int
 
 const (
-	// EvictionLRU evicts the least recently used live window to make room.
-	// The evicted key starts over with an empty window, so a stream of new
-	// keys can push out a busy key and reset its limit.
-	EvictionLRU Eviction = iota
-
 	// EvictionReject refuses the new key with [ErrCapacityExceeded] and
-	// keeps every live window, so no key can lose its limit to churn;
-	// tracked keys keep working. New keys are admitted again once a window
-	// expires or cleanup removes an idle bucket.
-	EvictionReject
+	// keeps every live window. New keys are admitted once a window expires.
+	EvictionReject Eviction = iota
+
+	// EvictionLRU evicts the least recently used live window to make room.
+	// The evicted key starts with an empty window on its next request.
+	EvictionLRU
 )
 
 // options contains memory provider configuration.
 type options struct {
-	// MaxIdleTime sets the maximum idle time before an entry is removed.
+	// MaxIdleTime sets the minimum idle time before cleanup removes an expired window.
 	// Default is 30 minutes.
 	maxIdleTime time.Duration `optgen:"default=DefaultMaxIdleTime" optcheck:"nonzero"`
 
 	// MaxBuckets caps the number of distinct keys the provider will hold.
 	// When the cap is reached and Allow is called for a new key, expired
-	// windows are reclaimed first, then [WithEviction] decides: by default
-	// the least-recently-used bucket is evicted to make room. Set to <= 0
+	// windows are reclaimed first. When only live windows remain, the new
+	// key is refused unless [WithInsecureEvictLRU] was set. Set to <= 0
 	// to disable the cap (back to legacy unbounded behavior — use at
 	// your own risk; see [DefaultMaxBuckets] for the rationale).
 	maxBuckets int `optgen:"default=DefaultMaxBuckets"`
@@ -81,9 +78,9 @@ type options struct {
 	// usually full with new keys arriving. Values below 1 mean 1.
 	shards int `optgen:"default=DefaultShards"`
 
-	// Eviction is the policy for a new key at MaxBuckets once no tracked
-	// window has expired: [EvictionLRU] (default) or [EvictionReject].
-	eviction        Eviction `optgen:"default=DefaultEviction"`
+	// WithInsecureEvictLRU allows a new key at capacity to evict a live
+	// window. Key churn can reset another key's quota before it expires.
+	eviction        Eviction `optgen:"default=DefaultEviction" optfn:"InsecureEvictLRU=insecureEviction"`
 	cleanupSchedule string
 	scheduler       schedtask.Registrar `optgen:"notnil"`
 
@@ -93,3 +90,5 @@ type options struct {
 	// of sleeping through a period.
 	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
 }
+
+func insecureEviction() Eviction { return EvictionLRU }

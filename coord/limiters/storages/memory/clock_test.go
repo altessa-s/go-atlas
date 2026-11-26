@@ -45,7 +45,7 @@ func TestProvider_WithClock_AllowAllAndReclaim(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fake := clock.NewFake(clockEpoch)
-	p := memory.New(memory.WithClock(fake), memory.WithMaxBuckets(2), memory.WithEviction(memory.EvictionReject))
+	p := memory.New(memory.WithClock(fake), memory.WithMaxBuckets(2))
 
 	_, err := storages.AllowAll(ctx, p,
 		storages.Limit{Key: "a", Limit: 1, Period: time.Minute},
@@ -66,8 +66,7 @@ func TestProvider_WithClock_Cleanup(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fake := clock.NewFake(clockEpoch)
-	p := memory.New(memory.WithClock(fake), memory.WithMaxIdleTime(time.Minute), memory.WithMaxBuckets(1),
-		memory.WithEviction(memory.EvictionReject))
+	p := memory.New(memory.WithClock(fake), memory.WithMaxIdleTime(time.Minute), memory.WithMaxBuckets(1))
 
 	_, err := p.Allow(ctx, "a", 5, time.Hour)
 	require.NoError(t, err)

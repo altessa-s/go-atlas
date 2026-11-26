@@ -8,14 +8,12 @@
 // # Capacity and cleanup
 //
 // [WithMaxBuckets] caps the number of tracked keys. A new key at the cap
-// first reclaims an expired window from the per-shard expiry indexes; when
-// none has, [WithEviction] decides. [EvictionLRU] (the default) evicts the
-// least recently used live window, so a stream of new keys can push out a
-// busy key and reset its limit. [EvictionReject] refuses the new key with
-// [ErrCapacityExceeded] instead and keeps every live window; tracked keys
-// keep working. [Provider.RunCleanup] removes idle buckets whose windows have expired, either
-// called manually or registered with a scheduler via [WithScheduler] and
-// [WithCleanupSchedule].
+// first tries to reclaim an expired window from the per-shard expiry indexes.
+// When all windows are live, [EvictionReject] refuses the new key with
+// [ErrCapacityExceeded]. [WithInsecureEvictLRU] allows eviction of live
+// windows, so key churn can reset another key's quota before it expires.
+// [Provider.RunCleanup] removes idle buckets whose windows have expired.
+// Call it manually or schedule it with [WithScheduler] and [WithCleanupSchedule].
 //
 // # Multi-key admission
 //

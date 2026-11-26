@@ -146,7 +146,7 @@ func TestProvider_EvictionIsGlobalLRU(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(placement.name+"/"+tc.name, func(t *testing.T) {
 				t.Parallel()
-				p := New(WithMaxBuckets(3), WithShards(8))
+				p := New(WithMaxBuckets(3), WithShards(8), WithInsecureEvictLRU())
 				keys := p.keysInShards(4, placement.distinct)
 				for _, k := range keys[:3] {
 					_, err := p.Allow(ctx, k, 1, time.Minute)
@@ -173,7 +173,7 @@ func TestProvider_ConcurrentSameKeyInsert(t *testing.T) {
 	for _, maxBuckets := range []int{0, 1} {
 		t.Run("maxBuckets="+strconv.Itoa(maxBuckets), func(t *testing.T) {
 			t.Parallel()
-			p := New(WithMaxBuckets(maxBuckets), WithShards(8))
+			p := New(WithMaxBuckets(maxBuckets), WithShards(8), WithInsecureEvictLRU())
 			ctx := t.Context()
 			if maxBuckets > 0 {
 				_, err := p.Allow(ctx, "filler", 1, time.Minute) // fill the cap
@@ -293,7 +293,7 @@ func TestProvider_CapOfOne(t *testing.T) {
 	for _, shards := range testShardCounts {
 		t.Run("shards="+strconv.Itoa(shards), func(t *testing.T) {
 			t.Parallel()
-			p := New(WithMaxBuckets(1), WithShards(shards))
+			p := New(WithMaxBuckets(1), WithShards(shards), WithInsecureEvictLRU())
 			ctx := t.Context()
 			for i := range 10 {
 				_, err := p.Allow(ctx, "k"+strconv.Itoa(i), 1, time.Minute)
@@ -323,7 +323,7 @@ func TestProvider_ShardCountNormalization(t *testing.T) {
 			p := New(append(tc.opts, WithMaxBuckets(4))...)
 			require.Len(t, p.shards, tc.want)
 			ctx := t.Context()
-			for i := range 10 {
+			for i := range 4 {
 				_, err := p.Allow(ctx, "k"+strconv.Itoa(i), 1, time.Minute)
 				require.NoError(t, err)
 			}

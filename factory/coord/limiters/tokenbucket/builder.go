@@ -107,10 +107,12 @@ func (b *TokenBucketLimiterBuilder) createMemoryStorage() (*memorystorage.Provid
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	return memorystorage.New(
+	opts := []memorystorage.Option{
 		memorystorage.WithCleanupSchedule(b.cfg.Storage.Memory.CleanupSchedule),
 		memorystorage.WithScheduler(b.scheduler),
-	), nil
+	}
+	opts = coreslices.AppendIf(opts, b.cfg.InsecureEvictLRU, memorystorage.WithInsecureEvictLRU())
+	return memorystorage.New(opts...), nil
 }
 
 // applyDefaults prepends factory defaults to limiter options.

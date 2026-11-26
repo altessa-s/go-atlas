@@ -22,6 +22,9 @@ the package to add. An unregistered custom type fails with `ErrUnsupported`.
 Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
 `cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
 
+Memory storage refuses new keys when the key cap is full of live windows. The limiter setting `insecureEvictLRU: true` allows live-window
+eviction, which can let key churn reset another key's quota.
+
 ## Supported Storage Types
 
 | Type     | Backend           | Requires                                                                                                             |

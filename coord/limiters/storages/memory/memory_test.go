@@ -222,7 +222,7 @@ func TestProvider_Allow_Panics(t *testing.T) {
 func TestProvider_MaxBuckets_EvictsLRU(t *testing.T) {
 	t.Parallel()
 	fake := clock.NewFake(time.Now())
-	p := memory.New(memory.WithMaxBuckets(2), memory.WithClock(fake))
+	p := memory.New(memory.WithInsecureEvictLRU(), memory.WithMaxBuckets(2), memory.WithClock(fake))
 	ctx := t.Context()
 
 	_, err := p.Allow(ctx, "key1", 10, time.Minute)
@@ -253,7 +253,7 @@ func TestProvider_MaxBuckets_EvictsLRU(t *testing.T) {
 // itself evict another bucket.
 func TestProvider_MaxBuckets_TouchRefreshesRecency(t *testing.T) {
 	t.Parallel()
-	p := memory.New(memory.WithMaxBuckets(2))
+	p := memory.New(memory.WithInsecureEvictLRU(), memory.WithMaxBuckets(2))
 	ctx := t.Context()
 
 	for _, key := range []string{"key1", "key2", "key1", "key3"} {

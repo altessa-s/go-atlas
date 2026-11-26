@@ -27,7 +27,8 @@ func TestProvider_MultiStorageContract(t *testing.T) {
 	}{
 		{name: "default"},
 		{name: "shards=8", opts: []memory.Option{memory.WithShards(8)}},
-		{name: "reject", opts: []memory.Option{memory.WithShards(8), memory.WithEviction(memory.EvictionReject)}},
+		{name: "reject", opts: []memory.Option{memory.WithShards(8)}},
+		{name: "lru", opts: []memory.Option{memory.WithInsecureEvictLRU()}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

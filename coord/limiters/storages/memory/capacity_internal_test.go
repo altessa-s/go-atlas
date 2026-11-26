@@ -27,6 +27,13 @@ var evictionPolicies = []struct {
 	eviction Eviction
 }{{"lru", EvictionLRU}, {"reject", EvictionReject}}
 
+func newWithEviction(eviction Eviction, opts ...Option) *Provider {
+	if eviction == EvictionLRU {
+		opts = append(opts, WithInsecureEvictLRU())
+	}
+	return New(opts...)
+}
+
 // TestProvider_AtCapacity_ReclaimsExpiredBeforeLive is the eviction-bypass
 // regression for the LRU policy: a full provider must reclaim windows that
 // already expired before it evicts the least recently used live one. The
@@ -39,7 +46,7 @@ func TestProvider_AtCapacity_ReclaimsExpiredBeforeLive(t *testing.T) {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
 				fake := clock.NewFake(time.Now())
-				p := New(WithMaxBuckets(3), WithShards(shards), WithEviction(pol.eviction), WithClock(fake))
+				p := newWithEviction(pol.eviction, WithMaxBuckets(3), WithShards(shards), WithClock(fake))
 				ctx := t.Context()
 				_, err := p.Allow(ctx, "hot", 1, time.Hour)
 				require.NoError(t, err)
@@ -75,7 +82,7 @@ func TestProvider_EvictionReject_KeyChurnKeepsLimit(t *testing.T) {
 	for _, shards := range testShardCounts {
 		t.Run("shards="+strconv.Itoa(shards), func(t *testing.T) {
 			t.Parallel()
-			p := New(WithMaxBuckets(2), WithShards(shards), WithEviction(EvictionReject))
+			p := New(WithMaxBuckets(2), WithShards(shards))
 			ctx := t.Context()
 			_, err := p.Allow(ctx, "victim", 1, time.Hour)
 			require.NoError(t, err)
@@ -122,7 +129,7 @@ func TestProvider_EvictionReject_AdmitsOnceRoomFrees(t *testing.T) {
 			t.Run(tc.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
 				fake := clock.NewFake(time.Now())
-				p := New(WithMaxBuckets(1), WithShards(shards), WithEviction(EvictionReject), WithMaxIdleTime(time.Hour), WithClock(fake))
+				p := New(WithMaxBuckets(1), WithShards(shards), WithMaxIdleTime(time.Hour), WithClock(fake))
 				ctx := t.Context()
 				// Keep the initial window live regardless of scheduler delays;
 				// free transitions its state only after the capacity assertion.
@@ -150,7 +157,7 @@ func TestProvider_AllowAll_AtCapacity(t *testing.T) {
 		for _, pol := range evictionPolicies {
 			t.Run(pol.name+"/shards="+strconv.Itoa(shards), func(t *testing.T) {
 				t.Parallel()
-				p := New(WithMaxBuckets(3), WithShards(shards), WithEviction(pol.eviction))
+				p := newWithEviction(pol.eviction, WithMaxBuckets(3), WithShards(shards))
 				ctx := t.Context()
 				for _, k := range []string{"member", "bystander-1", "bystander-2"} {
 					_, err := p.Allow(ctx, k, 2, time.Hour)
@@ -217,7 +224,7 @@ func TestProvider_AllowAll_ConcurrentOverlappingAtCapacity(t *testing.T) {
 				goroutines = 16
 				calls      = 400
 			)
-			p := New(WithMaxBuckets(maxBuckets), WithShards(4), WithEviction(pol.eviction), WithMaxIdleTime(time.Millisecond))
+			p := newWithEviction(pol.eviction, WithMaxBuckets(maxBuckets), WithShards(4), WithMaxIdleTime(time.Millisecond))
 			ctx := t.Context()
 			var admitted [pool]atomic.Int64
 
@@ -317,7 +324,7 @@ func TestProvider_AllowAll_ShortenedPeriodKeepsReclaimBound(t *testing.T) {
 		t.Run("shards="+strconv.Itoa(shards), func(t *testing.T) {
 			t.Parallel()
 			fake := clock.NewFake(time.Now())
-			p := New(WithMaxBuckets(2), WithShards(shards), WithEviction(EvictionReject), WithClock(fake))
+			p := New(WithMaxBuckets(2), WithShards(shards), WithClock(fake))
 			ctx := t.Context()
 			for _, k := range []string{"a", "b"} {
 				_, err := p.Allow(ctx, k, 1, time.Hour)
@@ -370,7 +377,7 @@ func TestProvider_ReserveSlots_AllOrNothing(t *testing.T) {
 func TestProvider_AllowAll_CompetingReservations(t *testing.T) {
 	t.Parallel()
 	for range 500 {
-		p := New(WithMaxBuckets(2), WithShards(8), WithEviction(EvictionReject))
+		p := New(WithMaxBuckets(2), WithShards(8))
 		keys := p.keysInShards(4, true)
 		ctx := t.Context()
 		start := make(chan struct{})
@@ -415,7 +422,7 @@ func TestProvider_AllowAll_CapacityErrorNamesNewKey(t *testing.T) {
 			for _, tc := range tests {
 				t.Run(pol.name+"/shards="+strconv.Itoa(shards)+"/"+tc.name, func(t *testing.T) {
 					t.Parallel()
-					p := New(WithMaxBuckets(tc.maxBuckets), WithShards(shards), WithEviction(pol.eviction))
+					p := newWithEviction(pol.eviction, WithMaxBuckets(tc.maxBuckets), WithShards(shards))
 					ctx := t.Context()
 					for _, k := range tc.existing {
 						_, err := p.Allow(ctx, k, 5, time.Hour)
