@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -33,7 +34,8 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
 // ErrBucketPerKeyTTLRequired is returned by New when the bucket does not
-// support the server-side TTL used by lock leases.
+// support the server-side TTL used by lock leases. On NATS 2.11 or later,
+// use [WithMigrateBucketTTL] to enable it on the bucket.
 var ErrBucketPerKeyTTLRequired = errors.New("NATS KeyValue bucket must allow per-key TTL")
 
 // ErrBucketHistoryMismatch is returned by New when a bucket stores multiple
@@ -51,7 +53,6 @@ var ErrKeyTooLong = natskey.ErrKeyTooLong
 // JetStream expires lock leases. Completed records use the bucket MaxAge.
 type Storage struct {
 	natsbase.Base
-	maxAge time.Duration
 }
 
 var (
@@ -95,13 +96,26 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 		return nil, coreerrs.WrapOperation(err, "inspect NATS KeyValue stream")
 	}
 	cfg := stream.CachedInfo().Config
-	if err := validateBucketShape(cfg); err != nil {
-		return nil, err
+	if shapeErr := validateBucketShape(cfg); shapeErr != nil {
+		return nil, shapeErr
 	}
 	if !cfg.AllowMsgTTL {
-		return nil, ErrBucketPerKeyTTLRequired
+		if !options.migrateBucketTTL {
+			return nil, ErrBucketPerKeyTTLRequired
+		}
+		// MaxAge already matched during reconciliation. Preserve the
+		// existing stream settings while enabling lease expiry markers.
+		cfg.AllowMsgTTL = true
+		cfg.SubjectDeleteMarkerTTL = max(cfg.MaxAge, time.Second)
+		stream, err = js.UpdateStream(ctx, cfg)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "enable per-key TTL on NATS KeyValue bucket")
+		}
+		if !stream.CachedInfo().Config.AllowMsgTTL {
+			return nil, ErrBucketPerKeyTTLRequired
+		}
 	}
-	return &Storage{Base: base, maxAge: cfg.MaxAge}, nil
+	return &Storage{Base: base}, nil
 }
 
 func validateBucketShape(cfg jetstream.StreamConfig) error {
@@ -139,8 +153,8 @@ func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool
 }
 
 // AttemptLockWithTTL creates a lock with a server-side lease. A positive
-// lockTTL is rounded up to whole seconds and capped by the bucket's MaxAge.
-// A nonpositive lockTTL uses the bucket's MaxAge.
+// lockTTL is written as a per-key TTL rounded up to whole seconds. JetStream
+// also applies the bucket's MaxAge. A nonpositive lockTTL uses MaxAge alone.
 func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte, lockTTL time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
 		return false, nil, nil, storages.ErrEmptyKey
@@ -151,13 +165,13 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 	}
 
 	var createOpts []jetstream.KVCreateOpt
-	if lockTTL > 0 && lockTTL < s.maxAge {
-		// JetStream truncates per-key TTL to seconds. Use the bucket
-		// limit if rounding reaches it, avoiding overflow in the addition.
+	if lockTTL > 0 {
+		// Set the lease even when it matches MaxAge, which another
+		// writer can increase after this storage opens the bucket.
+		const maxLease = time.Duration(math.MaxInt64) / time.Second * time.Second
+		lockTTL = min(lockTTL, maxLease)
 		roundUp := (time.Second - lockTTL%time.Second) % time.Second
-		if roundUp < s.maxAge-lockTTL {
-			createOpts = []jetstream.KVCreateOpt{jetstream.KeyTTL(lockTTL + roundUp)}
-		}
+		createOpts = []jetstream.KVCreateOpt{jetstream.KeyTTL(lockTTL + roundUp)}
 	}
 
 	revision, err := s.KV().Create(ctx, key, encodeRecord(lockRecord, val), createOpts...)
@@ -176,9 +190,10 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 
 // Complete marks the key as successfully processed.
 //
-// Uses [jetstream.KV.Update] with the revision encoded in lockToken to
+// Uses [jetstream.KeyValue.Update] with the revision encoded in lockToken to
 // detect a stolen lock. Returns [storages.ErrLockStolen] when the
 // revision no longer matches, including when the lease expires.
+// A nil lockToken performs an unconditional write.
 func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
 	if key == "" {
 		return storages.ErrEmptyKey
