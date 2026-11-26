@@ -8,7 +8,9 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -191,4 +193,22 @@ func TestEnsureOcspStaplerFailedRegisterStaysCallable(t *testing.T) {
 	stapler := buildStapler(t, b)
 	require.True(t, reg.called)
 	require.NoError(t, stapler.RunRefreshAll(t.Context()))
+}
+
+type noopDoer struct{}
+
+func (noopDoer) Do(*http.Request) (*http.Response, error) { return nil, http.ErrNotSupported }
+
+// TestEnsureOcspStaplerFromConfig_InjectedHTTPClient guards that an injected
+// HTTP client is accepted together with a configured timeout and still yields
+// a config-built stapler.
+func TestEnsureOcspStaplerFromConfig_InjectedHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	cfg := &tlsconfig.Provider{
+		OCSP: &tlsconfig.ProviderOCSP{Enabled: true, FailureMode: "hard", HTTPTimeout: time.Second},
+	}
+	b := New(cfg).UseOCSPHTTPClient(noopDoer{})
+	require.NotNil(t, b.ensureOcspStaplerFromConfig())
+	require.IsType(t, &tlsocsp.Stapler{}, b.ocspStapler)
 }

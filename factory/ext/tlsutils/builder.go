@@ -63,6 +63,7 @@ type ProvidersBuilder struct {
 	providers         map[tlsproviders.ProviderType]ProviderBuilder
 	cacheDir          string
 	ocspTaskNamespace string
+	ocspHTTPClient    tlsocsp.HTTPDoer
 }
 
 // New creates a [ProvidersBuilder] for the given TLS provider config.
@@ -205,7 +206,8 @@ func (b *ProvidersBuilder) letsEncryptProviderOpts() []tlsletsencrypt.Option {
 // ensureOcspStaplerFromConfig populates b.ocspStapler from b.cfg.OCSP
 // when the operator enabled OCSP via YAML and no stapler was already
 // injected programmatically via UseOcspStapler. The auto-built stapler
-// inherits failureMode, compression, cache cap, and HTTP timeout. It returns
+// inherits failureMode, compression, cache cap, and HTTP timeout; an HTTP client
+// injected with UseOCSPHTTPClient replaces the timeout-bound default. It returns
 // the newly built stapler for registration once all providers are ready.
 //
 // A programmatically-injected stapler always wins — operators staging
@@ -226,8 +228,12 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() *tlsocsp.Stapler {
 		tlsocsp.WithMaxCacheEntries(ocspCfg.MaxCacheEntries),
 	}
 	opts = slices.AppendIf(opts, ocspCfg.EnableCompression, tlsocsp.WithCompression())
-	opts = slices.AppendIf(opts, ocspCfg.HTTPTimeout > 0,
-		tlsocsp.WithHTTPClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
+	switch {
+	case b.ocspHTTPClient != nil:
+		opts = append(opts, tlsocsp.WithHTTPClient(b.ocspHTTPClient))
+	case ocspCfg.HTTPTimeout > 0:
+		opts = append(opts, tlsocsp.WithHTTPClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
+	}
 	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlsocsp.Option {
 		return []tlsocsp.Option{tlsocsp.WithLogger(b.Logger())}
 	})

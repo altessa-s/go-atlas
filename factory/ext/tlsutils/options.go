@@ -12,6 +12,7 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedtask "github.com/altessa-s/go-horai/task"
+	tlsocsp "github.com/altessa-s/go-tlsutils/ocsp"
 	tlsproviders "github.com/altessa-s/go-tlsutils/providers"
 )
 
@@ -31,6 +32,17 @@ func (b *ProvidersBuilder) UseDefaultLogger() *ProvidersBuilder {
 // UseOcspStapler sets the OCSP stapler for TLS providers.
 func (b *ProvidersBuilder) UseOcspStapler(v tlsutils.OCSPStapler) *ProvidersBuilder {
 	b.ocspStapler = v
+	return b
+}
+
+// UseOCSPHTTPClient sets the client the config-built OCSP stapler uses for
+// responder requests, for example the go-atlas-net client factory/ext/net/httpclient
+// builds, so OCSP fetches follow the process egress policy. The client enforces its
+// own timeouts: ocsp.httpTimeout is ignored while one is set. A nil v restores the
+// default client. It has no effect on a stapler injected with
+// [ProvidersBuilder.UseOcspStapler].
+func (b *ProvidersBuilder) UseOCSPHTTPClient(v tlsocsp.HTTPDoer) *ProvidersBuilder {
+	b.ocspHTTPClient = v
 	return b
 }
 

@@ -51,6 +51,7 @@ scheduler. A scheduler registration error retains lazy refresh and leaves manual
 |--------------------|-------------------------------------------------------------------------------------------------|
 | `UseLogger`        | Sets the logger for the builder and all created components                                      |
 | `UseDefaultLogger` | Sets the logger to `slog.Default()`                                                             |
+| `UseOCSPHTTPClient` | Sets the `ocsp.HTTPDoer` (for example the go-atlas-net client) the config-built stapler fetches with; replaces `ocsp.httpTimeout` |
 | `UseOcspStapler`   | Sets the OCSP stapler attached to file, Vault, and S3 providers                                 |
 | `UseProvider`      | Registers the `ProviderBuilder` of the Vault or S3 provider type                                |
 | `UseCacheDir`      | Sets the cache directory for Vault and Let's Encrypt certificate caching                        |
