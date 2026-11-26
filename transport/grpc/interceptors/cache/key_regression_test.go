@@ -12,10 +12,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestKeyGeneratorPreservesMethodCase(t *testing.T) {
@@ -91,4 +93,24 @@ func TestKeyGeneratorPreservesProcessorKeyCase(t *testing.T) {
 		return got
 	}
 	require.NotEqual(t, key("Tenant"), key("tenant"))
+}
+
+func TestNewKeyGeneratorUsesInterceptorIdentity(t *testing.T) {
+	t.Parallel()
+
+	type credential struct{ ID string }
+	cacher := newMapCacher()
+	unary := cache.ServerInterceptor(cacher,
+		cache.WithMethod(echoMethod, &wrapperspb.StringValue{}),
+		cache.WithKeyGenerator(cache.NewKeyGenerator(nil, nil)),
+		cache.WithIdentityFunc(func(ctx context.Context) (string, cache.IdentityState) {
+			creds, _ := auth.CredentialsFromContext(ctx)
+			return creds.Data.(credential).ID, cache.Verified
+		}),
+	).ServerUnaryInterceptor()
+	require.Equal(t, "alice", callWithCacheCredentials(t, t.Context(), unary, credential{"alice"}, "alice"))
+	require.Equal(t, "bob", callWithCacheCredentials(t, t.Context(), unary, credential{"bob"}, "bob"))
+	require.Equal(t, "alice", callWithCacheCredentials(t, t.Context(), unary, credential{"alice"}, "unexpected miss"))
+	require.Len(t, cacher.keys(), 2)
+	require.Equal(t, 2, cacher.saves)
 }

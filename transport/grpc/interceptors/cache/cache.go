@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/cache"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 
@@ -91,7 +92,7 @@ var _ interceptors.Interceptor = (*interceptor)(nil)
 // Dependencies places cache hits after authentication and access controls.
 // Each dependency is optional in a chain that does not install it.
 func (i *interceptor) Dependencies() []string {
-	return []string{metadata.Name(), "auth", "ipacl", "geoacl", "limiter"}
+	return []string{metadata.Name(), auth.Name(), "ipacl", "geoacl", "limiter"}
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -270,7 +271,7 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 	input, err := d.interceptor.discriminators.keyInput(ctx, method, namespace, req)
 	if err == nil {
 		if opts.keyGenerator != nil {
-			d.key, err = opts.keyGenerator(ctx, method, req)
+			d.key, err = opts.keyGenerator(context.WithValue(ctx, resolvedNamespaceKey{}, namespace), method, req)
 		} else {
 			d.key = input.storageKey()
 		}

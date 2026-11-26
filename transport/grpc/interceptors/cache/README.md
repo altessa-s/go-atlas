@@ -62,10 +62,11 @@ factory, exclude the config-built cache with `WithInterceptors(cache.ID)` and re
 
 The default storage key is 32 hexadecimal characters from SHA-256 over the framed method, identity namespace, serialized request, and response
 discriminators. Entries carry a separate SHA-256 verifier over the same tuple, including when a custom storage key is used. A verifier mismatch
-is a cache miss. Existing entries are cold after upgrading. Cached gRPC errors preserve their full status, including structured details.
+is a cache miss. When configured through `WithKeyGenerator`, `NewKeyGenerator` uses the interceptor's resolved namespace, including a custom
+`WithIdentityFunc`. Existing entries are cold after upgrading. Cached gRPC errors preserve their full status, including structured details.
 
 The default read-mask header is always included, even when `WithMetadataKeys` replaces the default list. For a different header, set
-`WithReadMaskHeader`. The gRPC server factory wires this option from its field-mask configuration.
+`WithReadMaskHeader`. The gRPC server factory uses the registered field-mask interceptor's effective header, including code-level overrides.
 
 Method names and processor-output keys are case-sensitive. Protobuf requests use deterministic serialization, including map fields. Metadata is
 bounded to 100 selected keys, 256 bytes per key, 20 values per key, and 1024 bytes per value. Processor output uses the same key and value bounds.

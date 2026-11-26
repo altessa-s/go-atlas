@@ -72,15 +72,24 @@ func newDefaultKeyGenerator() KeyGenerator {
 	return NewKeyGenerator(nil, nil)
 }
 
+// resolvedNamespaceKey carries the interceptor's verified namespace to its key generator.
+type resolvedNamespaceKey struct{}
+
 // NewKeyGenerator creates a key generator with the given metadata keys and
 // optional processor. An empty list uses [DefaultMetadataKeys]. The default
-// read-mask header is always included.
+// read-mask header is always included. When used by a cache interceptor,
+// the generator uses that interceptor's identity resolver. Standalone calls
+// use the default identity resolver.
 func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGenerator {
 	fields := newDiscriminators(metadataKeys, processor, "")
 	return func(ctx context.Context, method string, req any) (string, error) {
-		namespace, ok := cacheNamespace(ctx, nil, false)
-		if !ok {
-			return "", errIdentityUnknown
+		namespace, resolved := ctx.Value(resolvedNamespaceKey{}).(string)
+		if !resolved {
+			var ok bool
+			namespace, ok = cacheNamespace(ctx, nil, false)
+			if !ok {
+				return "", errIdentityUnknown
+			}
 		}
 		input, err := fields.keyInput(ctx, method, namespace, req)
 		if err != nil {
