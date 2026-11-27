@@ -1,0 +1,56 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+
+package maskvalidationtest.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/field_mask.proto";
+
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/maskvalidationtest/v1;maskvalidationtestv1";
+
+message UpdateIntegrationRequest {
+  Integration integration = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).required = true
+  ];
+  google.protobuf.FieldMask updateMask = 2;
+}
+
+message Integration {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_SMTP = 1;
+    KIND_TELEGRAM = 2;
+  }
+
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string name = 2;
+  Kind kind = 3 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = IMMUTABLE,
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
+  bool enabled = 4;
+  oneof settings {
+    SmtpSettings smtp = 5;
+    TelegramSettings telegram = 6;
+  }
+  string lastCheck = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string etag = 8 [(buf.validate.field).string.max_len = 4];
+}
+
+message SmtpSettings {
+  string host = 1 [(google.api.field_behavior) = REQUIRED];
+  int32 port = 2 [(buf.validate.field).int32.lte = 65535];
+}
+
+message TelegramSettings {
+  string botToken = 1 [(google.api.field_behavior) = REQUIRED];
+}

@@ -89,6 +89,57 @@ func testScopeField(msg protoreflect.Message, name protoreflect.Name) protorefle
 	return msg.Descriptor().Fields().ByName(name)
 }
 
+func TestBuildScopeForAtomicOneof(t *testing.T) {
+	t.Parallel()
+
+	spec, err := update.NewSpec(new(pb.Integration),
+		update.WithAllowedPaths("name", "enabled", "smtp", "telegram"),
+		update.WithIdentityFields("kind", "etag"),
+		update.WithAtomicMessage(func(md protoreflect.MessageDescriptor) bool {
+			switch md.FullName() {
+			case "maskvalidationtest.v1.SmtpSettings", "maskvalidationtest.v1.TelegramSettings":
+				return true
+			default:
+				return update.DefaultAtomicMessage(md)
+			}
+		}))
+	require.NoError(t, err)
+
+	res := &pb.Integration{
+		Kind:     pb.Integration_KIND_SMTP,
+		Etag:     "v1",
+		Settings: &pb.Integration_Smtp{Smtp: &pb.SmtpSettings{}},
+	}
+	for _, tt := range []struct {
+		name  string
+		mask  *fieldmaskpb.FieldMask
+		whole bool
+	}{
+		{name: "omitted", whole: true},
+		{name: "explicit branch", mask: &fieldmaskpb.FieldMask{Paths: []string{"smtp"}}, whole: true},
+		{name: "wildcard", mask: &fieldmaskpb.FieldMask{Paths: []string{"*"}}, whole: true},
+		{name: "unselected branch", mask: &fieldmaskpb.FieldMask{Paths: []string{"enabled"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mask, err := spec.ResolveMask(res, tt.mask)
+			require.NoError(t, err)
+			sel := &updatevalidation.Selection{Resource: res, Spec: spec, Mask: mask}
+			scope, err := buildSelectedScope(res.ProtoReflect(), mask.Paths(), nil, sel)
+			require.NoError(t, err)
+
+			branch := res.GetSmtp().ProtoReflect()
+			require.Equal(t, tt.whole, scope.allows(branch, branch.Descriptor()))
+			require.Equal(t, tt.whole, scope.allows(branch, testScopeField(branch, "host")))
+			require.Equal(t, tt.whole, scope.allows(branch, testScopeField(branch, "port")))
+			wantInstances := 1
+			if tt.whole {
+				wantInstances++
+			}
+			require.Len(t, scope.instances, wantInstances)
+		})
+	}
+}
+
 func TestValidateUpdateRejectsMismatchedSpec(t *testing.T) {
 	t.Parallel()
 	msg := &pb.Settings{}
