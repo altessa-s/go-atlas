@@ -31,7 +31,7 @@ the caller.
 
 | Error                | Meaning                                                                      |
 |----------------------|------------------------------------------------------------------------------|
-| `ErrInvalidRequest`  | endpoint, bucket or keys are missing or malformed; nothing was sent          |
+| `ErrInvalidRequest`  | request could not be constructed or validated for sending                   |
 | `ErrPolicyRefused`   | the egress policy refused the destination before connecting (`KindPolicy`)   |
 | `ErrUnreachable`     | name not resolved, connection refused or any other failure to connect        |
 | `ErrTLS`             | handshake or certificate failure                                             |
@@ -44,4 +44,4 @@ unchanged.
 
 - Trusted: the configured policy applies. Private, loopback, link-local and reserved addresses need an allow rule with a CIDR; a deny rule
   wins over an allow rule.
-- Untrusted: only public addresses, whatever the policy allows.
+- Untrusted: only public addresses outside the policy's deny rules. Allow rules have no effect.

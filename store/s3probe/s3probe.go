@@ -16,6 +16,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"golang.org/x/net/http/httpguts"
+
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 )
@@ -48,7 +50,7 @@ type Request struct {
 	// Timeout bounds the whole call; zero means [DefaultTimeout].
 	Timeout time.Duration
 	// Trusted selects the egress policy: true for a stored configuration
-	// (the configured policy), false for a draft (public addresses only).
+	// (the configured policy), false for a draft (public addresses outside the deny rules).
 	Trusted bool
 }
 
@@ -66,23 +68,21 @@ type Prober struct {
 	signer    *v4.Signer
 }
 
-// New returns a Prober whose trusted checks run under policy. A nil policy
-// leaves trusted checks on the default protection, which admits public
-// addresses only.
+// New returns a Prober whose trusted checks run under policy. Draft checks
+// admit public destinations outside the policy's deny rules. With a nil
+// policy both paths admit public addresses.
 func New(policy *httpclient.EgressPolicy) *Prober {
-	base := []httpclient.Option{
-		httpclient.WithoutRetry(),
-		httpclient.WithoutRedirects(),
-	}
-
-	trusted := base
-	if policy != nil {
-		trusted = append([]httpclient.Option{httpclient.WithEgressPolicy(policy)}, base...)
+	newClient := func(policy *httpclient.EgressPolicy) *http.Client {
+		return httpclient.New(
+			httpclient.WithEgressPolicy(policy),
+			httpclient.WithoutRetry(),
+			httpclient.WithoutRedirects(),
+		)
 	}
 
 	return &Prober{
-		trusted:   httpclient.New(trusted...),
-		untrusted: httpclient.New(base...),
+		trusted:   newClient(policy),
+		untrusted: newClient(policy.ForUntrustedTargets()),
 		signer: v4.NewSigner(func(o *v4.SignerOptions) {
 			o.DisableURIPathEscaping = true
 		}),
@@ -113,6 +113,12 @@ func (p *Prober) HeadBucket(ctx context.Context, req Request) (Result, error) {
 
 	if err = p.signer.SignHTTP(ctx, creds, httpReq, emptyPayloadHash, signingService, region, time.Now()); err != nil {
 		return Result{}, fmt.Errorf("%w: sign: %v", ErrInvalidRequest, err) //nolint:errorlint // the cause is a detail, not a class
+	}
+
+	// The signer inserts the access key ID and region into Authorization.
+	// Validate the generated value before the transport sees the request.
+	if !httpguts.ValidHeaderFieldValue(httpReq.Header.Get("Authorization")) {
+		return Result{}, fmt.Errorf("%w: invalid authorization header", ErrInvalidRequest)
 	}
 
 	client := p.untrusted

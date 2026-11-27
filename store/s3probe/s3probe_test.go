@@ -225,17 +225,38 @@ func TestHeadBucketEgressPolicy(t *testing.T) {
 	}
 }
 
+func TestHeadBucketDraftPublicDeny(t *testing.T) {
+	t.Parallel()
+
+	p := policy(t, nil, []httpclient.EgressRule{
+		{CIDR: netip.MustParsePrefix("8.8.8.0/24")},
+	})
+	req := request("http://8.8.8.8:1", false)
+	req.Timeout = time.Second
+
+	res, err := s3probe.New(p).HeadBucket(t.Context(), req)
+	require.ErrorIs(t, err, s3probe.ErrPolicyRefused)
+	assert.NotErrorIs(t, err, s3probe.ErrUnreachable)
+	assert.Zero(t, res.StatusCode)
+
+	refusal := httpclient.IsSSRFError(err)
+	require.NotNil(t, refusal)
+	assert.Contains(t, refusal.Rule, "deny[0]")
+}
+
 func TestHeadBucketInvalidRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]func(*s3probe.Request){
-		"no endpoint":      func(r *s3probe.Request) { r.Endpoint = "" },
-		"unsupported":      func(r *s3probe.Request) { r.Endpoint = "ftp://host" },
-		"credentials":      func(r *s3probe.Request) { r.Endpoint = "http://u:p@host" },
-		"no bucket":        func(r *s3probe.Request) { r.Bucket = "" },
-		"bucket with path": func(r *s3probe.Request) { r.Bucket = "a/b" },
-		"no access key":    func(r *s3probe.Request) { r.AccessKey = "" },
-		"no secret key":    func(r *s3probe.Request) { r.SecretKey = "" },
+		"no endpoint":           func(r *s3probe.Request) { r.Endpoint = "" },
+		"unsupported":           func(r *s3probe.Request) { r.Endpoint = "ftp://host" },
+		"credentials":           func(r *s3probe.Request) { r.Endpoint = "http://u:p@host" },
+		"no bucket":             func(r *s3probe.Request) { r.Bucket = "" },
+		"bucket with path":      func(r *s3probe.Request) { r.Bucket = "a/b" },
+		"no access key":         func(r *s3probe.Request) { r.AccessKey = "" },
+		"no secret key":         func(r *s3probe.Request) { r.SecretKey = "" },
+		"access key with CR/LF": func(r *s3probe.Request) { r.AccessKey = "key\r\nInvalid" },
+		"region with CR/LF":     func(r *s3probe.Request) { r.Region = "region\r\nInvalid" },
 	}
 
 	for name, mutate := range tests {
@@ -248,6 +269,7 @@ func TestHeadBucketInvalidRequest(t *testing.T) {
 			_, err := s3probe.New(nil).HeadBucket(t.Context(), req)
 
 			require.ErrorIs(t, err, s3probe.ErrInvalidRequest)
+			assert.NotErrorIs(t, err, s3probe.ErrUnreachable)
 			assert.NotContains(t, err.Error(), "secret-value")
 		})
 	}
