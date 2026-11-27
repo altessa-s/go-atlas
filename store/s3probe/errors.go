@@ -14,8 +14,8 @@ import (
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 )
 
-// ErrInvalidRequest is returned when the request cannot be sent: the endpoint,
-// bucket or keys are missing or malformed. Nothing was sent.
+// ErrInvalidRequest means the request could not be constructed or validated
+// for sending. Nothing was sent.
 var ErrInvalidRequest = errors.New("s3probe: invalid request")
 
 // Sentinels matched by errors.Is against a [TransportError] of the
