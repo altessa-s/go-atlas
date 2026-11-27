@@ -131,6 +131,7 @@ var sdkModules = []targetModule{
 	{root: "factory/ext/kryptos/vault", deps: []string{"security/secrets/providers/vault", "factory"}},
 	{root: "security/tlsutils/providers/s3"},
 	{root: "factory/ext/tlsutils/s3", deps: []string{"security/tlsutils/providers/s3", "factory"}},
+	{root: "store/s3probe", deps: []string{"net/http"}},
 	{root: "security/tlsutils/providers/vault"},
 	{root: "factory/ext/tlsutils/vault", deps: []string{"security/tlsutils/providers/vault", "factory"}},
 }

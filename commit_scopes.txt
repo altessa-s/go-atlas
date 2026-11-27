@@ -80,6 +80,7 @@ coord/dlock                 # Distributed lock implementation
 coord/dlock/providers       # Lock providers
 store                       # Storage clients
 store/meilisearch           # Meilisearch client wrapper
+store/s3probe               # S3-compatible bucket access check
 store/postgres              # PostgreSQL connection and transaction infrastructure
 store/mongo                 # MongoDB repository layer
 store/mongo/kms             # MongoDB CSFLE/KMS
