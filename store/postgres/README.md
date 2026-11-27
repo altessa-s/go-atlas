@@ -77,6 +77,27 @@ operation while continuing the outer transaction. A savepoint covers the entire 
 savepoint handler returns.
 A `uow.Runner` also discards hooks and effects registered through a rolled-back savepoint context. Registrations in released savepoints run in their original order after the outer transaction commits.
 
+### Advisory locks
+
+```go
+return postgres.WithTransaction(ctx, db, func(txCtx context.Context) error {
+    if err := postgres.AdvisoryLock(txCtx, key); err != nil {
+        return err
+    }
+    return repo.Save(txCtx, item)
+})
+```
+
+`AdvisoryLock` uses `pg_advisory_xact_lock` on the current writable transaction. It returns `ErrWriteTransactionRequired`
+before issuing SQL if the context lacks an open write transaction. A concurrent transaction requesting the same key waits
+subject to context cancellation and PostgreSQL timeouts. PostgreSQL releases the lock on commit or rollback. Rolling back
+to a savepoint also releases locks acquired since that savepoint.
+
+`AdvisoryLockKey` defines the stable mapping from strings to PostgreSQL `bigint` keys. It hashes the bytes of
+`go-atlas/postgres:` followed by the unchanged key bytes with FNV-1a 64-bit, then interprets the hash as a signed `int64`.
+The namespace and hash are fixed across releases so different versions coordinate on the same key. Use a common key
+for operations that must serialize and distinct application prefixes for unrelated resources.
+
 ### Units of work
 
 ```go
