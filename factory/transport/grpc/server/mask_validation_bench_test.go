@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -37,8 +38,8 @@ func BenchmarkMaskValidationFactoryChain(b *testing.B) {
 		b.Run(method, func(b *testing.B) {
 			info := &grpc.UnaryServerInfo{FullMethod: service + method}
 			run := grpc.UnaryHandler(func(_ context.Context, req any) (any, error) { return req, nil })
-			for i := len(ordered) - 1; i >= 0; i-- {
-				unary, next := ordered[i].ServerUnaryInterceptor(), run
+			for _, o := range slices.Backward(ordered) {
+				unary, next := o.ServerUnaryInterceptor(), run
 				run = func(ctx context.Context, req any) (any, error) {
 					return unary(ctx, req, info, next)
 				}

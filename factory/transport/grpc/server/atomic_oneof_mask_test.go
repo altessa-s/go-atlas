@@ -57,8 +57,7 @@ func TestAtomicOneofMaskFactoryChain(t *testing.T) {
 			return nil, status.Error(codes.Internal, "missing registered selection")
 		}
 		if sel.Err != nil {
-			var pathErr *update.MaskPathError
-			if errors.As(sel.Err, &pathErr) {
+			if pathErr, ok := errors.AsType[*update.MaskPathError](sel.Err); ok {
 				return nil, indexedTestMaskError(pathErr.Index)
 			}
 			return nil, sel.Err
