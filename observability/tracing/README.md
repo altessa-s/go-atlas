@@ -32,9 +32,12 @@ option types; a custom `Tracer`, `Recorder` or `Span` resolves them with `ApplyR
 | Option type       | Options                                                              | Used by           |
 |-------------------|----------------------------------------------------------------------|-------------------|
 | `RecorderOption`  | `WithInstrumentationVersion`, `WithSchemaURL`                        | `Tracer.Recorder` |
-| `SpanStartOption` | `WithSpanKind`, `WithAttributes`, `WithStartTimestamp`, `WithLinks`  | `Recorder.Start`  |
+| `SpanStartOption` | `WithSpanKind`, `WithAttributes`, `WithStartTimestamp`, `WithLinks`, `WithSampledParent` | `Recorder.Start`  |
 | `SpanEndOption`   | `WithEndTimestamp`                                                   | `Span.End`        |
 | `EventOption`     | `WithEventTimestamp`, `WithEventAttributes`, `WithStackTrace`        | `Span.AddEvent`   |
+
+`WithSampledParent` records a span only under a sampled parent span; without one `Start` returns the context unchanged and a span that records
+nothing, so background work outside a sampled trace starts no trace of its own.
 
 `WithAttributes`, `WithLinks` and `WithEventAttributes` accumulate across repeated options; the others are last-wins. On a recording span,
 `SetAttributes` (as well as start and sampler-returned attributes) deduplicates keys with last-wins semantics. `WithStackTrace(true)` attaches the

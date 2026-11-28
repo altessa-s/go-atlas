@@ -45,6 +45,9 @@ type spanStartOptions struct {
 	timestamp time.Time `opt:"StartTimestamp"`
 	// WithLinks adds links to other spans. Repeated options accumulate.
 	links []Link `optgen:"append" optval:"nodup"`
+	// WithSampledParent records the span only under a sampled parent span. Without one, Start returns the context
+	// unchanged and a span that records nothing, so work outside a sampled trace starts no trace of its own.
+	sampledParent bool
 }
 
 // SpanStartConfig is the resolved set of [SpanStartOption] values, returned by
@@ -155,6 +158,9 @@ func (c *SpanStartConfig) Timestamp() time.Time { return c.timestamp }
 
 // Links returns the span links.
 func (c *SpanStartConfig) Links() []Link { return c.links }
+
+// SampledParent reports whether the span records only under a sampled parent span ([WithSampledParent]).
+func (c *SpanStartConfig) SampledParent() bool { return c.sampledParent }
 
 // LinksIter returns an iterator over the span links.
 func (c *SpanStartConfig) LinksIter() iter.Seq[Link] {
