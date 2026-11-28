@@ -1,0 +1,13 @@
+# PostgreSQL schema migrations over their own direct session.
+# All parameters are commented out by default (template mode).
+
+#migrations:
+#  # <string> Direct PostgreSQL URL or libpq connection string, never a transaction pooler.
+#  # The session inherits the primary pool's TLS block. Required only to migrate.
+#  # Default value: not set
+#  dsn: host=localhost dbname=atlas
+#
+#  # <duration> Longest wait for each lock inside a migration. At most postgres.migrationTimeout,
+#  # which alone bounds the advisory lock wait between processes.
+#  # Default value: 5s
+#  lockTimeout: "5s"

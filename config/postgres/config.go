@@ -126,7 +126,6 @@ func (c *Config) Validate() error {
 	if err := validateTLS(c.DSN, c.TLS); err != nil {
 		return err
 	}
-	const maxServerTimeout = math.MaxInt32 * time.Millisecond
 	if err := validationconfig.ValidateStruct(c,
 		validation.Field(&c.Pooling, validation.Required, validation.In(direct, transaction)),
 		validation.Field(&c.MaxOpenConnections, validation.Required, validation.Min(1)),

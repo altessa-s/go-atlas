@@ -5,5 +5,7 @@
 // Package postgresconfig defines the PostgreSQL pool and timeout
 // schema. [Default] supplies defaults for programmatic configuration. The YAML
 // and default tags support the go-nomos loader. [Config.Validate] checks the
-// configuration before the factory opens any connections.
+// configuration before the factory opens any connections. [Migrations]
+// configures a direct migration session that [Config.MigrationSession]
+// derives from the primary settings.
 package postgresconfig
