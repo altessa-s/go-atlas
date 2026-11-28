@@ -144,8 +144,10 @@ All `.go` files must include the copyright header. Run `make copyright` to add i
 ## Fuzzing
 
 `go test ./...` already executes every fuzz target over its `f.Add` seeds, so seeds act as ordinary regression cases and a PR needs nothing extra.
-Mutation is separate: `make fuzz` walks each target for `FUZZTIME` (`go test -fuzz` accepts one target per package per invocation), and the `Fuzz`
-workflow does the same nightly with a larger budget, restoring the generated corpus between runs so coverage compounds.
+`make fuzz` runs each target with mutation enabled for `FUZZTIME`. Use `make -s fuzz-list FUZZSHARD=1/8` to list the first shard and pass the same
+`FUZZSHARD` to `make fuzz` to run it. Shards assign targets round-robin in package and target name order. The nightly `Fuzz` workflow runs eight
+shards for two minutes per target and restores each shard's generated corpus between runs. A manual run uses `fuzztime` to set the per-target
+budget and runs a custom `fuzzpkg` pattern in one job.
 
 Write a fuzz target when the input is attacker-controlled or there is a property worth stating — a round trip, an allowlist that must hold, an
 invariant the code documents. "Does not panic" is the floor, not the goal: a target with no assertion passes for the wrong reasons. When a run

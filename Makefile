@@ -43,8 +43,10 @@ GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G304,G702,G703,G704,G705
 #   package per invocation, so `make fuzz` walks them and this is the cost of a
 #   single target, not of the whole sweep.
 # - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./store/mongo
+# - FUZZSHARD: select a 1-based shard as i/N, e.g. FUZZSHARD=2/8
 FUZZTIME ?= 30s
 FUZZPKG ?= ./...
+FUZZSHARD ?=
 
 # Stress configuration (tests behind the `stress` build tag, see AGENTS.md)
 # - STRESS_DURATION: run length of each stress test (ATLAS_STRESS_DURATION).
@@ -170,27 +172,50 @@ test-all: ## Run tests with race detector, shuffle, and coverage
 	@go tool cover -func=coverage.out | tail -1
 	@rm -f coverage.out
 
+# Both fuzz-list and fuzz walk the same targets. Shards use package/name order.
+define each_fuzz_target
+shard="$(FUZZSHARD)"; index=0; \
+if [ -n "$$shard" ]; then \
+  if [[ ! "$$shard" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then \
+    printf 'FUZZSHARD must be i/N with 1 <= i <= N\n' >&2; exit 2; \
+  fi; \
+  shard_index=$${BASH_REMATCH[1]}; shard_total=$${BASH_REMATCH[2]}; \
+  packages=$$(go list $(FUZZPKG) | LC_ALL=C sort) || exit 1; \
+else \
+  packages=$$(go list $(FUZZPKG)); \
+fi; \
+for pkg in $$packages; do \
+  if [ -n "$$shard" ]; then \
+    targets=$$(go test -list '^Fuzz' "$$pkg" | sed -n '/^Fuzz/p' | LC_ALL=C sort) || { \
+      printf 'Could not list fuzz targets in %s\n' "$$pkg" >&2; exit 1; \
+    }; \
+  else \
+    targets=$$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz' || true); \
+  fi; \
+  for t in $$targets; do \
+    if [ -n "$$shard" ]; then \
+      selected=$$((index % shard_total + 1)); index=$$((index + 1)); \
+      if [ "$$selected" -ne "$$shard_index" ]; then continue; fi; \
+    fi; \
+    $(1); \
+  done; \
+done
+endef
+
 .PHONY: fuzz-list
-fuzz-list: ## List every fuzz target (package and name)
-	@for pkg in $$(go list $(FUZZPKG)); do \
-	  for t in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz' || true); do \
-	    printf '%s\t%s\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t"; \
-	  done; \
-	done
+fuzz-list: ## List fuzz targets (package and name), optionally for one FUZZSHARD
+	@$(call each_fuzz_target,printf '%s\t%s\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t")
 
 .PHONY: fuzz-seed
 fuzz-seed: ## Run every fuzz target over its seed corpus only (no mutation, fast)
 	@go test -run '^Fuzz' $(FUZZPKG)
 
 .PHONY: fuzz
-fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
+fuzz: ## Fuzz each target for FUZZTIME, with optional FUZZPKG and FUZZSHARD filters
 	@failed=""; \
-	for pkg in $$(go list $(FUZZPKG)); do \
-	  for t in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz' || true); do \
-	    printf '\033[36m==> %s %s (%s)\033[0m\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t" "$(FUZZTIME)"; \
-	    go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) $$pkg || failed="$$failed $${pkg#github.com/altessa-s/go-atlas/}:$$t"; \
-	  done; \
-	done; \
+	$(call each_fuzz_target,\
+	  printf '\033[36m==> %s %s (%s)\033[0m\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t" "$(FUZZTIME)"; \
+	  go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) $$pkg || failed="$$failed $${pkg#github.com/altessa-s/go-atlas/}:$$t"); \
 	if [ -n "$$failed" ]; then \
 	  printf '\033[31mfailing fuzz targets:%s\033[0m\n' "$$failed"; \
 	  printf 'minimized reproducers were written to the package testdata/fuzz directories; commit them as regression seeds\n'; \

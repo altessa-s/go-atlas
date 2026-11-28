@@ -21,9 +21,14 @@ permissions:
 
 jobs:
   fuzz:
-    name: Fuzz
+    name: Fuzz (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: ${{ github.event_name == 'schedule' && 60 || 180 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # A custom package pattern runs once, even if it has only one target.
+        shard: ${{ fromJSON((inputs.fuzzpkg || './...') == './...' && '[1,2,3,4,5,6,7,8]' || '[1]') }}
     permissions:
       contents: read
     steps:
@@ -48,22 +53,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.gocache/fuzz
-          key: fuzz-corpus-${{ github.run_id }}
-          restore-keys: fuzz-corpus-
+          key: fuzz-corpus-${{ matrix.shard }}-of-${{ strategy.job-total }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.shard }}-of-${{ strategy.job-total }}-
 
       - name: Fuzz
+        # Bound fuzzing before the job deadline so the runner can upload crashers.
+        timeout-minutes: ${{ github.event_name == 'schedule' && 50 || 170 }}
         env:
           GOCACHE: ${{ github.workspace }}/.gocache
-        run: make fuzz FUZZTIME=${{ inputs.fuzztime || '2m' }} FUZZPKG=${{ inputs.fuzzpkg || './...' }}
+          FUZZTIME: ${{ inputs.fuzztime || '2m' }}
+          FUZZPKG: ${{ inputs.fuzzpkg || './...' }}
+          FUZZSHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: make fuzz
 
       # A crash makes Go write the minimized reproducer to the package's
       # testdata/fuzz/<Target>/ directory. Uploading it is what turns a red
       # nightly into a file someone can commit as a permanent regression seed.
       - name: Upload crashers
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-crashers
+          name: fuzz-crashers-${{ matrix.shard }}-of-${{ strategy.job-total }}
           path: "**/testdata/fuzz/**"
           if-no-files-found: ignore
           retention-days: 30
