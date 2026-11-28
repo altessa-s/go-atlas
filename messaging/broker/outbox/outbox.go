@@ -178,7 +178,7 @@ func ShouldRetry(err error) bool {
 // Should be called within the same transaction as the business logic for atomicity.
 func (o *Outbox) Publish(ctx context.Context, m msg.Message) error {
 	if _, explicit := m.Metadata.Value("traceparent"); !explicit {
-		m.Metadata = traceheaders.Inject(m.Metadata, traceheaders.FromContext(ctx))
+		m.Metadata = traceheaders.Inject(m.Metadata, propagation.TraceContextHeaders(ctx))
 	}
 	return o.Save(ctx, msgToEvent(m))
 }
@@ -189,7 +189,7 @@ func (o *Outbox) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-	headers := traceheaders.FromContext(ctx)
+	headers := propagation.TraceContextHeaders(ctx)
 	events := slices.Collect(coreslices.Map(msgs, func(m msg.Message) outbox.Event {
 		m.Metadata = traceheaders.Inject(m.Metadata, headers)
 		return msgToEvent(m)

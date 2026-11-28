@@ -22,6 +22,9 @@
 //	// Inject into outgoing request
 //	propagator.Inject(ctx, propagation.HeaderCarrier(req.Header))
 //
+// [TraceContextHeaders] captures the headers of the active span as a [MapCarrier], for work
+// that continues the trace later, such as a queued job or an outbox row.
+//
 // # TextMapPropagator Interface
 //
 // The TextMapPropagator interface allows custom propagation formats:

@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker/internal/traceheaders"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 )
 
 // ErrPublishConverterNotSet is returned by [Broker.PublishAny] when no
@@ -86,7 +87,7 @@ func New(provider Provider, opt ...Option) *Broker {
 //	err := b.Publish(ctx, msg.Message{Topic: "events", Data: payload})
 func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 	stop := b.metrics.publishDuration.Start()
-	msg.Metadata = traceheaders.Inject(msg.Metadata, traceheaders.FromContext(ctx))
+	msg.Metadata = traceheaders.Inject(msg.Metadata, propagation.TraceContextHeaders(ctx))
 	err := b.outbox.Publish(ctx, msg)
 	stop()
 	if err != nil {
@@ -104,7 +105,7 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 //
 //	err := b.PublishBatch(ctx, msg1, msg2, msg3)
 func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
-	if headers := traceheaders.FromContext(ctx); headers != nil {
+	if headers := propagation.TraceContextHeaders(ctx); headers != nil {
 		msgs = slices.Clone(msgs)
 		for i := range msgs {
 			msgs[i].Metadata = traceheaders.Inject(msgs[i].Metadata, headers)

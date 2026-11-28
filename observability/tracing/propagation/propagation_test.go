@@ -341,3 +341,16 @@ func TestTraceContext_ExtractCombinesMultipleHTTPTracestateHeaders(t *testing.T)
 		require.Empty(t, remote.TraceState())
 	})
 }
+
+func TestTraceContextHeaders(t *testing.T) {
+	t.Parallel()
+	require.Nil(t, TraceContextHeaders(t.Context()), "no span context")
+
+	const parent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+	ctx := NewTraceContext().Extract(t.Context(), MapCarrier{"traceparent": parent, "tracestate": "vendor=value"})
+	headers := TraceContextHeaders(ctx)
+	require.Equal(t, MapCarrier{"traceparent": parent, "tracestate": "vendor=value"}, headers)
+
+	invalid := NewTraceContext().Extract(t.Context(), MapCarrier{"traceparent": "00-00000000000000000000000000000000-b7ad6b7169203331-01"})
+	require.Nil(t, TraceContextHeaders(invalid), "an invalid span context")
+}
