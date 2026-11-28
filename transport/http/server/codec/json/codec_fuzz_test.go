@@ -7,7 +7,7 @@ package json
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzDecode(f *testing.F) {
@@ -35,11 +35,13 @@ func FuzzEncodeDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key, value string) {
 		input := map[string]string{key: value}
 		encoded, err := c.Encode(input)
-		if err != nil {
-			return
-		}
+		require.NoError(t, err)
+
 		var decoded map[string]string
-		assert.Equal(t, nil, c.Decode(encoded, &decoded))
-		assert.Equal(t, value, decoded[key])
+		require.NoError(t, c.Decode(encoded, &decoded))
+
+		// Like encoding/json, converting through runes replaces each invalid UTF-8 byte with U+FFFD.
+		want := map[string]string{string([]rune(key)): string([]rune(value))}
+		require.Equal(t, want, decoded)
 	})
 }

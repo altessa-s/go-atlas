@@ -93,6 +93,18 @@ func TestDecode_Invalid(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEncodeDecode_InvalidUTF8(t *testing.T) {
+	t.Parallel()
+
+	c := New()
+	encoded, err := c.Encode(map[string]string{"\xfa": "0", "value": "\xff\xfe"})
+	require.NoError(t, err)
+
+	var decoded map[string]string
+	require.NoError(t, c.Decode(encoded, &decoded))
+	require.Equal(t, map[string]string{"\ufffd": "0", "value": "\ufffd\ufffd"}, decoded)
+}
+
 func TestEncodeStream(t *testing.T) {
 	c := New()
 	var buf bytes.Buffer
