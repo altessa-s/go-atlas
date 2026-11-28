@@ -7,6 +7,7 @@ package fieldmask
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-aip/fieldmask/extract"
@@ -57,6 +58,8 @@ type interceptor struct {
 	builtinRead extract.ReadFunc
 	// updates applies the update_mask of Update requests.
 	updates *updatemask.Normalizer
+	// resources caches the resource descriptor of each read method for WithResourceReadMask.
+	resources sync.Map
 }
 
 // builtinReadExtractor invokes the cached reflection-based read extractor.
@@ -383,6 +386,9 @@ func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Mes
 		if err != nil {
 			return ri.rejectReadMask(ctx)
 		}
+		if ri.opts.resourceReadMask && !ri.resourcePathsValid(mask.GetPaths()) {
+			return ri.rejectReadMask(ctx)
+		}
 		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
 		snap.parsed = parsed
 	} else {
@@ -426,7 +432,11 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 	}
 	// A path the response schema does not hold is the client's error
 	// (AIP-161); the response is not sent half-filtered.
-	if filterErr := msk.Filter(resp); filterErr != nil {
+	filter := msk.Filter
+	if ri.opts.resourceReadMask {
+		filter = func(resp proto.Message, _ ...pbfieldmask.Option) error { return ri.filterResources(resp, msk) }
+	}
+	if filterErr := filter(resp); filterErr != nil {
 		return ri.rejectReadMask(ctx)
 	}
 
@@ -440,7 +450,7 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 const invalidFieldMaskReason = "INVALID_FIELD_MASK"
 
 var invalidReadMaskStatus = func() *status.Status {
-	st := status.New(codes.InvalidArgument, "Invalid read field mask")
+	st := status.New(codes.InvalidArgument, invalidReadMaskMessage)
 	detailed, err := st.WithDetails(&errdetails.ErrorInfo{Reason: invalidFieldMaskReason})
 	if err != nil {
 		return st
@@ -452,6 +462,9 @@ func (ri *requestInterceptor) rejectReadMask(ctx context.Context) error {
 	ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(),
 		slog.String("grpc.error_reason", invalidFieldMaskReason),
 	)
+	if ri.opts.resourceReadMask {
+		return ri.resourceMaskError()
+	}
 	return invalidReadMaskStatus.Err()
 }
 

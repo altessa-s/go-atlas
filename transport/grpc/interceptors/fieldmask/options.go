@@ -35,6 +35,15 @@ type options struct {
 	// ("/x.v1.X/UpdateBucket"). Calling the option multiple times accumulates
 	// overrides; later calls replace earlier ones for the same method.
 	methodKinds map[string]Kind `opt:"MethodKind" optgen:"put"`
+	// WithResourceReadMask makes read masks address the resource (AIP-157) instead of the response message.
+	// On List*, Search* and BatchGet* methods whose response has a single repeated message field, the paths
+	// address each element of that field and the other response fields (next_page_token, total_size,
+	// unreachable) are kept; on other read methods they address the response, as by default. Before the
+	// handler runs, the paths are checked against the resource resolved from the method's output type in the
+	// global registry; an invalid mask is the InvalidArgument INVALID_FIELD_MASK refusal with an added
+	// io.altessa.badrequest.v1.BadRequest violation on the read mask field. An omitted mask or "*" alone
+	// selects every field.
+	resourceReadMask bool
 	// WithSkipReadMask disables the response-side Filter pass that runs on
 	// KindRead methods. Use it when the handler already applies the read mask
 	// itself and the duplicate walk is wasted work.
