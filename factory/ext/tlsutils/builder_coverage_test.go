@@ -326,3 +326,41 @@ func TestIndependentStaplersRefreshOnOneScheduler(t *testing.T) {
 	closeAll(t, registry)
 	require.Equal(t, reg.ids[0], again.Tasks()[0].ID)
 }
+
+// warmingProvider counts its warm-ups and fails them with err.
+type warmingProvider struct {
+	fakeProvider
+	warmed *int
+	err    error
+}
+
+func (w warmingProvider) Warm(context.Context) error {
+	*w.warmed++
+	return w.err
+}
+
+// TestBuild_WarmsProviders warms every provider that can obtain its certificates ahead of time and fails the build
+// when one cannot.
+func TestBuild_WarmsProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		err  error
+		fail bool
+	}{{nil, false}, {errBuild, true}} {
+		warmed := 0
+		providers, err := factory.New(&tlsconfig.Provider{Vault: &tlsconfig.ProviderVault{CommonName: "x", Role: "r"}}).
+			UseProvider(tlsproviders.ProviderTypeVault, func(*tlsconfig.Provider, factory.ProviderEnv) (tlsproviders.Provider, error) {
+				return warmingProvider{typ: tlsproviders.ProviderTypeVault, warmed: &warmed, err: tc.err}, nil
+			}).
+			Build(t.Context())
+		require.Equal(t, 1, warmed)
+		if tc.fail {
+			require.ErrorIs(t, err, errBuild)
+			require.Nil(t, providers)
+			continue
+		}
+		require.NoError(t, err)
+		closeAll(t, providers)
+	}
+}

@@ -25,31 +25,39 @@ var ErrClientRequired = errors.New("vault client is required")
 // tlsfactory.ProvidersBuilder.UseProvider. The provider issues certificates
 // from the PKI engine through client, configured by the vault section, and
 // caches them under the vault subdirectory of the cache directory.
-func Builder(client *vaultApi.Client) tlsfactory.ProviderBuilder {
+// [WithConfiguredNames] restricts it to the configured names and
+// [WithIssueOnBuild] obtains their certificates before Build returns; with
+// either option the builder returns a wrapper around the go-tlsutils provider.
+func Builder(client *vaultApi.Client, opts ...Option) tlsfactory.ProviderBuilder {
+	settings := newOptions(opts...)
+
 	return func(cfg *tlsconfig.Provider, env tlsfactory.ProviderEnv) (tlsproviders.Provider, error) {
 		if client == nil {
 			return nil, ErrClientRequired
 		}
 
 		v := cfg.Vault
-		opts := []tlsvault.Option{
+		vaultOpts := []tlsvault.Option{
 			tlsvault.WithVc(client),
 			tlsvault.WithCommonName(v.CommonName),
 			tlsvault.WithRole(v.Role),
 			tlsvault.WithRenewBefore(v.RenewBefore),
 		}
-		opts = slices.AppendIf(opts, len(v.SubjectAlternativeNames) > 0, tlsvault.WithSubjectAlternativeNames(v.SubjectAlternativeNames...))
-		opts = slices.AppendIf(opts, len(v.IPSubjectAlternativeNames) > 0, tlsvault.WithIPSubjectAlternativeNames(v.IPSubjectAlternativeNames...))
-		opts = slices.AppendIf(opts, env.Logger != nil, tlsvault.WithLogger(env.Logger))
-		opts = slices.AppendIfFunc(opts, env.CacheDir != "", func() []tlsvault.Option {
+		vaultOpts = slices.AppendIf(vaultOpts, len(v.SubjectAlternativeNames) > 0, tlsvault.WithSubjectAlternativeNames(v.SubjectAlternativeNames...))
+		vaultOpts = slices.AppendIf(vaultOpts, len(v.IPSubjectAlternativeNames) > 0, tlsvault.WithIPSubjectAlternativeNames(v.IPSubjectAlternativeNames...))
+		vaultOpts = slices.AppendIf(vaultOpts, env.Logger != nil, tlsvault.WithLogger(env.Logger))
+		vaultOpts = slices.AppendIfFunc(vaultOpts, env.CacheDir != "", func() []tlsvault.Option {
 			return []tlsvault.Option{tlsvault.WithCacheDir(filepath.Join(env.CacheDir, "vault"))}
 		})
-		opts = slices.AppendIf(opts, env.OCSPStapler != nil, tlsvault.WithOcspStapler(env.OCSPStapler))
+		vaultOpts = slices.AppendIf(vaultOpts, env.OCSPStapler != nil, tlsvault.WithOcspStapler(env.OCSPStapler))
 
-		p, err := tlsvault.New(opts...)
+		p, err := tlsvault.New(vaultOpts...)
 		if err != nil {
 			return nil, err
 		}
-		return p, nil
+		if !settings.configuredNames && !settings.issueOnBuild {
+			return p, nil
+		}
+		return newConfiguredNames(p, v, settings.configuredNames, settings.issueOnBuild), nil
 	}
 }
