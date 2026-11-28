@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+
+	"google.golang.org/grpc/status"
 )
 
 // Option is a functional option for configuring options.
@@ -150,6 +152,17 @@ func WithMethodKind(key string, value Kind) Option {
 		}
 		o.methodKinds[key] = value
 
+	}
+}
+
+// WithReadMaskErrorStatus replaces the status of every invalid read mask refusal, for an application
+// with its own error contract. A nil or OK status keeps the default InvalidArgument INVALID_FIELD_MASK refusal.
+func WithReadMaskErrorStatus(v *status.Status) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.readMaskErrorStatus = v
 	}
 }
 

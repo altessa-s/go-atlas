@@ -281,6 +281,37 @@ func TestResourceReadMask_Stream(t *testing.T) {
 	requireMaskViolation(t, err, "read_mask")
 }
 
+func TestReadMaskErrorStatus(t *testing.T) {
+	t.Parallel()
+	custom := status.New(codes.FailedPrecondition, "custom refusal")
+	for _, tc := range []struct {
+		name   string
+		opts   []fieldmask.Option
+		method string
+		req    proto.Message
+		resp   proto.Message
+	}{
+		{"resource mode before the handler", []fieldmask.Option{fieldmask.WithResourceReadMask()}, listMethod, listRequest("no_such_field"), listResponse()},
+		{"resource mode malformed", []fieldmask.Option{fieldmask.WithResourceReadMask()}, listMethod, listRequest("*", "name"), listResponse()},
+		{"default mode after the handler", nil, getMethod, getRequest("no_such_field"), &pb.Resource{}},
+		{"default mode malformed", nil, getMethod, getRequest("name..x"), &pb.Resource{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			opts := append(tc.opts, fieldmask.WithReadMaskErrorStatus(custom))
+			_, _, err := runUnary(t, newUnary(t, opts...), tc.method, tc.req, tc.resp, nil)
+			require.True(t, proto.Equal(custom.Proto(), status.Convert(err).Proto()), "got %v", err)
+		})
+	}
+
+	for _, ignored := range []*status.Status{nil, status.New(codes.OK, "")} {
+		uni := newUnary(t, fieldmask.WithResourceReadMask(), fieldmask.WithReadMaskErrorStatus(ignored))
+		seen, _, err := runUnary(t, uni, listMethod, listRequest("no_such_field"), listResponse(), nil)
+		requireMaskViolation(t, err, "read_mask")
+		require.Nil(t, seen)
+	}
+}
+
 func errorInfo(st *status.Status) *errdetails.ErrorInfo {
 	for _, d := range st.Details() {
 		if info, ok := d.(*errdetails.ErrorInfo); ok {

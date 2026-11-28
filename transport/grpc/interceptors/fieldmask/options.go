@@ -14,6 +14,8 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+
+	"google.golang.org/grpc/status"
 )
 
 // Use defaults package for optgen code generation.
@@ -44,6 +46,9 @@ type options struct {
 	// io.altessa.badrequest.v1.BadRequest violation on the read mask field. An omitted mask or "*" alone
 	// selects every field.
 	resourceReadMask bool
+	// WithReadMaskErrorStatus replaces the status of every invalid read mask refusal, for an application
+	// with its own error contract. A nil or OK status keeps the default InvalidArgument INVALID_FIELD_MASK refusal.
+	readMaskErrorStatus *status.Status `optgen:"notnil"`
 	// WithSkipReadMask disables the response-side Filter pass that runs on
 	// KindRead methods. Use it when the handler already applies the read mask
 	// itself and the duplicate walk is wasted work.

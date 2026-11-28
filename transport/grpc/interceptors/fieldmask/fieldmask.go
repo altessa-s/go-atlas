@@ -459,6 +459,10 @@ var invalidReadMaskStatus = func() *status.Status {
 }()
 
 func (ri *requestInterceptor) rejectReadMask(ctx context.Context) error {
+	if st := ri.opts.readMaskErrorStatus; st != nil && st.Code() != codes.OK {
+		ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method())
+		return st.Err()
+	}
 	ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(),
 		slog.String("grpc.error_reason", invalidFieldMaskReason),
 	)

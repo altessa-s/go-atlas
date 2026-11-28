@@ -55,6 +55,7 @@ specific fully-qualified method.
 |-----------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WithMethodKind(fullMethod, kind)`      | --                              | Override classification for `info.FullMethod`. Accumulates across calls.                                                                                                                    |
 | `WithSkipReadMask()`                    | off                             | Disable the response-side `Filter` pass on `KindRead` methods.                                                                                                                              |
+| `WithReadMaskErrorStatus(st)`           | `INVALID_FIELD_MASK` refusal    | Status of every invalid read mask refusal. A nil or OK status keeps the default.                                                                                                            |
 | `WithResourceReadMask()`                | off                             | Resource-relative read masks: List/Search/BatchGet paths address each resource, checked before the handler. See [Resource-relative read masks](#resource-relative-read-masks).            |
 | `WithMaskFieldName(name)`               | declared names above           | Select an exact declared mask field name without fallback. Empty uses the defaults above.                                                                                                 |
 | `WithResourceFieldName(name)`           | exactly one non-mask message    | Override the resource carrier field name on Update requests.                                                                                                                                |
@@ -299,3 +300,5 @@ validation error details.
 ## Diagnostics
 
 An invalid read mask returns `InvalidArgument` with `ErrorInfo.Reason` set to `INVALID_FIELD_MASK`. The rejected path is omitted from the status and diagnostics.
+`WithReadMaskErrorStatus(st)` replaces the status of every such refusal, for an application with its own error contract; a nil or OK status keeps
+the default.
