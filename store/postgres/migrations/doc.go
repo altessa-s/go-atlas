@@ -25,6 +25,7 @@
 // migrate once. Supply a direct primary pool and a factory/store/postgres UseMigrator callback. Every call builds its own goose.Provider over a copy of
 // the registry with goose's global registry disabled, so no goose global state is read or changed. [Down] reverts the latest applied
 // migration and [Status] reports what a database has applied. Pass [WithRegistry] to each operation to use the same independent set of migrations.
+// [WithMigrationLockTimeout] bounds the lock waits inside each migration, and [WithCreateSchema] creates the schema of a qualified version table.
 //
 //	if err := migrations.Run(ctx, db, migrations.WithLogger(logger)); err != nil {
 //		return err

@@ -38,4 +38,10 @@ type options struct {
 	lockID int64 `optgen:"default=DefaultLockID"`
 	// WithLockTimeout bounds connection checkout, identity verification and advisory lock acquisition.
 	lockTimeout time.Duration `optval:"positive" optgen:"default=DefaultLockTimeout"`
+	// WithMigrationLockTimeout sets lock_timeout inside every migration transaction, so a step waiting for a lock fails instead of
+	// queueing the traffic of the locked table behind it. It is counted in whole milliseconds. By default the session setting applies.
+	migrationLockTimeout time.Duration `optval:"positive"`
+	// WithCreateSchema creates the schema of a schema-qualified version table, under the advisory lock, when it does not exist.
+	// Run and Down need it before goose can create the table; Status never creates it.
+	createSchema bool
 }
