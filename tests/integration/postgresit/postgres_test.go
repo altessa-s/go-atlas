@@ -207,9 +207,49 @@ func TestPools(t *testing.T) {
 			t.Run("savepoint_cancel", func(t *testing.T) { testCanceledSavepoint(t, db, table) })
 			t.Run("commit_failure", func(t *testing.T) { testFailedCommit(t, db, schema) })
 			t.Run("timeouts", func(t *testing.T) { testTimeouts(t, db) })
+			t.Run("nowait", func(t *testing.T) { testNoWait(t, db, table) })
+			t.Run("closed_pool", func(t *testing.T) { testClosedPool(t, c.DSN, postgres.PoolingMode(tc.name)) })
 
 		})
 	}
+}
+
+// A row lock refused under NOWAIT is LockTimeout, and the transaction is not marked for replay.
+func testNoWait(t *testing.T, db *sql.DB, table string) {
+	t.Helper()
+	ctx := t.Context()
+	holder, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = holder.Rollback() })
+	var id int
+	require.NoError(t, holder.QueryRowContext(ctx, "SELECT id FROM "+table+" WHERE id = 1 FOR UPDATE").Scan(&id))
+	waiter, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = waiter.Rollback() })
+	err = waiter.QueryRowContext(ctx, "SELECT id FROM "+table+" WHERE id = 1 FOR UPDATE NOWAIT").Scan(&id)
+	require.Error(t, err)
+	kind, _ := postgres.Classify(err)
+	require.Equal(t, postgres.LockTimeout, kind)
+	kind, _ = postgres.ClassifyContext(ctx, err)
+	require.Equal(t, postgres.LockTimeout, kind)
+	require.False(t, kind.RetryableTransaction())
+}
+
+// A statement on a pool that was open and served queries, then closed, is PoolClosed.
+func testClosedPool(t *testing.T, dsn redacted.RedactedString, mode postgres.PoolingMode) {
+	t.Helper()
+	ctx := t.Context()
+	db, err := postgres.Open(ctx, dsn, postgres.WithPooling(mode))
+	require.NoError(t, err)
+	var one int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	require.NoError(t, db.Close())
+	_, err = db.ExecContext(ctx, "SELECT 1")
+	kind, _ := postgres.ClassifyContext(ctx, err)
+	require.Equal(t, postgres.PoolClosed, kind)
+	err = postgres.WithTransaction(ctx, db, func(context.Context) error { return nil })
+	kind, _ = postgres.Classify(err)
+	require.Equal(t, postgres.PoolClosed, kind)
 }
 
 func count(t testing.TB, ctx context.Context, q interface {
@@ -311,6 +351,21 @@ func testTimeouts(t *testing.T, db *sql.DB) {
 	_, err = db.ExecContext(expired, "SELECT 1")
 	kind, _ = postgres.ClassifyContext(expired, err)
 	require.Equal(t, postgres.Canceled, kind)
+
+	key := time.Now().UnixNano()
+	holder, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = holder.Rollback() })
+	_, err = holder.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", key)
+	require.NoError(t, err)
+	waiter, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = waiter.Rollback() })
+	_, err = waiter.ExecContext(ctx, "SET LOCAL lock_timeout = '50ms'")
+	require.NoError(t, err)
+	_, err = waiter.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", key)
+	kind, _ = postgres.ClassifyContext(ctx, err)
+	require.Equal(t, postgres.LockTimeout, kind)
 }
 
 func TestSkipEndpoint(t *testing.T) {

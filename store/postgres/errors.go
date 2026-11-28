@@ -8,10 +8,12 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"io"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -27,6 +29,24 @@ var ErrPooledTimeoutDefaults = errors.New("database role needs nonzero timeout d
 var ErrDatabaseMismatch = errors.New("transaction belongs to a different database")
 
 var errInvalidDSN = errors.New("invalid PostgreSQL DSN")
+
+// errPoolClosed returns the unexported error database/sql returns from a closed pool. It is taken once, on first
+// use, from a pool that never connects and is closed at once.
+var errPoolClosed = sync.OnceValue(func() error {
+	db := sql.OpenDB(closedConnector{})
+	if err := db.Close(); err != nil {
+		return err
+	}
+	_, err := db.Conn(context.Background())
+	return err
+})
+
+// closedConnector backs the pool errPoolClosed is taken from; it never connects.
+type closedConnector struct{}
+
+func (closedConnector) Connect(context.Context) (driver.Conn, error) { return nil, driver.ErrBadConn }
+
+func (closedConnector) Driver() driver.Driver { return nil }
 
 // driverDiagnostic keeps the public error chain available for programmatic inspection while
 // formatting only the operation, error type and validated SQLSTATE.
@@ -67,7 +87,9 @@ const (
 	Serialization ErrorKind = "serialization"
 	// Deadlock indicates the whole transaction can be retried (40P01).
 	Deadlock ErrorKind = "deadlock"
-	// ConnectionBeforeSend means the driver guarantees the statement was never sent.
+	// ConnectionBeforeSend means the statement was never sent: the driver guarantees it, or the server refused
+	// the session (too_many_connections, 53300, which PostgreSQL and PgBouncer report with FATAL severity at
+	// session start).
 	ConnectionBeforeSend ErrorKind = "connection_before_send"
 	// ConnectionLost means the server may have executed the statement.
 	ConnectionLost ErrorKind = "connection_lost"
@@ -78,6 +100,11 @@ const (
 	// Canceled identifies request cancellation. Classify also uses it for
 	// deadline expiry and recognized server cancel messages.
 	Canceled ErrorKind = "canceled"
+	// LockTimeout identifies a lock not acquired within lock_timeout or under NOWAIT (55P03). The
+	// transaction is aborted and may be retried as a whole.
+	LockTimeout ErrorKind = "lock_timeout"
+	// PoolClosed identifies a statement issued on a closed [sql.DB].
+	PoolClosed ErrorKind = "pool_closed"
 )
 
 // RetryableTransaction reports whether PostgreSQL aborted a transaction for a serialization failure or deadlock.
@@ -136,6 +163,9 @@ func ClassifyContext(ctx context.Context, err error) (ErrorKind, string) {
 }
 
 func classifyCommon(err error, classify57014 func(*pgconn.PgError) ErrorKind) (ErrorKind, string) {
+	if errors.Is(err, errPoolClosed()) {
+		return PoolClosed, ""
+	}
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ConnectionBeforeSend, ""
 	}
@@ -155,6 +185,10 @@ func classifyCommon(err error, classify57014 func(*pgconn.PgError) ErrorKind) (E
 		return Serialization, ""
 	case "40P01":
 		return Deadlock, ""
+	case "55P03":
+		return LockTimeout, ""
+	case "53300":
+		return ConnectionBeforeSend, ""
 	case "57014":
 		return classify57014(e), ""
 	case "57P01", "57P02", "57P03":
