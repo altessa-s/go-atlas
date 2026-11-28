@@ -41,7 +41,10 @@
 // read_mask is rejected with InvalidArgument before the handler runs, and a
 // path the response schema does not hold with InvalidArgument after it. The handler can
 // read the same mask with [ReadMaskFromContext] and push it down to storage
-// as a projection.
+// as a projection. With [WithResourceReadMask] the paths of List*, Search* and
+// BatchGet* masks address each resource of the response's single repeated
+// message field, the other response fields are kept, and every path is checked
+// against the resource before the handler runs.
 //
 // # AIP-157 metadata read mask
 //

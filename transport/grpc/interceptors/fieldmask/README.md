@@ -55,6 +55,8 @@ specific fully-qualified method.
 |-----------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WithMethodKind(fullMethod, kind)`      | --                              | Override classification for `info.FullMethod`. Accumulates across calls.                                                                                                                    |
 | `WithSkipReadMask()`                    | off                             | Disable the response-side `Filter` pass on `KindRead` methods.                                                                                                                              |
+| `WithReadMaskErrorStatus(st)`           | `INVALID_FIELD_MASK` refusal    | Status of every invalid read mask refusal. A nil or OK status keeps the default.                                                                                                            |
+| `WithResourceReadMask()`                | off                             | Resource-relative read masks: List/Search/BatchGet paths address each resource, checked before the handler. See [Resource-relative read masks](#resource-relative-read-masks).            |
 | `WithMaskFieldName(name)`               | declared names above           | Select an exact declared mask field name without fallback. Empty uses the defaults above.                                                                                                 |
 | `WithResourceFieldName(name)`           | exactly one non-mask message    | Override the resource carrier field name on Update requests.                                                                                                                                |
 | `WithUpdateExtractor(fullMethod, fn)`   | --                              | Per-method update extractor. See [Custom extractors](#custom-extractors).                                                                                                                   |
@@ -193,8 +195,30 @@ if mask, ok := fieldmask.ReadMaskFromContext(ctx); ok {
 
 The response filter still runs and is a no-op on a response storage already trimmed; `WithSkipReadMask()` turns it off while the mask stays available
 through `ReadMaskFromContext`. Mask paths address the response message the filter runs on: for a `Get*` that is the resource itself, for a `List*` the
-envelope (`items.name, next_page_token`). Re-root an envelope mask at the collection field with `Spec.Relative("items")` before translating it;
-`ok=false` means the items were not requested at all.
+envelope (`items.*.name, next_page_token`), or each resource with `WithResourceReadMask()`. Re-root an envelope mask at the collection field with
+`Spec.Relative("items")` before translating it; `ok=false` means the items were not requested at all.
+
+## Resource-relative read masks
+
+By default the paths of a read mask address the response message, so a `List*` mask names the collection field (`resources.*.name`).
+`WithResourceReadMask()` makes them address the resource instead, the AIP-157 convention for collection methods:
+
+| Method                                  | Paths address                                                                                       |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `List*`, `Search*`, `BatchGet*`         | each element of the response's single repeated message field; the other response fields are kept   |
+| a collection response with no or several repeated message fields, other read methods | the response, as by default                       |
+
+`next_page_token`, `total_size`, `unreachable` and every other field outside the resource field stay in the response. An omitted or empty mask and
+`*` alone select every field; `*` with other paths is invalid. Before the handler runs, each path is checked against the resource descriptor,
+resolved from the method's output type in the global protobuf registry, so a `Get*` with an invalid path fails before any work is done. An invalid
+mask gets the `INVALID_FIELD_MASK` refusal described under [Diagnostics](#diagnostics) with an added `io.altessa.badrequest.v1.BadRequest`
+violation on the read mask field (`read_mask`, or `WithMaskFieldName`); the path is omitted. A method missing from the registry is checked by its
+response after the handler runs, with the same error. `ReadMaskFromContext` returns the resource-relative paths. Streaming responses are filtered
+frame by frame in the same way.
+
+```go
+fieldmask.ServerInterceptor(fieldmask.WithResourceReadMask())
+```
 
 ## Usage
 
@@ -243,7 +267,8 @@ srv, err := factory.New(cfg.Grpc).
 | `*update.BehaviorError`                          | `InvalidArgument` | `io.altessa.badrequest.v1.BadRequest` |
 | `*fieldmask.ValidationError` (bad mask path)     | `InvalidArgument` | --                                    |
 | `*update.StrictError` (strict mode)              | `InvalidArgument` | `google.rpc.BadRequest`               |
-| `read_mask` path the response does not hold      | `InvalidArgument` | --                                    |
+| Invalid `read_mask`                              | `InvalidArgument` | `ErrorInfo` `INVALID_FIELD_MASK`      |
+| Invalid resource-relative read mask              | `InvalidArgument` | `ErrorInfo` `INVALID_FIELD_MASK`, `io.altessa.badrequest.v1.BadRequest` |
 | Reflection miss (no `update_mask` / `read_mask`) | --                | silent passthrough, logged at Debug   |
 | Update extractor with no writeback               | `Internal`        | logged at Error, request rejected     |
 | Panic inside an extractor, `Prepare`, `Filter` | `Internal`        | logged at Error, request rejected     |
@@ -275,3 +300,5 @@ validation error details.
 ## Diagnostics
 
 An invalid read mask returns `InvalidArgument` with `ErrorInfo.Reason` set to `INVALID_FIELD_MASK`. The rejected path is omitted from the status and diagnostics.
+`WithReadMaskErrorStatus(st)` replaces the status of every such refusal, for an application with its own error contract; a nil or OK status keeps
+the default.

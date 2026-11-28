@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+
+	"google.golang.org/grpc/status"
 )
 
 // Option is a functional option for configuring options.
@@ -153,6 +155,17 @@ func WithMethodKind(key string, value Kind) Option {
 	}
 }
 
+// WithReadMaskErrorStatus replaces the status of every invalid read mask refusal, for an application
+// with its own error contract. A nil or OK status keeps the default InvalidArgument INVALID_FIELD_MASK refusal.
+func WithReadMaskErrorStatus(v *status.Status) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.readMaskErrorStatus = v
+	}
+}
+
 // WithResourceFieldName sets the resourceFieldName option.
 //
 // resourceFieldName overrides the conventional resource carrier field
@@ -176,6 +189,21 @@ func WithResourceFieldName[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.resourceFieldName = transformedValue
+	}
+}
+
+// WithResourceReadMask makes read masks address the resource (AIP-157) instead of the response message.
+// On List*, Search* and BatchGet* methods whose response has a single repeated message field, the paths
+// address each element of that field and the other response fields (next_page_token, total_size,
+// unreachable) are kept; on other read methods they address the response, as by default. Before the
+// handler runs, the paths are checked against the resource resolved from the method's output type in the
+// global registry; an invalid mask is the InvalidArgument INVALID_FIELD_MASK refusal with an added
+// io.altessa.badrequest.v1.BadRequest violation on the read mask field. An omitted mask or "*" alone
+// selects every field.
+func WithResourceReadMask() Option {
+	return func(o *options) {
+		value := true
+		o.resourceReadMask = value
 	}
 }
 
