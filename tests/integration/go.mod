@@ -31,7 +31,7 @@ require (
 	cel.dev/expr v0.25.3 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/adrg/postcode v0.1.0 // indirect
-	github.com/altessa-s/go-atlas-net v0.3.7 // indirect
+	github.com/altessa-s/go-atlas-net v0.4.0 // indirect
 	github.com/altessa-s/go-convert v0.1.1 // indirect
 	github.com/altessa-s/go-horai v0.2.0 // indirect
 	github.com/altessa-s/go-kryptos v0.1.5 // indirect
