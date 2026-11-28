@@ -94,6 +94,7 @@ factory.New(cfg.Http).
 | `UseMeter`     | Sets the `metrics.Meter` (a `metrics.Collector` also fits) used by the metrics middleware (no-op when unset) |
 | `UseGeoResolver` | Sets the geo resolver used by the geoacl middleware |
 | `UseMetricsHandler` | Sets the `http.Handler` mounted at `<internalPrefix>/metrics` (required to expose metrics) |
+| `UseHealthReporter` | Answers `<internalPrefix>/readyz` from a health reporter such as the health coordinator and adds `<internalPrefix>/healthz/details`; liveness stays static |
 | `Meter` | Returns the configured `metrics.Meter`, or `metrics.Noop()` when none was set |
 
 ### Router

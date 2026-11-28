@@ -24,15 +24,23 @@ type endpoints struct {
 	pprofEnabled   *bool // nil = use config or default (false: pprof is opt-in)
 	metricsEnabled bool
 	metricsHandler http.Handler
+	healthReporter healthh.HealthReporter
 	internalPrefix string
 }
 
-// registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics).
+// registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics). With a
+// health reporter, readyz answers its overall status and healthz/details lists its services; liveness stays static,
+// so a failing dependency never restarts the process.
 func (b *endpoints) registerBuiltinHandlers(srv *server.Server, routes router.Router, cfg *httpconfig.Pprof) {
 	if b.builtinEnabled {
 		srv.Handle(b.internalPrefix+"/ping", pingh.Handler).Methods(http.MethodGet)
 		srv.Handle(b.internalPrefix+"/healthz", healthh.K8sHealtz).Methods(http.MethodGet)
-		srv.Handle(b.internalPrefix+"/readyz", healthh.K8sReadyz).Methods(http.MethodGet)
+		if b.healthReporter != nil {
+			srv.Handle(b.internalPrefix+"/readyz", healthh.Readyz(b.healthReporter)).Methods(http.MethodGet)
+			srv.Handle(b.internalPrefix+"/healthz/details", healthh.Detailed(b.healthReporter)).Methods(http.MethodGet)
+		} else {
+			srv.Handle(b.internalPrefix+"/readyz", healthh.K8sReadyz).Methods(http.MethodGet)
+		}
 	}
 
 	pprof := b.resolvePprofEnabled(cfg)

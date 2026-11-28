@@ -19,6 +19,7 @@ import (
 	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencydata "github.com/altessa-s/go-atlas/reliability/idempotency"
+	healthh "github.com/altessa-s/go-atlas/transport/http/server/handlers/health"
 	router "github.com/altessa-s/go-atlas/transport/http/server/router"
 	tlsproviders "github.com/altessa-s/go-tlsutils/providers"
 )
@@ -280,6 +281,15 @@ func (b *ServerBuilder) WithoutMetrics() *ServerBuilder {
 // factory depends on no metrics library.
 func (b *ServerBuilder) UseMetricsHandler(h http.Handler) *ServerBuilder {
 	b.metricsHandler = h
+	return b
+}
+
+// UseHealthReporter backs the built-in readiness endpoint (<internal prefix>/readyz) with the reporter, typically
+// the health coordinator, and adds <internal prefix>/healthz/details listing its services. Readiness then turns 503
+// as soon as the reporter stops serving, for example during a graceful shutdown. Without a reporter readiness
+// always answers 200.
+func (b *ServerBuilder) UseHealthReporter(r healthh.HealthReporter) *ServerBuilder {
+	b.healthReporter = r
 	return b
 }
 
