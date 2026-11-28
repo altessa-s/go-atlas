@@ -146,7 +146,10 @@ transaction failures, connection failures, timeouts, statement timeouts and canc
 eligible for whole-transaction replay. An ambiguous connection failure can represent a committed write. PostgreSQL reports both server-side timeout and
 cancellation as SQLSTATE 57014. `ClassifyContext(ctx, err)` classifies this code as `Timeout` for a deadline, `Canceled` for cancellation, and
 `StatementTimeout` for an active or nil context, regardless of the server message. `Classify(err)` uses English server messages for 57014 and
-returns `Unknown` for unrecognized text.
+returns `Unknown` for unrecognized text. A lock not acquired within `lock_timeout` or under `NOWAIT` (55P03) is `LockTimeout`: the transaction is
+aborted and may be retried as a whole, but `RetryableTransaction` stays false so a migration's fail-fast lock wait is not replayed. A session the
+server refuses (too_many_connections, 53300, reported with FATAL severity at session start by PostgreSQL and PgBouncer) is `ConnectionBeforeSend`,
+and a statement on a closed `*sql.DB` is `PoolClosed`.
 
 ## Migrations
 

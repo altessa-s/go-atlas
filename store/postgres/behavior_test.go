@@ -37,8 +37,12 @@ func TestClassify(t *testing.T) {
 		{"23505", "", Unique}, {"23503", "", ForeignKey}, {"23514", "", Check}, {"40001", "", Serialization}, {"40P01", "", Deadlock},
 		{"57014", "canceling statement due to statement timeout", StatementTimeout}, {"57014", "canceling statement due to user request", Canceled},
 		{"57014", "unrecognized cancellation diagnostic", Unknown}, {"08006", "", ConnectionLost}, {"57P01", "", ConnectionLost}, {"42P01", "", Unknown},
+		{"55P03", "", LockTimeout}, {"53300", "", ConnectionBeforeSend},
 	} {
 		e := fmt.Errorf("execute: %w", &pgconn.PgError{Code: tc.code, Message: tc.msg, ConstraintName: "items_constraint"})
+		if tc.code == "53300" {
+			e = fmt.Errorf("execute: %w", &pgconn.PgError{Severity: "FATAL", Code: tc.code, Message: "sorry, too many clients already"})
+		}
 		k, name := Classify(e)
 		require.Equal(t, tc.kind, k)
 		if k == Unique || k == Check || k == ForeignKey {
@@ -47,9 +51,19 @@ func TestClassify(t *testing.T) {
 			require.Empty(t, name)
 		}
 	}
+	closed := sql.OpenDB(closedConnector{})
+	require.NoError(t, closed.Close())
+	_, closedErr := closed.ExecContext(t.Context(), "SELECT 1")
 	for err, want := range map[error]ErrorKind{nil: Unknown, context.Canceled: Canceled, context.DeadlineExceeded: Canceled,
-		io.ErrUnexpectedEOF: ConnectionLost, driver.ErrBadConn: ConnectionBeforeSend} {
+		io.ErrUnexpectedEOF: ConnectionLost, driver.ErrBadConn: ConnectionBeforeSend, closedErr: PoolClosed,
+		fmt.Errorf("list: %w", closedErr): PoolClosed, &pgconn.PgError{Severity: "FATAL", Code: "53300"}: ConnectionBeforeSend,
+		&pgconn.PgError{Code: "55P03", Message: "could not obtain lock on row"}: LockTimeout} {
 		kind, _ := Classify(err)
+		require.Equal(t, want, kind)
+		kind, _ = ClassifyContext(t.Context(), err)
+		if want == Canceled && errors.Is(err, context.DeadlineExceeded) {
+			want = Timeout
+		}
 		require.Equal(t, want, kind)
 	}
 	missing, duplicate := errors.New("missing"), errors.New("duplicate")
