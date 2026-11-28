@@ -11,6 +11,15 @@ held in an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an 
 Callback failures retain their gRPC code and support sentinel matching with `errors.Is`. Logs and observers receive a fixed classification. The client
 receives the code name, with callback messages and status details discarded.
 
+A callback that refuses deliberately returns a `*Rejection`: the client then also receives an `ErrorInfo` with its reason and domain. This applies
+to the token extractor, the auth function and the client authorization alike. A code outside `Canceled`..`Unauthenticated` becomes
+`Unauthenticated`, and a reason that is not an AIP-193 reason (`^[A-Z][A-Z0-9_]{1,61}[A-Z0-9]$`) and a domain that is not a lowercase host name are
+dropped, so a rejection cannot carry callback text either. A nil `*Rejection` is a plain `Unauthenticated` refusal.
+
+```go
+return ctx, &auth.Rejection{Code: codes.PermissionDenied, Reason: "ACCOUNT_SUSPENDED", Domain: "accounts.example.com"}
+```
+
 ## Key types
 
 | Type / Interface  | Description                                                                  |
@@ -18,6 +27,7 @@ receives the code name, with callback messages and status details discarded.
 | `Auth`            | Interface for validating authentication credentials                          |
 | `AuthFunc`        | Function adapter for `Auth`                                                  |
 | `ClientAuth`      | Interface for additional client-level authentication after initial auth       |
+| `Rejection`       | Deliberate callback refusal published with its code and AIP-193 reason        |
 | `TokenExtractor`  | Interface for extracting tokens from context (default: Bearer from metadata) |
 | `TokenProvider`   | Interface for providing tokens in outgoing client requests                    |
 | `ScopeClientAuth` | `ClientAuth` adapter that accepts a `ScopeEnforcer[P]`                   |
