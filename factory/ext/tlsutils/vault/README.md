@@ -16,6 +16,13 @@ providers, err := tlsfactory.New(cfg.TLSProvider).
     Build(ctx)
 ```
 
-| Function          | Description                                                                                                  |
-|-------------------|--------------------------------------------------------------------------------------------------------------|
-| `Builder(client)` | Provider builder for the `vault` type; caches under `<cacheDir>/vault`, `ErrClientRequired` without a client |
+| Function                | Description                                                                                                  |
+|-------------------------|--------------------------------------------------------------------------------------------------------------|
+| `Builder(client, opts…)` | Provider builder for the `vault` type; caches under `<cacheDir>/vault`, `ErrClientRequired` without a client |
+| `WithConfiguredNames()` | Serves the configured names only: a handshake without a server name or with a name outside `commonName` and `subjectAlternativeNames` gets the certificate of the common name |
+| `WithIssueOnBuild()`    | `Build` obtains the certificate of every configured name before it returns, retrying until its context ends; it fails when Vault issues none or issues one that does not outlive `renewBefore` |
+
+Without options the builder returns the go-tlsutils provider itself, which asks Vault for every server name a client
+sends. `WithConfiguredNames` suits a role that issues only its listed names: a probe or a client dialing a Pod IP then
+gets the certificate of the common name instead of a failed handshake. With either option the builder returns a wrapper
+that keeps the `Provider` and `ClientCertificate` interfaces, not the concrete go-tlsutils type.

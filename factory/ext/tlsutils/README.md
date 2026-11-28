@@ -61,6 +61,6 @@ scheduler. A scheduler registration error retains lazy refresh and leaves manual
 
 | Method                    | Description                                                                                 |
 |---------------------------|---------------------------------------------------------------------------------------------|
-| `Build(ctx)`                 | Assembles and returns the `*tlsproviders.Providers` registry                                |
+| `Build(ctx)`                 | Assembles and returns the `*tlsproviders.Providers` registry; warms every provider that implements `Warmer` and fails, closing the providers, when one cannot obtain its certificates |
 
 The standalone function `CreateClientConfig(cfg, logger)` builds a client `*tls.Config`. Pass a nil logger to discard warnings.

@@ -40,6 +40,12 @@ type ProviderEnv struct {
 	CacheDir string
 }
 
+// Warmer is a provider that can obtain its certificates before the first handshake. [ProvidersBuilder.Build] calls
+// Warm on every provider that implements it and fails, closing the providers, when one fails.
+type Warmer interface {
+	Warm(ctx context.Context) error
+}
+
 // ProviderBuilder creates the TLS provider of one provider type from the
 // provider configuration, whose section of that type is set.
 type ProviderBuilder func(cfg *tlsconfig.Provider, env ProviderEnv) (tlsproviders.Provider, error)
@@ -92,7 +98,13 @@ func (b *ProvidersBuilder) Build(ctx context.Context) (*tlsproviders.Providers, 
 	assembly := *b
 	stapler := assembly.ensureOcspStaplerFromConfig()
 	providers := &tlsproviders.Providers{}
-	if err := assembly.buildProviders(providers); err != nil {
+	err := assembly.buildProviders(providers)
+	for provider := range providers.List() {
+		if warmer, ok := provider.(Warmer); ok && err == nil {
+			err = b.WrapError(warmer.Warm(ctx), "failed to warm the "+string(provider.Type())+" provider")
+		}
+	}
+	if err != nil {
 		providers.Close(context.WithoutCancel(ctx), func(_ tlsproviders.Provider, closeErr error) {
 			err = errors.Join(err, closeErr)
 		})
