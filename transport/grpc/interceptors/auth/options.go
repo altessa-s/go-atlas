@@ -10,6 +10,8 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+
+	"google.golang.org/grpc/codes"
 )
 
 // Auth is an interface for authenticating requests.
@@ -41,6 +43,24 @@ func (f ClientAuthFunc) ClientAuth(ctx context.Context, cred Credentials) (conte
 }
 
 var _ ClientAuth = ClientAuthFunc(nil)
+
+// Rejection is a deliberate refusal a callback may publish. The client receives Code with the code's name as the
+// message and an ErrorInfo detail carrying Reason and Domain. A Code outside Canceled..Unauthenticated becomes
+// Unauthenticated, a Reason that is not an AIP-193 reason (^[A-Z][A-Z0-9_]{1,61}[A-Z0-9]$) is dropped, and so is a
+// Domain that is not a lowercase host name. A nil *Rejection is a plain Unauthenticated refusal.
+type Rejection struct {
+	Code   codes.Code
+	Reason string
+	Domain string
+}
+
+// Error returns the code and the reason. A nil Rejection reads as Unauthenticated.
+func (r *Rejection) Error() string {
+	if r == nil {
+		return codes.Unauthenticated.String()
+	}
+	return r.Code.String() + ": " + r.Reason
+}
 
 // TokenExtractor is an interface for extracting authentication tokens from context.
 // It abstracts the token extraction logic, allowing different token sources (headers, metadata, etc.).

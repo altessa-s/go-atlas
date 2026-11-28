@@ -23,7 +23,9 @@
 // reads the caller with principal.FromContext.
 //
 // Callback errors retain their gRPC code and errors.Is matches. Client statuses
-// and diagnostic records contain only fixed classifications.
+// and diagnostic records contain only fixed classifications. A callback that
+// refuses deliberately returns a [Rejection], whose well-formed AIP-193 reason
+// and domain also reach the client as an ErrorInfo.
 //
 // No method is exempt from authentication by default, gRPC health and
 // reflection included. Opt methods out with exact names via WithIgnoreMethods

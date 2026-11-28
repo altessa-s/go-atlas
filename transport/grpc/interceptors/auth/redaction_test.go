@@ -129,3 +129,90 @@ func TestAuthCallbackPlainError(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthCallbackRejection(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		rejection error
+		code      codes.Code
+		reason    string
+		domain    string
+	}{
+		{"reason and domain", &auth.Rejection{Code: codes.Unauthenticated, Reason: "TOKEN_REVOKED", Domain: "accounts.example.com"},
+			codes.Unauthenticated, "TOKEN_REVOKED", "accounts.example.com"},
+		{"wrapped", fmt.Errorf("check account: %w", &auth.Rejection{Code: codes.PermissionDenied, Reason: "ACCOUNT_SUSPENDED"}),
+			codes.PermissionDenied, "ACCOUNT_SUSPENDED", ""},
+		{"free text reason", &auth.Rejection{Code: codes.Unauthenticated, Reason: "Bearer private-rejection-token"}, codes.Unauthenticated, "", ""},
+		{"free text domain", &auth.Rejection{Code: codes.Unauthenticated, Reason: "TOKEN_REVOKED", Domain: "Bearer private token"},
+			codes.Unauthenticated, "TOKEN_REVOKED", ""},
+		{"no code", &auth.Rejection{Reason: "TOKEN_REVOKED"}, codes.Unauthenticated, "TOKEN_REVOKED", ""},
+		{"code above the range", &auth.Rejection{Code: codes.Code(99), Reason: "TOKEN_REVOKED"}, codes.Unauthenticated, "TOKEN_REVOKED", ""},
+		{"code just above the range", &auth.Rejection{Code: codes.Unauthenticated + 1, Reason: "TOKEN_REVOKED"},
+			codes.Unauthenticated, "TOKEN_REVOKED", ""},
+		{"lowest code", &auth.Rejection{Code: codes.Canceled, Reason: "TOKEN_REVOKED"}, codes.Canceled, "TOKEN_REVOKED", ""},
+		{"nil rejection", (*auth.Rejection)(nil), codes.Unauthenticated, "", ""},
+		{"wrapped nil rejection", fmt.Errorf("check account: %w", (*auth.Rejection)(nil)), codes.Unauthenticated, "", ""},
+	} {
+		for _, stage := range []string{"extract", "authenticate", "client"} {
+			t.Run(tc.name+"/"+stage, func(t *testing.T) {
+				t.Parallel()
+				extract := auth.TokenExtractorFunc(func(context.Context) (string, error) {
+					if stage == "extract" {
+						return "", tc.rejection
+					}
+					return "token", nil
+				})
+				authenticate := auth.AuthFunc(func(context.Context, auth.Request) (any, error) {
+					if stage == "authenticate" {
+						return nil, tc.rejection
+					}
+					return "user", nil
+				})
+				authorize := auth.ClientAuthFunc(func(ctx context.Context, _ auth.Credentials) (context.Context, error) {
+					if stage == "client" {
+						return ctx, tc.rejection
+					}
+					return ctx, nil
+				})
+				authn := auth.ServerUnaryInterceptor(auth.WithTokenExtractor(extract), auth.WithAuthFn(authenticate), auth.WithClientAuth(authorize))
+				_, err := authn(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/test.Auth/Check"}, func(context.Context, any) (any, error) {
+					t.Fatal("the handler ran after a rejection")
+					return nil, nil
+				})
+				require.ErrorIs(t, err, tc.rejection)
+				require.NotPanics(t, func() { _ = tc.rejection.Error() })
+				convert := errstatus.ServerUnaryInterceptor()
+				_, converted := convert(t.Context(), nil, &grpc.UnaryServerInfo{}, func(context.Context, any) (any, error) { return nil, err })
+				st := status.Convert(converted)
+				require.Equal(t, tc.code, st.Code())
+				require.Equal(t, tc.code.String(), st.Message())
+				require.NotContains(t, st.Proto().String(), "private")
+				var info *errdetails.ErrorInfo
+				for _, d := range st.Details() {
+					if i, ok := d.(*errdetails.ErrorInfo); ok {
+						info = i
+					}
+				}
+				if tc.reason == "" {
+					require.Nil(t, info)
+					return
+				}
+				require.NotNil(t, info)
+				require.Equal(t, tc.reason, info.GetReason())
+				require.Equal(t, tc.domain, info.GetDomain())
+			})
+		}
+	}
+}
+
+func TestRejectionStatus(t *testing.T) {
+	t.Parallel()
+	var nilRejection *auth.Rejection
+	require.Equal(t, "Unauthenticated", nilRejection.Error())
+	require.Equal(t, codes.Unauthenticated, nilRejection.GRPCStatus().Code())
+	require.Equal(t, "PermissionDenied: ACCOUNT_SUSPENDED", (&auth.Rejection{Code: codes.PermissionDenied, Reason: "ACCOUNT_SUSPENDED"}).Error())
+	require.Equal(t, codes.Unauthenticated, (&auth.Rejection{Code: codes.Code(42)}).GRPCStatus().Code())
+	require.Equal(t, codes.Unauthenticated, (&auth.Rejection{Code: codes.OK}).GRPCStatus().Code())
+	require.Equal(t, codes.Aborted, status.Code(&auth.Rejection{Code: codes.Aborted}))
+}

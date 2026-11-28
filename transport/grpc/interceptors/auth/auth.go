@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -183,6 +185,37 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 
 var statusUnauthenticated = status.New(codes.Unauthenticated, codes.Unauthenticated.String())
 
+var (
+	rejectionReason = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,61}[A-Z0-9]$`)
+	rejectionDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+)
+
+// GRPCStatus returns the status the client receives.
+func (r *Rejection) GRPCStatus() *status.Status { return r.status() }
+
+// status builds the published status: the code's name and, for a well-formed reason, its ErrorInfo.
+func (r *Rejection) status() *status.Status {
+	if r == nil {
+		return statusUnauthenticated
+	}
+	code := codes.Unauthenticated
+	if r.Code > codes.OK && r.Code <= codes.Unauthenticated {
+		code = r.Code
+	}
+	st := status.New(code, code.String())
+	if !rejectionReason.MatchString(r.Reason) {
+		return st
+	}
+	info := &errdetails.ErrorInfo{Reason: r.Reason}
+	if rejectionDomain.MatchString(r.Domain) {
+		info.Domain = r.Domain
+	}
+	if detailed, err := st.WithDetails(info); err == nil {
+		return detailed
+	}
+	return st
+}
+
 type grpcStatusError interface {
 	error
 	GRPCStatus() *status.Status
@@ -191,7 +224,9 @@ type grpcStatusError interface {
 // callbackError rebuilds the status so neither its message, details nor the
 // cause saved by callstatus can carry callback text.
 func (i *interceptor) callbackError(ctx context.Context, method, operation string, err error, st *status.Status) error {
-	if carrier, ok := errors.AsType[grpcStatusError](err); ok {
+	if rejection, ok := errors.AsType[*Rejection](err); ok {
+		st = rejection.status()
+	} else if carrier, ok := errors.AsType[grpcStatusError](err); ok {
 		st = statusUnauthenticated
 		if original := carrier.GRPCStatus(); original != nil && original.Code() > codes.OK && original.Code() <= codes.Unauthenticated {
 			st = status.New(original.Code(), original.Code().String())
