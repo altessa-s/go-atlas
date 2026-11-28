@@ -10,8 +10,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -116,7 +118,8 @@ func (r *Registry) Registered() []Migration {
 
 // Run applies every registered migration db has not recorded yet, in version order, holding a PostgreSQL session-level advisory
 // lock for the whole run so replicas starting together migrate once. Waiting for the lock is bounded by the lockTimeout option; the
-// migrations themselves by ctx. Every run builds its own goose.Provider over a copy of the registry: goose's global registry and
+// migrations themselves by ctx, and their lock waits by [WithMigrationLockTimeout]. With [WithCreateSchema] a missing schema of a
+// qualified version table is created under the lock. Every run builds its own goose.Provider over a copy of the registry: goose's global registry and
 // settings are neither read nor changed. A pending migration registered below the highest applied version (out of order) fails the
 // run before anything is applied. With nothing registered Run does nothing.
 func Run(ctx context.Context, db *sql.DB, opts ...Option) error {
@@ -183,9 +186,15 @@ func migrate(ctx context.Context, db *sql.DB, down bool, opts ...Option) error {
 	}
 	defer func() { _ = conn.Close() }()
 	err = withLock(ctx, acquire, conn, o, func(pinned *sql.DB) error {
+		if o.createSchema {
+			if schemaErr := createSchema(ctx, pinned, o.tableName); schemaErr != nil {
+				return schemaErr
+			}
+		}
 		steps := make([]*goose.Migration, 0, len(registered))
 		for _, m := range registered {
-			steps = append(steps, goose.NewGoMigration(m.Version, transactionalStep(m.Up), transactionalStep(m.Down)))
+			steps = append(steps, goose.NewGoMigration(m.Version,
+				transactionalStep(m.Up, o.migrationLockTimeout), transactionalStep(m.Down, o.migrationLockTimeout)))
 		}
 		p, runErr := goose.NewProvider(goose.DialectPostgres, pinned, nil,
 			goose.WithDisableGlobalRegistry(true), goose.WithGoMigrations(steps...),
@@ -209,7 +218,7 @@ func migrate(ctx context.Context, db *sql.DB, down bool, opts ...Option) error {
 
 // Goose rolls back returned errors. Release the transaction on panic as well, before
 // goose closes its pinned connection (which waits for the transaction to finish).
-func transactionalStep(step MigrationFunc) *goose.GoFunc {
+func transactionalStep(step MigrationFunc, lockTimeout time.Duration) *goose.GoFunc {
 	return &goose.GoFunc{RunTx: func(ctx context.Context, tx *sql.Tx) error {
 		returned := false
 		defer func() {
@@ -217,10 +226,40 @@ func transactionalStep(step MigrationFunc) *goose.GoFunc {
 				_ = tx.Rollback()
 			}
 		}()
-		err := step(ctx, tx)
+		err := limitLockWait(ctx, tx, lockTimeout)
+		if err == nil {
+			err = step(ctx, tx)
+		}
 		returned = true
 		return err
 	}}
+}
+
+// limitLockWait sets lock_timeout for the rest of tx. PostgreSQL counts it in whole milliseconds, and zero disables it.
+func limitLockWait(ctx context.Context, tx *sql.Tx, timeout time.Duration) error {
+	if timeout <= 0 {
+		return nil
+	}
+	ms := min(math.MaxInt32, max(1, timeout.Milliseconds()))
+	_, err := tx.ExecContext(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, true)", strconv.FormatInt(ms, 10)+"ms")
+	return err
+}
+
+// createSchema creates the schema of a qualified version table. It checks the catalog first, so a role without
+// CREATE on the database can run once the schema exists.
+func createSchema(ctx context.Context, db *sql.DB, table string) error {
+	schema, _, qualified := strings.Cut(table, ".")
+	if !qualified {
+		return nil
+	}
+	var exists bool
+	err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname = $1)", schema).Scan(&exists)
+	if err != nil || exists {
+		return err
+	}
+	// #nosec G202 -- settings validates the table name against tableNamePattern and the reserved keywords.
+	_, err = db.ExecContext(ctx, "CREATE SCHEMA "+schema)
+	return err
 }
 
 func diagnostic(op string, err error) error {

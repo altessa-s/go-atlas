@@ -9,9 +9,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -202,7 +204,7 @@ func TestStepPanicReleasesTransaction(t *testing.T) {
 	db, fake := testhelpers.NewFakeSQL(t, nil)
 	tx, err := db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
-	step := transactionalStep(func(context.Context, *sql.Tx) error { panic("step panic") })
+	step := transactionalStep(func(context.Context, *sql.Tx) error { panic("step panic") }, time.Second)
 	require.PanicsWithValue(t, "step panic", func() { _ = step.RunTx(t.Context(), tx) })
 	require.Equal(t, 1, fake.Rollbacks())
 }
@@ -253,6 +255,82 @@ func TestInjectedRegistryOperations(t *testing.T) {
 			t.Parallel()
 			require.ErrorIs(t, tc.call(ctx, db, WithRegistry(&r)), context.Canceled)
 			require.NoError(t, tc.call(ctx, db, WithRegistry(new(Registry))))
+		})
+	}
+}
+
+func TestStepLockTimeout(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		timeout time.Duration
+		want    []any
+	}{
+		{0, nil}, {-time.Second, nil}, {5 * time.Second, []any{"5000ms"}}, {time.Microsecond, []any{"1ms"}},
+		{time.Duration(math.MaxInt64), []any{"2147483647ms"}},
+	} {
+		t.Run(tc.timeout.String(), func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			tx, err := db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			var ran bool
+			step := transactionalStep(func(ctx context.Context, tx *sql.Tx) error {
+				ran = true
+				_, err := tx.ExecContext(ctx, "CREATE TABLE items (id int)")
+				return err
+			}, tc.timeout)
+			require.NoError(t, step.RunTx(t.Context(), tx))
+			require.True(t, ran)
+			calls := fake.Calls()
+			if tc.want == nil {
+				require.Len(t, calls, 1)
+				return
+			}
+			require.Len(t, calls, 2)
+			require.Contains(t, calls[0].Query, "set_config('lock_timeout', $1, true)")
+			require.Equal(t, tc.want, calls[0].Args)
+			require.True(t, calls[0].InTx, "the timeout is local to the migration transaction")
+			require.Equal(t, "CREATE TABLE items (id int)", calls[1].Query)
+		})
+	}
+
+	db, _ := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{Err: errors.New("refused")}
+	})
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	step := transactionalStep(func(context.Context, *sql.Tx) error { t.Fatal("step ran without its lock timeout"); return nil }, time.Second)
+	require.ErrorContains(t, step.RunTx(t.Context(), tx), "refused")
+}
+
+func TestCreateSchema(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		table  string
+		exists bool
+		want   []string
+	}{
+		{"ledger", false, nil},
+		{"app.ledger", true, []string{"pg_namespace"}},
+		{"app.ledger", false, []string{"pg_namespace", "CREATE SCHEMA app"}},
+	} {
+		t.Run(fmt.Sprint(tc.table, tc.exists), func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+				if strings.Contains(query, "pg_namespace") {
+					return testhelpers.FakeSQLReply{Columns: []string{"exists"}, Rows: [][]driver.Value{{tc.exists}}}
+				}
+				return testhelpers.FakeSQLReply{}
+			})
+			require.NoError(t, createSchema(t.Context(), db, tc.table))
+			calls := fake.Calls()
+			require.Len(t, calls, len(tc.want))
+			for i, want := range tc.want {
+				require.Contains(t, calls[i].Query, want)
+			}
+			if len(calls) > 0 {
+				require.Equal(t, []any{"app"}, calls[0].Args)
+			}
 		})
 	}
 }

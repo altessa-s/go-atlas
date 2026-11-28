@@ -11,6 +11,15 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithCreateSchema creates the schema of a schema-qualified version table, under the advisory lock, when it does not exist.
+// Run and Down need it before goose can create the table; Status never creates it.
+func WithCreateSchema() Option {
+	return func(o *options) {
+		value := true
+		o.createSchema = value
+	}
+}
+
 // WithLockID sets the key of the advisory lock taken for the run; processes migrating one database must share it.
 func WithLockID(v int64) Option {
 	return func(o *options) {
@@ -35,6 +44,17 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMigrationLockTimeout sets lock_timeout inside every migration transaction, so a step waiting for a lock fails instead of
+// queueing the traffic of the locked table behind it. It is counted in whole milliseconds. By default the session setting applies.
+func WithMigrationLockTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.migrationLockTimeout = v
 	}
 }
 

@@ -30,6 +30,8 @@ not enter the dependency graph of go-atlas consumers — see the [ADR](../../../
 | `WithTableName`   | `goose_db_version` | Version table                                                                       |
 | `WithLockID`      | goose's default    | Advisory lock key; every process migrating the database must use the same           |
 | `WithLockTimeout` | `30s`              | Deadline for checkout, identity check and lock acquisition |
+| `WithMigrationLockTimeout` | session setting | `lock_timeout` set locally in every migration transaction, in whole milliseconds |
+| `WithCreateSchema` | off               | Run and Down create the schema of a qualified version table when it is missing          |
 
 ## Usage
 
@@ -59,3 +61,9 @@ acquisition. When the pool factory supplies the context, `postgres.migrationTime
 an earlier caller deadline takes precedence. `Down` succeeds when nothing is applied. `Status` reads the ledger in one ordered query and reports a zero
 time for a missing timestamp. Ledger names use one or two lowercase identifier components of at most 63 bytes each; invalid names match
 `ErrInvalidTableName`.
+
+A step waiting for a table lock queues every later statement on that table behind it. `WithMigrationLockTimeout` makes such a step fail with
+SQLSTATE 55P03 after the given wait; its transaction rolls back and the version stays pending. Keep the session's own lock timeout at least as
+long as the advisory lock wait. goose creates its version table but not the table's schema. With `WithCreateSchema`, a run checks the catalog
+under the advisory lock and creates the schema only when it is missing, so a role without `CREATE` on the database can run once it exists.
+`Status` never creates it.

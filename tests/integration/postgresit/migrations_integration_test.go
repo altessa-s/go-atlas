@@ -7,6 +7,7 @@ package postgresit_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -190,6 +191,92 @@ func TestMigrations_LockTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, migrations.Run(t.Context(), db, migrations.WithLockID(lockID), migrations.WithLockTimeout(time.Second)))
 	require.Equal(t, 1, count(t, t.Context(), db, "mig_probe"))
+}
+
+// A schema-qualified version table needs its schema before goose creates it. WithCreateSchema creates it under the lock, once
+// for concurrent runs, and never from Status.
+func TestMigrations_CreateSchema(t *testing.T) {
+	t.Parallel()
+	db := postgrestest.New(t)
+	ledger := migrations.WithTableName("mig_ledger.versions")
+
+	require.Error(t, migrations.Run(t.Context(), db, ledger), "goose cannot create a table in a missing schema")
+	status, err := migrations.Status(t.Context(), db, ledger, migrations.WithCreateSchema())
+	require.NoError(t, err)
+	require.False(t, status[0].Applied)
+	require.False(t, schemaExists(t, db, "mig_ledger"), "Status never creates the schema")
+
+	err = concurrency.Process(t.Context(), []int{0, 1, 2}, func(ctx context.Context, _ int) error {
+		return migrations.Run(ctx, db, ledger, migrations.WithCreateSchema())
+	}, concurrency.WithConcurrency[int](3))
+	require.NoError(t, err)
+	require.True(t, schemaExists(t, db, "mig_ledger"))
+	require.Equal(t, 3, count(t, t.Context(), db, "mig_ledger.versions"), "version zero and both migrations")
+	require.Equal(t, 1, count(t, t.Context(), db, "mig_probe"))
+
+	// A role without CREATE on the database can run once the schema exists.
+	role := fmt.Sprintf("mig_runner_%d", time.Now().UnixNano())
+	for _, stmt := range []string{
+		`CREATE ROLE ` + role + ` LOGIN PASSWORD '` + role + `'`,
+		`GRANT USAGE ON SCHEMA mig_ledger TO ` + role,
+		`GRANT SELECT, INSERT ON mig_ledger.versions TO ` + role,
+	} {
+		_, err = db.ExecContext(t.Context(), stmt)
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
+		_, _ = db.ExecContext(ctx, `DROP OWNED BY `+role)
+		_, _ = db.ExecContext(ctx, `DROP ROLE `+role)
+	})
+	conn, err := db.Conn(t.Context())
+	require.NoError(t, err)
+	var cfg *pgx.ConnConfig
+	require.NoError(t, conn.Raw(func(raw any) error {
+		cfg = raw.(interface{ Conn() *pgx.Conn }).Conn().Config().Copy()
+		return nil
+	}))
+	require.NoError(t, conn.Close())
+	cfg.User, cfg.Password = role, role
+	restricted := stdlib.OpenDB(*cfg)
+	defer func() { _ = restricted.Close() }()
+	var canCreate bool
+	require.NoError(t, restricted.QueryRowContext(t.Context(), `SELECT has_database_privilege(current_database(), 'CREATE')`).Scan(&canCreate))
+	require.False(t, canCreate)
+	require.NoError(t, migrations.Run(t.Context(), restricted, ledger, migrations.WithCreateSchema()))
+}
+
+// WithMigrationLockTimeout bounds each lock wait inside a migration, independently of the session's lock_timeout and of ctx.
+func TestMigrations_MigrationLockTimeout(t *testing.T) {
+	t.Parallel()
+	db := postgrestest.New(t)
+
+	blocker, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blocker.Rollback() })
+	_, err = blocker.ExecContext(t.Context(), `CREATE TABLE mig_probe (id int)`)
+	require.NoError(t, err)
+
+	start := time.Now()
+	err = migrations.Run(t.Context(), db, migrations.WithMigrationLockTimeout(200*time.Millisecond))
+	require.ErrorContains(t, err, "SQLSTATE 55P03")
+	require.ErrorContains(t, err, "up version 2026112301")
+	require.Less(t, time.Since(start), 5*time.Second, "the migration waited past its lock timeout")
+	require.Equal(t, map[int64]bool{versionCreateProbe: false, versionSeedProbe: false}, applied(t, db))
+
+	require.NoError(t, blocker.Rollback())
+	require.NoError(t, migrations.Run(t.Context(), db, migrations.WithMigrationLockTimeout(200*time.Millisecond)))
+	require.Equal(t, 1, count(t, t.Context(), db, "mig_probe"))
+	var timeout string
+	require.NoError(t, db.QueryRowContext(t.Context(), `SHOW lock_timeout`).Scan(&timeout))
+	require.NotEqual(t, "200ms", timeout, "the timeout does not outlive the migration transaction")
+}
+
+func schemaExists(t testing.TB, db *sql.DB, name string) bool {
+	t.Helper()
+	var exists bool
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT to_regnamespace($1::text) IS NOT NULL`, name).Scan(&exists))
+	return exists
 }
 
 // The trace records statements sent on this client, including an attempted lock that was later released.
