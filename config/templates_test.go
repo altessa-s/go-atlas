@@ -95,6 +95,7 @@ var templateCases = map[string][]templateRoot{
 	"auth_scope.yaml":                        {root[authconfig.ScopeRegistry]("scope")},
 	"broker.yaml":                            {root[brokerconfig.Config]("broker")},
 	"postgres.yaml":                          {root[postgresconfig.Config]("postgres")},
+	"postgres_migrations.yaml":               {root[postgresconfig.Migrations]("migrations")},
 	"cache_storage.yaml":                     {root[storageconfig.CacheStorageConfig]("storage")},
 	"storage_backend.yaml":                   {root[storageconfig.BackendConfig]("storage")},
 	"idempotency_storage.yaml":               {root[idempotencyconfig.StorageConfig]("storage")},

@@ -352,6 +352,9 @@ enlist in `store/postgres` transactions). The optional [PostgreSQL configuration
 [`factory/store/postgres`](../factory/store/postgres); for MySQL or MariaDB the application opens the `*sql.DB` and registers the driver. Applications
 register startup migrations in Go (`store/postgres/migrations`) and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct
 pooling. `postgres.migrationTimeout` bounds that callback (default `30s`, minimum `1ms`). An earlier caller deadline takes precedence.
+To migrate from a separate command while the application pools go through a transaction pooler, describe the direct session in a
+`migrations` section ([`postgresconfig.Migrations`](../config/postgres/README.md), template `postgres_migrations.yaml`) and derive its pool settings
+from the primary ones with `Config.MigrationSession`.
 
 Set `postgres.tls: {}` for system trust and hostname verification or set `postgres.tls.caCerts` for a private CA. A `postgres.pools.<name>.tls` block
 replaces the primary TLS settings. With DSN-only configuration, pgx defaults to `sslmode=prefer` unless overridden by the environment or DSN. That mode
@@ -449,7 +452,7 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 | Transport      | `http.yaml`, `grpc.yaml`, `grpc_client.yaml`, `broker.yaml` + middleware/interceptor dirs     |
 | Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                                |
 | HTTP egress    | `http_client_ssrf.yaml` (reusable via `!include`)                                            |
-| Data           | `postgres.yaml`, `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |
+| Data           | `postgres.yaml`, `postgres_migrations.yaml`, `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml` |
 | Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml`         |
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`)       |
 | Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`, `idempotency_storage.yaml` |

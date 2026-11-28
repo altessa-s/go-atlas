@@ -37,6 +37,25 @@ unverified TLS and permits a plaintext retry.
 
 When the hook runs goose migrations, `WithLockTimeout` bounds lock acquisition within the hook's overall budget.
 
+`Migrations` configures migrations run over their own direct session, for example by a separate command while the application pools
+use a transaction pooler:
+
+```yaml
+migrations:
+  dsn: ${MIGRATIONS_DSN}
+  lockTimeout: 5s
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| dsn | not set | Direct PostgreSQL URI or libpq keyword/value string; required only to migrate |
+| lockTimeout | 5s | Longest wait for each lock inside a migration, at most the primary `migrationTimeout` |
+
+`Migrations.Validate(primary)` checks the DSN when set, its compatibility with the inherited primary TLS block and the lock timeout.
+`primary.MigrationSession(m)` returns the settings for the migration session: the primary settings with `m.DSN`, direct pooling, one
+connection and no named pools, with statement and lock timeouts set to `migrationTimeout`. Pass `m.LockTimeout` to the migration runner
+(`migrations.WithMigrationLockTimeout`) to bound the lock waits of each migration.
+
 Each named pool requires a positive open limit. Its idle limit defaults to the smaller of this limit and the primary idle limit. An explicit zero
 disables retained idle connections. The DSN, pooling mode, statement and lock timeouts inherit from the primary configuration unless overridden.
 Total application capacity is the sum of all pool limits, multiplied by the number of replicas.
