@@ -119,6 +119,9 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 
 	// Get parent span context; SpanFromContext falls back to a no-op span.
 	parent, state := snapshotParent(SpanFromContext(ctx).SpanContext())
+	if cfg.sampledParent && (parent == nil || !parent.IsSampled) {
+		return ctx, noopSpan{}
+	}
 	spanCtx := makeSpanContext(parent, state)
 	var parentID [8]byte
 	if parent != nil {

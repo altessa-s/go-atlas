@@ -31,6 +31,15 @@ func WithLinks(v ...Link) SpanStartOption {
 	}
 }
 
+// WithSampledParent records the span only under a sampled parent span. Without one, Start returns the context
+// unchanged and a span that records nothing, so work outside a sampled trace starts no trace of its own.
+func WithSampledParent() SpanStartOption {
+	return func(o *spanStartOptions) {
+		value := true
+		o.sampledParent = value
+	}
+}
+
 // WithSpanKind sets the span kind.
 func WithSpanKind(v SpanKind) SpanStartOption {
 	return func(o *spanStartOptions) {
