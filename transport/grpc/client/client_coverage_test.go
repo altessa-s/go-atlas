@@ -317,3 +317,34 @@ func TestWithInterceptors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "echo:second/first/request", got)
 }
+
+// TestClient_TimeoutCeiling shortens a caller deadline beyond the configured timeouts only with WithTimeoutCeiling.
+func TestClient_TimeoutCeiling(t *testing.T) {
+	t.Parallel()
+
+	b := startBackend(t)
+	far, cancel := context.WithTimeout(t.Context(), time.Hour)
+	defer cancel()
+
+	plain := newClient(t, b, client.WithQueryTimeout(2*time.Second), client.WithMutationTimeout(3*time.Second))
+	ctx, done := plain.ApplyQueryTimeout(far)
+	defer done()
+	deadline, _ := ctx.Deadline()
+	require.WithinDuration(t, time.Now().Add(time.Hour), deadline, time.Second, "a caller deadline wins without the ceiling")
+
+	capped := newClient(t, b, client.WithQueryTimeout(2*time.Second), client.WithMutationTimeout(3*time.Second), client.WithTimeoutCeiling())
+	ctx, done = capped.ApplyQueryTimeout(far)
+	defer done()
+	deadline, _ = ctx.Deadline()
+	require.WithinDuration(t, time.Now().Add(2*time.Second), deadline, time.Second)
+	ctx, done = capped.ApplyMutationTimeout(far)
+	defer done()
+	deadline, _ = ctx.Deadline()
+	require.WithinDuration(t, time.Now().Add(3*time.Second), deadline, time.Second)
+
+	near, cancelNear := context.WithTimeout(t.Context(), time.Second)
+	defer cancelNear()
+	ctx, done = capped.ApplyQueryTimeout(near)
+	defer done()
+	require.Equal(t, near, ctx, "a sooner caller deadline stays")
+}
