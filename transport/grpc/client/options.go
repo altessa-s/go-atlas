@@ -120,9 +120,12 @@ type options struct {
 	//		),
 	//		client.WithInsecure(),
 	//	)
-	retryOptions     *retryOptions     `optfn:"Retry=newRetryOptions" optgen:"enables=enableRetry"`
-	mutationTimeout  time.Duration     `optgen:"default=DefaultMutationTimeout"`
-	queryTimeout     time.Duration     `optgen:"default=DefaultQueryTimeout"`
+	retryOptions    *retryOptions `optfn:"Retry=newRetryOptions" optgen:"enables=enableRetry"`
+	mutationTimeout time.Duration `optgen:"default=DefaultMutationTimeout"`
+	queryTimeout    time.Duration `optgen:"default=DefaultQueryTimeout"`
+	// timeoutCeiling makes the query and mutation timeouts ceilings: ApplyQueryTimeout and ApplyMutationTimeout then
+	// also shorten a caller deadline that lies further away. Without it they only fill in a missing deadline.
+	timeoutCeiling   bool              `opt:"TimeoutCeiling"`
 	extraDialOptions []grpc.DialOption `opt:"DialOptions" optgen:"append"`
 	errorConverter   ErrorConverter
 	// proxy resolves the proxy URL for outgoing connections. The auto-generated

@@ -321,6 +321,17 @@ func WithTLSConfig(v *tls.Config) Option {
 	}
 }
 
+// WithTimeoutCeiling enables the timeoutCeiling option.
+//
+// timeoutCeiling makes the query and mutation timeouts ceilings: ApplyQueryTimeout and ApplyMutationTimeout then
+// also shorten a caller deadline that lies further away. Without it they only fill in a missing deadline.
+func WithTimeoutCeiling() Option {
+	return func(o *options) {
+		value := true
+		o.timeoutCeiling = value
+	}
+}
+
 // WithTracer enables outgoing gRPC spans and W3C trace context propagation.
 func WithTracer(v tracing.Tracer) Option {
 	return func(o *options) {

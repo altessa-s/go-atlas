@@ -47,6 +47,7 @@ logging, and rich error parsing with field-level validation details.
 | `WithRetry`           | off       | Enables retries; it sets no per-call deadline, so callers supply their own RPC deadlines  |
 | `WithMutationTimeout` | 30s       | Default timeout for Create/Update/Delete operations                          |
 | `WithQueryTimeout`    | 5s        | Default timeout for Get/List operations                                      |
+| `WithTimeoutCeiling`  | off       | Query and mutation timeouts also shorten a caller deadline that lies further away |
 | `WithErrorConverter`  | nil       | Custom error converter overriding the default `ParseStatusError`             |
 | `WithHealthCoordinator`  | nil           | Opts the client into a `health.Reporter` (single-mode watcher / pool subscription) |
 | `WithHealthServiceName`  | `grpc_client` | Service name registered with the coordinator                                          |

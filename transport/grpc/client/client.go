@@ -216,14 +216,23 @@ func (c *Client) QueryTimeout() time.Duration {
 	return c.options.queryTimeout
 }
 
-// ApplyMutationTimeout applies the mutation timeout to the context.
+// ApplyMutationTimeout applies the mutation timeout to a context without a deadline, and with [WithTimeoutCeiling]
+// also to one whose deadline lies further away.
 func (c *Client) ApplyMutationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return corecontext.ApplyTimeout(ctx, c.options.mutationTimeout)
+	return c.applyTimeout(ctx, c.options.mutationTimeout)
 }
 
-// ApplyQueryTimeout applies the query timeout to the context.
+// ApplyQueryTimeout applies the query timeout to a context without a deadline, and with [WithTimeoutCeiling] also
+// to one whose deadline lies further away.
 func (c *Client) ApplyQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return corecontext.ApplyTimeout(ctx, c.options.queryTimeout)
+	return c.applyTimeout(ctx, c.options.queryTimeout)
+}
+
+func (c *Client) applyTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if c.options.timeoutCeiling {
+		return corecontext.WithMaxTimeout(ctx, timeout)
+	}
+	return corecontext.ApplyTimeout(ctx, timeout)
 }
 
 // healthCheckServiceConfig is the client-side health checking entry of the
