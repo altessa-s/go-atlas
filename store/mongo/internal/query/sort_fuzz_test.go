@@ -19,9 +19,8 @@ import (
 // Strict is the entry point documented for untrusted input: a REST query
 // parameter, a gRPC request field. Two things must hold no matter what arrives
 // — the result never names a field outside the allowlist, and it never names a
-// `$`-prefixed operator key. The first bounds the query to indexed fields (an
-// unindexed sort forces an in-memory sort that aborts past 32 MB); the second
-// keeps `$natural` and friends out of a caller-supplied string.
+// `$`-prefixed operator key, even if that key is allowlisted. A dollar sign
+// elsewhere in an allowlisted field name is permitted.
 func FuzzParseSortStringStrict_HonorsAllowlist(f *testing.F) {
 	f.Add("name,-age", "name,age")
 	f.Add("$natural", "name")
@@ -47,7 +46,7 @@ func FuzzParseSortStringStrict_HonorsAllowlist(f *testing.F) {
 		}
 
 		for _, entry := range sort {
-			require.NotContains(t, entry.Key, "$",
+			require.False(t, strings.HasPrefix(entry.Key, "$"),
 				"an operator key reached the sort specification: %q", entry.Key)
 			require.Contains(t, allowSet, entry.Key,
 				"a field outside the allowlist reached the sort specification: %q", entry.Key)

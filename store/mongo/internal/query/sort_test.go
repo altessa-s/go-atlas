@@ -32,6 +32,9 @@ func TestParseSortString(t *testing.T) {
 		// ParseSortString silently drops them.
 		{"drops $natural", "$natural", nil},
 		{"drops $natural desc", "-$natural", nil},
+		{"keeps field with trailing dollar", "lnatura$", bson.D{
+			{Key: "lnatura$", Value: SortAscending},
+		}},
 		{"keeps non-operator next to dropped $-key", "name,$natural", bson.D{
 			{Key: "name", Value: SortAscending},
 		}},
@@ -69,6 +72,19 @@ func TestParseSortStringStrict(t *testing.T) {
 		t.Parallel()
 		_, err := ParseSortStringStrict("name,passwordHash", allowed)
 		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+	})
+
+	t.Run("trailing dollar still requires an exact allowlist match", func(t *testing.T) {
+		t.Parallel()
+		const field = "lnatura$"
+
+		got, err := ParseSortStringStrict(field, []string{field})
+		require.NoError(t, err)
+		require.Equal(t, bson.D{{Key: field, Value: SortAscending}}, got)
+
+		got, err = ParseSortStringStrict(field, []string{"lnatura"})
+		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+		require.Nil(t, got)
 	})
 
 	t.Run("operator key rejected even before allowlist check", func(t *testing.T) {
