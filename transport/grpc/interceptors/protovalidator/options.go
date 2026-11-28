@@ -29,6 +29,11 @@ type options struct {
 	// By default, includes gRPC reflection and health check patterns.
 	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
 
+	// fieldInfoNormalization rewrites the request's google.api.field_info formatted values (UUID4, IPv4, IPv6,
+	// IP addresses) in their normalized form once the validator has accepted it. A value that does not match its
+	// format fails the call with codes.InvalidArgument and a BadRequest detail naming its field.
+	fieldInfoNormalization bool `opt:"FieldInfoNormalization"`
+
 	// logger is the slog.Logger for debug/info/error logging.
 	// If not set, a discard logger is used (no logging).
 	logger *slog.Logger
