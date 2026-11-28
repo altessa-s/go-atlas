@@ -14,6 +14,18 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithFieldInfoNormalization enables the fieldInfoNormalization option.
+//
+// fieldInfoNormalization rewrites the request's google.api.field_info formatted values (UUID4, IPv4, IPv6,
+// IP addresses) in their normalized form once the validator has accepted it. A value that does not match its
+// format fails the call with codes.InvalidArgument and a BadRequest detail naming its field.
+func WithFieldInfoNormalization() Option {
+	return func(o *options) {
+		value := true
+		o.fieldInfoNormalization = value
+	}
+}
+
 // WithIgnoreMethods sets the ignoreMethods option.
 //
 // ignoreMethods is a list of method names to skip validation for.

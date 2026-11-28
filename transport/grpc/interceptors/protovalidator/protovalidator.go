@@ -6,14 +6,18 @@ package protovalidator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/altessa-s/go-aip/fieldinfo"
 
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/updatevalidation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 
 	"google.golang.org/grpc/codes"
@@ -206,6 +210,24 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 			)
 		}
 		return validationErr
+	}
+
+	if ri.opts.fieldInfoNormalization {
+		if err := fieldinfo.Normalize(msg); err != nil {
+			var logErr error
+			if ri.opts.logRawErrors {
+				logErr = err
+			}
+			ri.LogWarn(ctx, "field format normalization failed", method, diagnostics.LogError(logErr),
+				slog.String("classification", diagnostics.ErrorClass(err)),
+				slog.String("message_type", msgType),
+			)
+			if violation, ok := errors.AsType[*fieldinfo.ViolationError](err); ok && len(violation.Violations) > 0 {
+				first := violation.Violations[0]
+				return interceptors.NewError(errstatus.BadRequest(first.Path, first.Reason), err)
+			}
+			return interceptors.NewError(status.New(codes.InvalidArgument, "Validation Failed"), err)
+		}
 	}
 
 	ri.LogDebug(ctx, "validation successful", method,

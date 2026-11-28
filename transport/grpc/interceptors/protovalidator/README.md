@@ -21,6 +21,7 @@ Package `protovalidator` provides a gRPC server interceptor for validating incom
 | `WithIgnoreMethods`  | --                 | Methods to skip validation          |
 | `WithIgnorePatterns` | reflection, health | Regex patterns for methods to skip  |
 | `WithLogger`         | discard            | Structured logger                   |
+| `WithFieldInfoNormalization` | off        | After validation, rewrites `google.api.field_info` formatted values (UUID4, IP) in their normalized form; a malformed one fails with `InvalidArgument` and a BadRequest naming its field |
 
 ## Diagnostics
 

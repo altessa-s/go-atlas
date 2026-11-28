@@ -20,6 +20,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	maskv1 "github.com/altessa-s/go-atlas/proto/gen/maskvalidationtest/v1"
 )
 
 func TestServerInterceptor_NilValidator(t *testing.T) {
@@ -397,4 +399,32 @@ func findSubstring(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// TestFieldInfoNormalization lower-cases a UUID4 field once the validator accepts the request, refuses a malformed
+// one with a BadRequest naming the field, and leaves requests alone without the option.
+func TestFieldInfoNormalization(t *testing.T) {
+	accept := ValidatorFunc(func(context.Context, proto.Message) error { return nil })
+	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
+	var seen *maskv1.UpdateSettingsRequest
+	handler := func(_ context.Context, req any) (any, error) {
+		seen = req.(*maskv1.UpdateSettingsRequest)
+		return &emptypb.Empty{}, nil
+	}
+
+	normalize := ServerInterceptor(accept, WithFieldInfoNormalization()).ServerUnaryInterceptor()
+	_, err := normalize(t.Context(), &maskv1.UpdateSettingsRequest{OutsideUuid: "8F2C34F4-5A0C-4B5D-9F43-2F7C6C1E6A11"}, info, handler)
+	require.NoError(t, err)
+	require.Equal(t, "8f2c34f4-5a0c-4b5d-9f43-2f7c6c1e6a11", seen.GetOutsideUuid())
+
+	_, err = normalize(t.Context(), &maskv1.UpdateSettingsRequest{OutsideUuid: "not-a-uuid"}, info, handler)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.InvalidArgument, st.Code())
+	require.Contains(t, st.Message(), "outside_uuid")
+
+	plain := ServerInterceptor(accept).ServerUnaryInterceptor()
+	_, err = plain(t.Context(), &maskv1.UpdateSettingsRequest{OutsideUuid: "8F2C34F4-5A0C-4B5D-9F43-2F7C6C1E6A11"}, info, handler)
+	require.NoError(t, err)
+	require.Equal(t, "8F2C34F4-5A0C-4B5D-9F43-2F7C6C1E6A11", seen.GetOutsideUuid())
 }
