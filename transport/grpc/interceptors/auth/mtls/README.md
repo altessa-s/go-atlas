@@ -14,6 +14,7 @@ package's options; this adapter adds the `grpc` transport label and maps failure
 |---------------------------|--------------------------------------------------------------------------------------------------|
 | `AuthFunc(opts…)`         | `(auth.AuthFunc, error)`; `opts` are `auth/mtls` options. Errors with `coremtls.ErrNoTrustDomainPolicy` without a trust decision. Unauthenticated peer / rejected cert → `Unauthenticated`; required-audit failure → `Internal`. |
 | `PeerCertificate(ctx)`    | Verified leaf client certificate from the context (verified chain, not unverified peer certs).    |
+| `PeerCredential()`        | `auth.TokenExtractor` for certificate-only authentication: the verified peer certificate stands in for the bearer token the auth interceptor asks for; a call without one → `Unauthenticated`. |
 
 Errors from `PeerCertificate`: `ErrNoPeer`, `ErrNoTLS`, `ErrNoVerifiedCert` (`errors.Is`).
 
@@ -35,6 +36,7 @@ if err != nil {
     return err // coremtls.ErrNoTrustDomainPolicy: no trust decision
 }
 interceptor := grpcauth.ServerInterceptor(
+    grpcauth.WithTokenExtractor(mtls.PeerCredential()),             // no bearer token: the certificate authenticates
     grpcauth.WithAuthFn(authFn),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),         // authorize on the principal
 )

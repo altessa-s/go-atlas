@@ -92,3 +92,19 @@ func AuthFunc(opts ...coremtls.Option) (auth.AuthFunc, error) {
 		return principal, nil
 	}, nil
 }
+
+// PeerCredential is the token extractor of a server that authenticates calls by their client certificate alone. The
+// auth interceptor wants a credential before it runs the auth function; PeerCredential supplies the serial number of
+// the verified peer certificate, which [AuthFunc] then reads from the connection itself. A call without a verified
+// client certificate fails with codes.Unauthenticated before the auth function runs.
+//
+//	grpcauth.ServerInterceptor(grpcauth.WithTokenExtractor(mtls.PeerCredential()), grpcauth.WithAuthFn(authFn))
+func PeerCredential() auth.TokenExtractor {
+	return auth.TokenExtractorFunc(func(ctx context.Context) (string, error) {
+		cert, err := PeerCertificate(ctx)
+		if err != nil {
+			return "", status.Error(codes.Unauthenticated, "unauthenticated")
+		}
+		return cert.SerialNumber.String(), nil
+	})
+}

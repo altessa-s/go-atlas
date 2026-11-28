@@ -128,3 +128,15 @@ func TestPeerCertificate(t *testing.T) {
 	_, err = mtls.PeerCertificate(t.Context())
 	require.ErrorIs(t, err, mtls.ErrNoPeer)
 }
+
+// TestPeerCredential stands the verified certificate in for a bearer token and refuses a call without one.
+func TestPeerCredential(t *testing.T) {
+	t.Parallel()
+	cert := spiffeCert(t, "spiffe://example.org/x")
+	token, err := mtls.PeerCredential().ExtractToken(ctxWithVerifiedCert(t.Context(), cert))
+	require.NoError(t, err)
+	require.Equal(t, cert.SerialNumber.String(), token)
+
+	_, err = mtls.PeerCredential().ExtractToken(t.Context())
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+}
