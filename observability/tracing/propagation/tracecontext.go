@@ -41,6 +41,17 @@ func NewTraceContext() *TraceContext {
 	return &TraceContext{}
 }
 
+// TraceContextHeaders returns the W3C trace context headers (traceparent and tracestate) of the active span of ctx,
+// for work that continues the trace later, or nil when ctx carries no valid span context.
+func TraceContextHeaders(ctx context.Context) MapCarrier {
+	if sc := tracing.SpanContextFromContext(ctx); sc == nil || !sc.IsValid() {
+		return nil
+	}
+	headers := MapCarrier{}
+	NewTraceContext().Inject(ctx, headers)
+	return headers
+}
+
 // Inject implements TextMapPropagator.
 func (tc *TraceContext) Inject(ctx context.Context, carrier TextMapCarrier) {
 	span := tracing.SpanFromContext(ctx)

@@ -18,3 +18,4 @@ of 32 entries and 512 bytes.
 | `MapCarrier`            | `map[string]string` adapter for `TextMapCarrier`        |
 | `CompositePropagator`   | Combines several propagators (`NewCompositePropagator`) |
 | `RemoteSpanContextFromContext` | Returns the extracted remote span context        |
+| `TraceContextHeaders`   | `traceparent` and `tracestate` of the active span as a `MapCarrier`, nil without a valid span context, for work that continues the trace later (a queued job, an outbox row) |
