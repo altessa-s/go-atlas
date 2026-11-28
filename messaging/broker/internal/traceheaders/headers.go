@@ -6,22 +6,9 @@
 package traceheaders
 
 import (
-	"context"
-
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
-	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 )
-
-// FromContext returns the W3C headers for the active span, or nil without a parent.
-func FromContext(ctx context.Context) propagation.MapCarrier {
-	if sc := tracing.SpanContextFromContext(ctx); sc == nil || !sc.IsValid() {
-		return nil
-	}
-	headers := propagation.MapCarrier{}
-	propagation.NewTraceContext().Inject(ctx, headers)
-	return headers
-}
 
 // Inject copies trace headers into metadata unless the message supplies its own parent.
 func Inject(meta msg.Meta, headers propagation.MapCarrier) msg.Meta {
