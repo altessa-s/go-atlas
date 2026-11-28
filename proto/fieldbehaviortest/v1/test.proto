@@ -90,6 +90,70 @@ message GetResourceRequest {
   google.protobuf.FieldMask read_mask = 2;
 }
 
+// ListResourcesRequest mirrors the AIP-132 list RPC shape with a read_mask.
+message ListResourcesRequest {
+  // Maximum number of resources to return.
+  int32 page_size = 1;
+
+  // Page token of a previous response.
+  string page_token = 2;
+
+  // Field mask listing which fields of each resource should be returned.
+  google.protobuf.FieldMask read_mask = 3;
+}
+
+// ListResourcesResponse is the AIP-132 list envelope: one repeated resource
+// field and the paging fields around it.
+message ListResourcesResponse {
+  // The page of resources.
+  repeated Resource resources = 1;
+
+  // Token of the next page; empty on the last page.
+  string next_page_token = 2;
+
+  // Total number of resources matching the request.
+  int32 total_size = 3;
+
+  // Locations that could not be reached.
+  repeated string unreachable = 4;
+}
+
+// SearchResourcesResponse holds two repeated message fields, so no single
+// field carries the resources.
+message SearchResourcesResponse {
+  // Matching resources.
+  repeated Resource resources = 1;
+
+  // Matching profiles.
+  repeated Profile profiles = 2;
+
+  // Token of the next page; empty on the last page.
+  string next_page_token = 3;
+}
+
+// ResourceService declares the read methods the fieldmask gRPC interceptor
+// tests resolve by name.
+service ResourceService {
+  // GetResource returns one resource.
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc GetResource(GetResourceRequest) returns (Resource);
+
+  // ListResources returns a page of resources.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse);
+
+  // ListResourcePages streams pages of resources.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc ListResourcePages(ListResourcesRequest) returns (stream ListResourcesResponse);
+
+  // SearchResources returns resources and profiles.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  rpc SearchResources(ListResourcesRequest) returns (SearchResourcesResponse);
+}
+
 // NestedUpdateResourceRequest exercises the non-canonical AIP-134 shape
 // where the update_mask is nested inside an Options sub-message. Consumed
 // by the fieldmask gRPC interceptor tests for custom extractor support.
