@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
+	obshealth "github.com/altessa-s/go-atlas/observability/health"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
@@ -291,6 +293,55 @@ func TestBuiltinHandlers(t *testing.T) {
 	base = start(t, factory.New(&cfg).WithoutBuiltinHandlers())
 	resp, _ = get(t, base+"/internal/ping", nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestBuiltinReadinessFollowsTheReporter answers readiness from the health reporter and keeps liveness static.
+func TestBuiltinReadinessFollowsTheReporter(t *testing.T) {
+	t.Parallel()
+
+	cfg := httpconfig.Default()
+	reporter := &switchReporter{status: obshealth.StatusServing}
+	base := start(t, factory.New(&cfg).UseHealthReporter(reporter))
+	for path, want := range map[string]int{"/internal/readyz": http.StatusOK, "/internal/healthz/details": http.StatusOK} {
+		resp, _ := get(t, base+path, nil)
+		require.Equal(t, want, resp.StatusCode, path)
+	}
+
+	reporter.set(obshealth.StatusNotServing)
+	for path, want := range map[string]int{
+		"/internal/readyz":          http.StatusServiceUnavailable,
+		"/internal/healthz/details": http.StatusServiceUnavailable,
+		"/internal/healthz":         http.StatusOK,
+	} {
+		resp, _ := get(t, base+path, nil)
+		require.Equal(t, want, resp.StatusCode, path)
+	}
+
+	base = start(t, factory.New(&cfg))
+	resp, _ := get(t, base+"/internal/healthz/details", nil)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, "details need a reporter")
+}
+
+// switchReporter reports one status for every service.
+type switchReporter struct {
+	mu     sync.Mutex
+	status obshealth.ServingStatus
+}
+
+func (r *switchReporter) set(s obshealth.ServingStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status = s
+}
+
+func (r *switchReporter) CheckStatus(context.Context, string) obshealth.ServingStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.status
+}
+
+func (r *switchReporter) ListStatuses(ctx context.Context) (map[string]obshealth.ServingStatus, error) {
+	return map[string]obshealth.ServingStatus{"db": r.CheckStatus(ctx, "db")}, nil
 }
 
 func TestRouterPrefixTimeoutsAndCustomMiddleware(t *testing.T) {
